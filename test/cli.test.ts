@@ -1686,7 +1686,8 @@ describe("CLI dispatch", () => {
         `calls=${JSON.stringify(sshCalls)}`,
         `state_file=${JSON.stringify(stateFile)}`,
         'cmd="${@: -1}"',
-        'printf \'%s\\n\' "$cmd" >> "$calls"',
+        'printf \'ARGS %s\\n\' "$*" >> "$calls"',
+        'printf \'CMD %s\\n\' "$cmd" >> "$calls"',
         'if [[ "$cmd" == *"OPENCLAW="* ]]; then',
         '  echo recovered > "$state_file"',
         "  echo 'GATEWAY_PID=456'",
@@ -1712,7 +1713,9 @@ describe("CLI dispatch", () => {
     const sshLog = fs.readFileSync(sshCalls, "utf8");
     expect(openshellLog).toContain("sandbox exec --name alpha -- sh -c");
     expect(openshellLog).toContain("sandbox ssh-config alpha");
+    expect(openshellLog).not.toContain("sandbox connect");
     expect(sshLog).toContain('OPENCLAW="$(command -v openclaw)"');
+    expect(sshLog).not.toMatch(/(^|\s)-tt?(\s|$)/);
   });
 
   it("recovers non-OpenClaw agents over SSH instead of root sandbox exec", () => {
@@ -1773,7 +1776,8 @@ describe("CLI dispatch", () => {
         `calls=${JSON.stringify(sshCalls)}`,
         `state_file=${JSON.stringify(stateFile)}`,
         'cmd="${@: -1}"',
-        'printf \'%s\\n\' "$cmd" >> "$calls"',
+        'printf \'ARGS %s\\n\' "$*" >> "$calls"',
+        'printf \'CMD %s\\n\' "$cmd" >> "$calls"',
         'if [[ "$cmd" == *"AGENT_BIN=\'/usr/local/bin/hermes\'"* ]]; then',
         '  echo recovered > "$state_file"',
         "  echo 'GATEWAY_PID=789'",
@@ -1797,8 +1801,10 @@ describe("CLI dispatch", () => {
     expect(openshellLog).toContain("sandbox ssh-config alpha");
     expect(openshellLog).not.toContain("HERMES_HOME=/sandbox/.hermes");
     expect(openshellLog).not.toContain("AGENT_BIN=");
+    expect(openshellLog).not.toContain("sandbox connect");
     expect(sshLog).toContain("HERMES_HOME=/sandbox/.hermes");
     expect(sshLog).toContain("AGENT_BIN='/usr/local/bin/hermes'");
+    expect(sshLog).not.toMatch(/(^|\s)-tt?(\s|$)/);
   });
 
   it("waits for sandbox readiness before connecting", () => {
