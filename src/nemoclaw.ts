@@ -2611,11 +2611,9 @@ async function sandboxRebuild(
   log(
     `Backup result: success=${backup.success}, backed=${backup.backedUpDirs.join(",")}; files=${backup.backedUpFiles.join(",")}, failed=${backup.failedDirs.join(",")}; failedFiles=${backup.failedFiles.join(",")}`,
   );
-  if (!backup.success) {
+  if (!backup.success && backup.backedUpDirs.length === 0) {
+    // Total failure — nothing was backed up at all.
     console.error("  Failed to back up sandbox state.");
-    if (backup.backedUpDirs.length > 0) {
-      console.error(`  Partial backup: ${backup.backedUpDirs.join(", ")}`);
-    }
     if (backup.failedDirs.length > 0) {
       console.error(`  Failed: ${backup.failedDirs.join(", ")}`);
     }
@@ -2626,9 +2624,20 @@ async function sandboxRebuild(
     bail("Failed to back up sandbox state.");
     return;
   }
-  console.log(
-    `  ${G}\u2713${R} State backed up (${backup.backedUpDirs.length} directories, ${backup.backedUpFiles.length} files)`,
-  );
+  if (!backup.success) {
+    // Partial backup — some dirs succeeded, some failed (e.g. root-owned
+    // files caused tar permission errors).  Proceed with a warning so the
+    // rebuild isn't blocked by a handful of inaccessible files (#2727).
+    console.warn(
+      `  ${YW}⚠${R} Partial backup: ${backup.backedUpDirs.length} dirs OK, ` +
+        `${backup.failedDirs.length} failed (${backup.failedDirs.join(", ")})`,
+    );
+    console.warn("    Rebuild will continue — failed dirs could not be preserved.");
+  } else {
+    console.log(
+      `  ${G}\u2713${R} State backed up (${backup.backedUpDirs.length} directories, ${backup.backedUpFiles.length} files)`,
+    );
+  }
   console.log(`    Backup: ${backup.manifest.backupPath}`);
 
   // Step 3: Delete sandbox without tearing down gateway or session.

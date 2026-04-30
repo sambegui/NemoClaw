@@ -985,11 +985,34 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
           `SSH+tar download: exit=${result.status}, stdout=${result.stdout ? result.stdout.length + " bytes" : "null"}, stderr=${(result.stderr?.toString() || "").substring(0, 200)}`,
         );
 
-        if (result.status === 0 && result.stdout && result.stdout.length > 0) {
+        // GNU tar exit codes: 0 = success, 1 = files changed during archive,
+        // 2 = errors (e.g. permission denied) but archive still written to stdout.
+        // Accept exit 0, 1, or 2 when stdout has data — extract what tar produced
+        // and determine per-dir success by checking what actually landed on disk.
+        const tarExitedWithData =
+          result.stdout && result.stdout.length > 0 && (result.status === 0 || result.status === 1 || result.status === 2);
+
+        if (result.status !== 0 && result.stdout && result.stdout.length > 0) {
+          _log(
+            `tar exited ${result.status} but produced ${result.stdout.length} bytes — attempting partial extraction`,
+          );
+        }
+
+        if (tarExitedWithData) {
           // SECURITY: Validate tar entries, extract safely, audit symlinks
           const extractResult = safeTarExtract(result.stdout, backupPath);
           if (extractResult.success) {
-            backedUpDirs.push(...existingDirs);
+            // Determine per-dir success: a dir is backed up only if it actually
+            // exists in the extracted backup (tar may have skipped it entirely
+            // when all its files were permission-denied).
+            for (const d of existingDirs) {
+              if (require("node:fs").existsSync(path.join(backupPath, d))) {
+                backedUpDirs.push(d);
+              } else {
+                _log(`Dir ${d} missing from backup after extraction — marking failed`);
+                failedDirs.push(d);
+              }
+            }
           } else {
             _log(`SECURITY: tar extraction blocked: ${extractResult.error}`);
             failedDirs.push(...existingDirs);
