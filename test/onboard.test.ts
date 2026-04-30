@@ -65,6 +65,10 @@ type OnboardTestInternals = {
   getRequestedModelHint: ShimFn<string | null>;
   getRequestedProviderHint: ShimFn<string | null>;
   getRequestedSandboxNameHint: ShimFn<string | null>;
+  getDefaultSandboxNameForAgent: (agent?: AgentDefinition | null) => string;
+  getSandboxPromptDefault: (agent?: AgentDefinition | null) => string;
+  getRequestedSandboxAgentName: (agent?: AgentDefinition | null) => string;
+  normalizeSandboxAgentName: (agentName?: string | null) => string;
   getResumeConfigConflicts: ShimFn<ResumeConflict[]>;
   getResumeSandboxConflict: ShimFn<{
     requestedSandboxName: string;
@@ -151,6 +155,10 @@ const {
   getRequestedModelHint,
   getRequestedProviderHint,
   getRequestedSandboxNameHint,
+  getDefaultSandboxNameForAgent,
+  getSandboxPromptDefault,
+  getRequestedSandboxAgentName,
+  normalizeSandboxAgentName,
   getResumeConfigConflicts,
   getResumeSandboxConflict,
   getSandboxStateFromOutputs,
@@ -177,6 +185,28 @@ const {
 } = onboardTestInternals;
 
 describe("onboard helpers", () => {
+  it("uses Hermes-oriented sandbox defaults when NemoHermes selects Hermes", () => {
+    const previousSandboxName = process.env.NEMOCLAW_SANDBOX_NAME;
+    try {
+      delete process.env.NEMOCLAW_SANDBOX_NAME;
+      const hermes = loadAgent("hermes");
+      expect(getRequestedSandboxAgentName(null)).toBe("openclaw");
+      expect(normalizeSandboxAgentName(null)).toBe("openclaw");
+      expect(getDefaultSandboxNameForAgent(null)).toBe("my-assistant");
+      expect(getDefaultSandboxNameForAgent(hermes)).toBe("hermes");
+      expect(getSandboxPromptDefault(hermes)).toBe("hermes");
+
+      process.env.NEMOCLAW_SANDBOX_NAME = "custom-hermes";
+      expect(getSandboxPromptDefault(hermes)).toBe("custom-hermes");
+    } finally {
+      if (previousSandboxName === undefined) {
+        delete process.env.NEMOCLAW_SANDBOX_NAME;
+      } else {
+        process.env.NEMOCLAW_SANDBOX_NAME = previousSandboxName;
+      }
+    }
+  });
+
   it("classifies sandbox create timeout failures and tracks upload progress", () => {
     expect(
       classifySandboxCreateFailure("Error: failed to read image export stream\nTimeout error").kind,
@@ -2915,6 +2945,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -3024,6 +3056,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -3118,6 +3152,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -3247,6 +3283,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -3428,6 +3466,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -3687,6 +3727,8 @@ runner.runCapture = (command) => {
 };
 registry.getSandbox = () => ({ name: "my-assistant", gpuEnabled: false });
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 
 const preflight = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "preflight.js"))});
@@ -3801,6 +3843,8 @@ registry.getSandbox = () => ({
   policyTier: "balanced",
 });
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 
 const preflight = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "preflight.js"))});
@@ -4055,6 +4099,8 @@ runner.runCapture = (command) => {
 };
 registry.getSandbox = () => ({ name: "my-assistant", gpuEnabled: false });
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 
 const preflight = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "preflight.js"))});
@@ -4178,6 +4224,8 @@ runner.runCapture = (command) => {
 };
 registry.getSandbox = () => ({ name: "my-assistant", gpuEnabled: false });
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 
 const preflight = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "preflight.js"))});
@@ -4665,6 +4713,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -5058,6 +5108,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -5188,6 +5240,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -5800,6 +5854,8 @@ runner.runCapture = (command) => {
   return "";
 };
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -5917,6 +5973,8 @@ const credentials = require(${credentialsPath});
 runner.run = () => ({ status: 0 });
 runner.runCapture = () => "";
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -5975,6 +6033,8 @@ const credentials = require(${credentialsPath});
 runner.run = () => ({ status: 0 });
 runner.runCapture = () => "";
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -6036,6 +6096,8 @@ const credentials = require(${credentialsPath});
 runner.run = () => ({ status: 0 });
 runner.runCapture = () => "";
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -6118,6 +6180,8 @@ fs.cpSync = (src, dest, options) => {
 runner.run = () => ({ status: 0 });
 runner.runCapture = () => "";
 registry.registerSandbox = () => true;
+registry.updateSandbox = () => true;
+registry.setDefault = () => true;
 registry.removeSandbox = () => true;
 preflight.checkPortAvailable = async () => ({ ok: true });
 credentials.prompt = async () => "";
@@ -6165,7 +6229,7 @@ const { createSandbox } = require(${onboardPath});
     );
     // Extract the promptValidatedSandboxName function body
     const fnMatch = source.match(
-      /async function promptValidatedSandboxName\(\)\s*\{([\s\S]*?)\n\}/,
+      /async function promptValidatedSandboxName\([^)]*\)\s*\{([\s\S]*?)\n\}/,
     );
     assert.ok(fnMatch, "promptValidatedSandboxName function not found");
     const fnBody = fnMatch[1];
@@ -6180,6 +6244,21 @@ const { createSandbox } = require(${onboardPath});
     assert.match(fnBody, /process\.exit\(1\)/);
   });
 
+  it("guards against reusing the same sandbox name for a different agent", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dirname, "..", "src", "lib", "onboard.ts"),
+      "utf-8",
+    );
+    assert.match(source, /getSandboxAgentDrift/);
+    assert.match(
+      source,
+      /Side-by-side agents are supported, but each sandbox name has one agent type/,
+    );
+    assert.match(source, /recreateForAgentDrift/);
+    assert.match(source, /getSandboxAgentRegistryFields/);
+    assert.match(source, /registry\.setDefault\(sandboxName\)/);
+  });
+
   it("regression #1881: registry.updateSandbox(model/provider) is called AFTER createSandbox", () => {
     // updateSandbox() silently no-ops when the entry does not exist yet.
     // This asserts that the model/provider update comes AFTER createSandbox()
@@ -6191,7 +6270,7 @@ const { createSandbox } = require(${onboardPath});
     const createSandboxPos = source.indexOf("sandboxName = await createSandbox(");
     assert.ok(createSandboxPos !== -1, "createSandbox call not found in onboard.ts");
     const updateAfterCreate = source.indexOf(
-      "registry.updateSandbox(sandboxName, { model, provider })",
+      "registry.updateSandbox(sandboxName, {",
       createSandboxPos,
     );
     assert.ok(

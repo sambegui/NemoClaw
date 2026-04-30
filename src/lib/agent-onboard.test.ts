@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 // Import from compiled dist/ so coverage is attributed correctly.
 import { printDashboardUi } from "../../dist/lib/agent-onboard";
 import type { AgentDefinition } from "./agent-defs";
@@ -118,5 +120,17 @@ describe("printDashboardUi — regression for #2078 (port 8642 is not a chat UI)
     );
     expect(output).toContain("Port 19000 must be forwarded before opening this URL.");
     expect(output).toContain("http://127.0.0.1:19000/#token=tok");
+  });
+});
+
+describe("handleAgentSetup guards", () => {
+  it("fails onboarding instead of completing when the agent binary or health probe is missing", () => {
+    const source = fs.readFileSync(path.join(import.meta.dirname, "agent-onboard.ts"), "utf-8");
+
+    expect(source).toContain("verifyAgentBinaryAvailable");
+    expect(source).toContain("failAgentSetup");
+    expect(source).toContain('onboardSession.markStepFailed("agent_setup"');
+    expect(source).toContain("gateway did not respond within");
+    expect(source).not.toContain("gateway may still be starting");
   });
 });

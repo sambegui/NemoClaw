@@ -2069,6 +2069,15 @@ exit 1
     expect(r.stdout.trim()).toBe("my-assistant");
   });
 
+  it("resolve_default_sandbox_name: defaults to 'hermes' for NemoHermes with no state", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemohermes-sandbox-name-"));
+    const r = callInstallerFn("resolve_default_sandbox_name", {
+      HOME: tmp,
+      NEMOCLAW_AGENT: "hermes",
+    });
+    expect(r.stdout.trim()).toBe("hermes");
+  });
+
   it("resolve_default_sandbox_name: reads defaultSandbox from registry", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-sandbox-name-reg-"));
     const registryDir = path.join(tmp, ".nemoclaw");
@@ -2094,6 +2103,29 @@ exit 1
       NEMOCLAW_SANDBOX_NAME: "my-custom-name",
     });
     expect(r.stdout.trim()).toBe("my-custom-name");
+  });
+
+  it("resolve_default_sandbox_name: current onboard session wins over env and registry", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-sandbox-name-session-"));
+    const registryDir = path.join(tmp, ".nemoclaw");
+    fs.mkdirSync(registryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(registryDir, "onboard-session.json"),
+      JSON.stringify({ sandboxName: "created-by-onboard" }),
+    );
+    fs.writeFileSync(
+      path.join(registryDir, "sandboxes.json"),
+      JSON.stringify({
+        defaultSandbox: "old-default",
+        sandboxes: { "old-default": {} },
+      }),
+    );
+    const r = callInstallerFn("resolve_default_sandbox_name", {
+      HOME: tmp,
+      NEMOCLAW_SANDBOX_NAME: "env-name",
+      PATH: `${process.env.PATH}`,
+    });
+    expect(r.stdout.trim()).toBe("created-by-onboard");
   });
 });
 

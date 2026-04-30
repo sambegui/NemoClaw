@@ -3365,15 +3365,86 @@ const RESERVED_SANDBOX_NAMES = new Set([
   "help",
 ]);
 
-async function promptValidatedSandboxName() {
+function normalizeSandboxAgentName(agentName: string | null | undefined): string {
+  const trimmed = typeof agentName === "string" ? agentName.trim() : "";
+  return trimmed && trimmed !== "openclaw" ? trimmed : "openclaw";
+}
+
+function getRequestedSandboxAgentName(agent: AgentDefinition | null | undefined): string {
+  return normalizeSandboxAgentName(agent?.name);
+}
+
+function formatSandboxAgentName(agentName: string | null | undefined): string {
+  const normalized = normalizeSandboxAgentName(agentName);
+  if (normalized === "openclaw") return "OpenClaw";
+  if (normalized === "hermes") return "Hermes";
+  return normalized;
+}
+
+function getDefaultSandboxNameForAgent(agent: AgentDefinition | null | undefined): string {
+  return getRequestedSandboxAgentName(agent) === "hermes" ? "hermes" : "my-assistant";
+}
+
+function getSandboxPromptDefault(agent: AgentDefinition | null | undefined): string {
+  const envName = process.env.NEMOCLAW_SANDBOX_NAME?.trim();
+  return envName || getDefaultSandboxNameForAgent(agent);
+}
+
+function getEffectiveSandboxAgent(agent: AgentDefinition | null | undefined): AgentDefinition {
+  return agent || agentDefs.loadAgent("openclaw");
+}
+
+function getSandboxAgentRegistryFields(
+  agent: AgentDefinition | null | undefined,
+  agentVersionKnown = true,
+): Pick<SandboxEntry, "agent" | "agentVersion"> {
+  const effectiveAgent = getEffectiveSandboxAgent(agent);
+  const agentName = normalizeSandboxAgentName(effectiveAgent.name);
+  return {
+    agent: agentName === "openclaw" ? null : agentName,
+    agentVersion: agentVersionKnown ? effectiveAgent.expectedVersion || null : null,
+  };
+}
+
+function getSandboxAgentDrift(
+  sandboxName: string,
+  requestedAgentName: string,
+): { changed: boolean; existingAgentName: string; requestedAgentName: string } {
+  const existingEntry: SandboxEntry | null = registry.getSandbox(sandboxName);
+  const existingAgentName = normalizeSandboxAgentName(existingEntry?.agent);
+  return {
+    changed: existingAgentName !== requestedAgentName,
+    existingAgentName,
+    requestedAgentName,
+  };
+}
+
+function updateReusedSandboxMetadata(
+  sandboxName: string,
+  agent: AgentDefinition | null | undefined,
+  model: string,
+  provider: string,
+  dashboardPort: number,
+): void {
+  registry.updateSandbox(sandboxName, {
+    model,
+    provider,
+    dashboardPort,
+    ...getSandboxAgentRegistryFields(agent),
+  });
+  registry.setDefault(sandboxName);
+}
+
+async function promptValidatedSandboxName(agent: AgentDefinition | null = null) {
   const MAX_ATTEMPTS = 3;
+  const defaultSandboxName = getSandboxPromptDefault(agent);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const nameAnswer = await promptOrDefault(
-      "  Sandbox name (lowercase, starts with letter, hyphens ok) [my-assistant]: ",
+      `  Sandbox name (lowercase, starts with letter, hyphens ok) [${defaultSandboxName}]: `,
       "NEMOCLAW_SANDBOX_NAME",
-      "my-assistant",
+      defaultSandboxName,
     );
-    const sandboxName = (nameAnswer || "my-assistant").trim();
+    const sandboxName = (nameAnswer || defaultSandboxName).trim();
 
     try {
       const validatedSandboxName = validateName(sandboxName, "sandbox name");
@@ -3494,7 +3565,7 @@ async function createSandbox(
   step(6, 8, "Creating sandbox");
 
   const sandboxName = validateName(
-    sandboxNameOverride ?? (await promptValidatedSandboxName()),
+    sandboxNameOverride ?? (await promptValidatedSandboxName(agent)),
     "sandbox name",
   );
 
@@ -3647,6 +3718,43 @@ async function createSandbox(
 
   if (liveExists) {
     const existingSandboxState = getSandboxReuseState(sandboxName);
+    const requestedAgentName = getRequestedSandboxAgentName(agent);
+    const agentDrift = getSandboxAgentDrift(sandboxName, requestedAgentName);
+    let recreateForAgentDrift = agentDrift.changed && isRecreateSandbox();
+
+    if (agentDrift.changed && !isRecreateSandbox()) {
+      console.log(
+        `  Sandbox '${sandboxName}' already exists as ${formatSandboxAgentName(agentDrift.existingAgentName)}.`,
+      );
+      console.log(
+        `  ${cliDisplayName()} is onboarding ${formatSandboxAgentName(agentDrift.requestedAgentName)} for this sandbox name.`,
+      );
+      console.log("  Side-by-side agents are supported, but each sandbox name has one agent type.");
+      if (isNonInteractive()) {
+        console.error(
+          `  Aborting: choose a different name or set NEMOCLAW_RECREATE_SANDBOX=1 to recreate '${sandboxName}'.`,
+        );
+        console.error(
+          `  Example: ${cliName()} onboard --name ${getDefaultSandboxNameForAgent(agent)}`,
+        );
+        process.exit(1);
+      }
+      if (
+        await promptYesNoOrDefault(
+          `  Delete and recreate '${sandboxName}' as ${formatSandboxAgentName(agentDrift.requestedAgentName)}?`,
+          null,
+          false,
+        )
+      ) {
+        recreateForAgentDrift = true;
+      } else {
+        console.error("  Aborted. Existing sandbox left unchanged.");
+        console.error(
+          `  Re-run with a different name, for example: ${cliName()} onboard --name ${getDefaultSandboxNameForAgent(agent)}`,
+        );
+        process.exit(1);
+      }
+    }
 
     // Check whether messaging providers are missing from the gateway. Only
     // force recreation when at least one required provider doesn't exist yet —
@@ -3664,7 +3772,12 @@ async function createSandbox(
       ? detectMessagingCredentialRotation(sandboxName, messagingTokenDefs)
       : { changed: false, changedProviders: [] };
 
-    if (!isRecreateSandbox() && !needsProviderMigration && !credentialRotation.changed) {
+    if (
+      !isRecreateSandbox() &&
+      !recreateForAgentDrift &&
+      !needsProviderMigration &&
+      !credentialRotation.changed
+    ) {
       if (isNonInteractive()) {
         if (existingSandboxState === "ready") {
           if (confirmedSelectionDrift) {
@@ -3688,7 +3801,7 @@ async function createSandbox(
             }
             const reusedPort = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort}`;
-            registry.updateSandbox(sandboxName, { dashboardPort: reusedPort });
+            updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort);
             return sandboxName;
           }
         } else {
@@ -3717,7 +3830,7 @@ async function createSandbox(
             upsertMessagingProviders(messagingTokenDefs);
             const reusedPort2 = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort2}`;
-            registry.updateSandbox(sandboxName, { dashboardPort: reusedPort2 });
+            updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort2);
             return sandboxName;
           }
         }
@@ -3757,7 +3870,7 @@ async function createSandbox(
           }
           const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
           process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
-          registry.updateSandbox(sandboxName, { dashboardPort: reusedPort3 });
+          updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort3);
           return sandboxName;
         }
       } catch (err) {
@@ -3775,12 +3888,16 @@ async function createSandbox(
         }
         const reusedPort4 = ensureDashboardForward(sandboxName, chatUiUrl);
         process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort4}`;
-        registry.updateSandbox(sandboxName, { dashboardPort: reusedPort4 });
+        updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort4);
         return sandboxName;
       }
     }
 
-    if (needsProviderMigration) {
+    if (recreateForAgentDrift) {
+      note(
+        `  Sandbox '${sandboxName}' exists as ${formatSandboxAgentName(agentDrift.existingAgentName)} — recreating as ${formatSandboxAgentName(agentDrift.requestedAgentName)}.`,
+      );
+    } else if (needsProviderMigration) {
       console.log(`  Sandbox '${sandboxName}' exists but messaging providers are not attached.`);
       console.log("  Recreating to ensure credentials flow through the provider pipeline.");
     } else if (confirmedSelectionDrift) {
@@ -4257,7 +4374,6 @@ async function createSandbox(
   process.env.CHAT_UI_URL = chatUiUrl;
 
   // Register only after confirmed ready — prevents phantom entries
-  const effectiveAgent = agent || agentDefs.loadAgent("openclaw");
   const providerCredentialHashes: Record<string, string> = {};
   for (const { envKey, token } of messagingTokenDefs) {
     const hash = token ? hashCredential(token) : null;
@@ -4266,9 +4382,7 @@ async function createSandbox(
     }
   }
   // openshell tags images with seconds; buildId is ms. Parse actual tag from output. Fixes #2672.
-  const builtImageMatch = createResult.output.match(
-    /Built image (openshell\/sandbox-from:\d+)/,
-  );
+  const builtImageMatch = createResult.output.match(/Built image (openshell\/sandbox-from:\d+)/);
   if (!builtImageMatch) {
     console.warn(
       "  Warning: could not parse image tag from build output; imageTag may be stale. Run 'nemoclaw gc' if destroy fails.",
@@ -4283,8 +4397,7 @@ async function createSandbox(
     model: model || null,
     provider: provider || null,
     gpuEnabled: !!gpu,
-    agent: agent ? agent.name : null,
-    agentVersion: fromDockerfile ? null : effectiveAgent.expectedVersion || null,
+    ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
     imageTag: resolvedImageTag,
     providerCredentialHashes:
       Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
@@ -4292,6 +4405,7 @@ async function createSandbox(
     disabledChannels: disabledChannels.length > 0 ? [...disabledChannels] : undefined,
     dashboardPort: actualDashboardPort,
   });
+  registry.setDefault(sandboxName);
 
   // Restore workspace state if we backed it up during credential rotation.
   if (pendingStateRestore?.success && pendingStateRestore.manifest) {
@@ -7839,7 +7953,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       // for provider/model above and sees this gate again with the new config.
       // See #2221 (CodeRabbit).
       if (!sandboxName) {
-        sandboxName = await promptValidatedSandboxName();
+        sandboxName = await promptValidatedSandboxName(agent);
       }
       console.log(
         formatOnboardConfigSummary({
@@ -7971,7 +8085,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       // Persist model and provider after the sandbox entry exists in the registry.
       // updateSandbox() silently no-ops when the entry is missing, so this must
       // run after createSandbox() / registerSandbox() — not before. Fixes #1881.
-      registry.updateSandbox(sandboxName, { model, provider });
+      registry.updateSandbox(sandboxName, {
+        model,
+        provider,
+        ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
+      });
+      registry.setDefault(sandboxName);
       onboardSession.markStepComplete(
         "sandbox",
         toSessionUpdates({ sandboxName, provider, model, nimContainer, webSearchConfig }),
@@ -8186,6 +8305,10 @@ module.exports = {
   upsertProvider,
   hashCredential,
   detectMessagingCredentialRotation,
+  getDefaultSandboxNameForAgent,
+  getSandboxPromptDefault,
+  getRequestedSandboxAgentName,
+  normalizeSandboxAgentName,
   hydrateCredentialEnv,
   pruneKnownHostsEntries,
   shouldIncludeBuildContextPath,

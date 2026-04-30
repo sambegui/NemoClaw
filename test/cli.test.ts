@@ -186,8 +186,13 @@ function createDebugCommandTestEnv(prefix: string): Record<string, string> {
 
 describe("CLI dispatch", () => {
   it("config get validates flags and values before dispatch", () => {
-    const src = fs.readFileSync(path.join(import.meta.dirname, "..", "src", "nemoclaw.ts"), "utf-8");
-    const configGet = src.match(/case "get": \{([\s\S]*?)sandboxConfig\.configGet\(cmd, configOpts\);/);
+    const src = fs.readFileSync(
+      path.join(import.meta.dirname, "..", "src", "nemoclaw.ts"),
+      "utf-8",
+    );
+    const configGet = src.match(
+      /case "get": \{([\s\S]*?)sandboxConfig\.configGet\(cmd, configOpts\);/,
+    );
     expect(configGet).toBeTruthy();
     expect(configGet![1]).toContain("--key requires a value");
     expect(configGet![1]).toContain("--format requires a value");
@@ -232,6 +237,35 @@ describe("CLI dispatch", () => {
     const r = run("boguscmd boguscmd2");
     expect(r.code).toBe(1);
     expect(r.out.includes("Unknown command")).toBeTruthy();
+  });
+
+  it("suggests list for a mistyped list command", () => {
+    const r = run("liost");
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Unknown command: liost");
+    expect(r.out).toContain("Did you mean: nemoclaw list?");
+  });
+
+  it("explains sandbox connect command order when the sandbox name is last", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-connect-order-"));
+    const localBin = path.join(home, "bin");
+    fs.mkdirSync(localBin, { recursive: true });
+    writeSandboxRegistry(home);
+    fs.writeFileSync(
+      path.join(localBin, "openshell"),
+      ["#!/usr/bin/env bash", "exit 1"].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const r = runWithEnv("hermes connect alpha", {
+      HOME: home,
+      PATH: `${localBin}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Sandbox 'hermes' does not exist");
+    expect(r.out).toContain("Command order is: nemoclaw <sandbox-name> connect");
+    expect(r.out).toContain("Did you mean: nemoclaw alpha connect?");
   });
 
   it("list exits 0", () => {
@@ -2910,11 +2944,11 @@ describe("list shows live gateway inference", () => {
     expect(r.code).toBe(0);
     // Live gateway values render on the default sandbox's main row.
     expect(r.out).toContain(
-      "model: nvidia/nemotron-3-super-120b-a12b  provider: nvidia-prod  GPU  policies: pypi, npm",
+      "agent: openclaw  model: nvidia/nemotron-3-super-120b-a12b  provider: nvidia-prod  GPU  policies: pypi, npm",
     );
     // The stale (stored) row must not appear.
     expect(r.out).not.toContain(
-      "model: configured-model  provider: configured-provider  GPU  policies: pypi, npm",
+      "agent: openclaw  model: configured-model  provider: configured-provider  GPU  policies: pypi, npm",
     );
     // Onboarded values appear in the drift annotation.
     expect(r.out).toContain("(onboarded: model=configured-model, provider=configured-provider)");

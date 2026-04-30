@@ -9,9 +9,10 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { ROOT, run } from "./runner";
+import { ROOT, run, shellQuote } from "./runner";
 import { dockerBuild, dockerImageInspect } from "./docker";
 import { loadAgent, resolveAgentName, type AgentDefinition } from "./agent-defs";
+import { getAgentBranding } from "./branding";
 import { getProviderSelectionConfig } from "./inference-config";
 import * as onboardSession from "./onboard-session";
 import { sleepSeconds } from "./wait";
@@ -110,6 +111,40 @@ function sleep(seconds: number): void {
   sleepSeconds(seconds);
 }
 
+function agentCliName(agent: AgentDefinition): string {
+  return getAgentBranding(agent.name).cli;
+}
+
+function agentExecutableName(agent: AgentDefinition): string {
+  const configuredPath = typeof agent.binary_path === "string" ? agent.binary_path.trim() : "";
+  return path.basename(configuredPath || agent.name);
+}
+
+function verifyAgentBinaryAvailable(
+  sandboxName: string,
+  agent: AgentDefinition,
+  runCaptureOpenshell: OnboardContext["runCaptureOpenshell"],
+): boolean {
+  const executable = agentExecutableName(agent);
+  const binaryPath = typeof agent.binary_path === "string" ? agent.binary_path.trim() : "";
+  const script = [
+    `command -v ${shellQuote(executable)} >/dev/null 2>&1 && echo ok && exit 0`,
+    binaryPath ? `[ -x ${shellQuote(binaryPath)} ] && echo ok && exit 0` : "true",
+    "exit 1",
+  ].join("; ");
+  const result = runCaptureOpenshell(["sandbox", "exec", sandboxName, "sh", "-lc", script], {
+    ignoreError: true,
+  });
+  return Boolean(result && result.includes("ok"));
+}
+
+function failAgentSetup(sandboxName: string, agent: AgentDefinition, message: string): never {
+  onboardSession.markStepFailed("agent_setup", message);
+  console.error(`  \u2717 ${message}`);
+  console.error(`    Check: ${agentCliName(agent)} ${sandboxName} logs --follow`);
+  process.exit(1);
+}
+
 /**
  * Handle the full agent setup step (step 7) including resume detection.
  * For non-OpenClaw agents: writes config into the sandbox and verifies
@@ -154,6 +189,14 @@ export async function handleAgentSetup(
   startRecordedStep("agent_setup", { sandboxName, provider, model });
   step(7, 8, `Setting up ${agent.displayName} inside sandbox`);
 
+  if (!verifyAgentBinaryAvailable(sandboxName, agent, runCaptureOpenshell)) {
+    failAgentSetup(
+      sandboxName,
+      agent,
+      `${agent.displayName} binary '${agentExecutableName(agent)}' is missing inside sandbox '${sandboxName}'`,
+    );
+  }
+
   const selectionConfig = getProviderSelectionConfig(provider, model);
   if (selectionConfig) {
     const sandboxConfig = {
@@ -195,8 +238,11 @@ export async function handleAgentSetup(
     if (healthy) {
       console.log(`  \u2713 ${agent.displayName} gateway is healthy`);
     } else {
-      console.log(`  \u26a0 ${agent.displayName} gateway did not respond within ${timeoutSecs}s.`);
-      console.log(`    The gateway may still be starting. Check: nemoclaw ${sandboxName} logs`);
+      failAgentSetup(
+        sandboxName,
+        agent,
+        `${agent.displayName} gateway did not respond within ${timeoutSecs}s`,
+      );
     }
   } else {
     console.log(`  \u2713 ${agent.displayName} configured inside sandbox`);
