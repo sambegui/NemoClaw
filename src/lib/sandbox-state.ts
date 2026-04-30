@@ -1003,13 +1003,21 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
           const extractResult = safeTarExtract(result.stdout, backupPath);
           if (extractResult.success) {
             // Determine per-dir success: a dir is backed up only if it actually
-            // exists in the extracted backup (tar may have skipped it entirely
-            // when all its files were permission-denied).
+            // contains files in the extracted backup.  tar may create an empty
+            // directory header even when every file inside was permission-denied,
+            // so existsSync alone is insufficient.
             for (const d of existingDirs) {
-              if (require("node:fs").existsSync(path.join(backupPath, d))) {
+              const dirPath = path.join(backupPath, d);
+              let hasContent = false;
+              try {
+                hasContent = readdirSync(dirPath).length > 0;
+              } catch {
+                /* dir doesn't exist at all */
+              }
+              if (hasContent) {
                 backedUpDirs.push(d);
               } else {
-                _log(`Dir ${d} missing from backup after extraction — marking failed`);
+                _log(`Dir ${d} empty or missing from backup after extraction — marking failed`);
                 failedDirs.push(d);
               }
             }
