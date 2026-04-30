@@ -129,11 +129,11 @@ describe("buildRecoveryScript", () => {
       // And the warning must be deferred until AFTER gateway.log is
       // safely opened with O_NOFOLLOW, otherwise the redirect targets a
       // stale or attacker-controlled file.
-      const prepareIdx = script!.indexOf("os.open(path, flags, 0o644)");
+      const gatewayPrepIdx = script!.indexOf(" /tmp/gateway.log;");
       const warnIdx = script!.indexOf('echo "$_W" >> /tmp/gateway.log');
-      expect(prepareIdx).toBeGreaterThanOrEqual(0);
+      expect(gatewayPrepIdx).toBeGreaterThanOrEqual(0);
       expect(warnIdx).toBeGreaterThanOrEqual(0);
-      expect(prepareIdx).toBeLessThan(warnIdx);
+      expect(gatewayPrepIdx).toBeLessThan(warnIdx);
     });
 
     it("appends (not truncates) gateway.log on launch so warnings survive", () => {

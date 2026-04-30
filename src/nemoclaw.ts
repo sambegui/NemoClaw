@@ -1558,7 +1558,7 @@ type SandboxConnectOptions = {
 
 function printSandboxConnectHelp(sandboxName = "<name>") {
   console.log("");
-  console.log(`  Usage: nemoclaw ${sandboxName} connect [--probe-only]`);
+  console.log(`  Usage: ${CLI_NAME} ${sandboxName} connect [--probe-only]`);
   console.log("");
   console.log("  Options:");
   console.log(

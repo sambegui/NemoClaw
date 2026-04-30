@@ -1450,14 +1450,28 @@ describe("CLI dispatch", () => {
 
   it("rejects the removed skip-permissions connect flag", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-connect-probe-flags-"));
+    const localBin = path.join(home, "bin");
+    const markerFile = path.join(home, "openshell-calls");
+    fs.mkdirSync(localBin, { recursive: true });
+    fs.writeFileSync(
+      path.join(localBin, "openshell"),
+      [
+        "#!/usr/bin/env bash",
+        `printf '%s\\n' "$*" >> ${JSON.stringify(markerFile)}`,
+        "exit 99",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
     writeSandboxRegistry(home);
 
     const r = runWithEnv("alpha connect --dangerously-skip-permissions", {
       HOME: home,
+      PATH: `${localBin}:${process.env.PATH || ""}`,
     });
 
     expect(r.code).toBe(1);
     expect(r.out).toContain("--dangerously-skip-permissions was removed");
+    expect(fs.existsSync(markerFile)).toBe(false);
   });
 
   it("connect --probe-only recovers the gateway without opening SSH", () => {
