@@ -45,12 +45,14 @@ function runEmbeddedPreload(
   script: string,
   argv1: string,
   argv2: string,
+  title = "node",
 ): ReturnType<typeof spawnSync> {
   return spawnSync(
     process.execPath,
     [
       "-e",
       `process.env.OPENSHELL_SANDBOX = '1';
+process.title = ${JSON.stringify(title)};
 process.argv[1] = ${JSON.stringify(argv1)};
 process.argv[2] = ${JSON.stringify(argv2)};
 ${script}`,
@@ -166,6 +168,25 @@ describe("nemoclaw-start gateway preload process detection (#2478)", () => {
     expect(ciaoGuard.status).toBe(0);
     expect(safetyNet.stderr).toContain("[sandbox-safety-net] loaded (launcher)");
     expect(ciaoGuard.stderr).toContain("[guard] ciao-network-guard loaded (launcher)");
+  });
+
+  it("prefers the re-execed process title over launcher argv", () => {
+    const safetyNet = runEmbeddedPreload(
+      safetyNetScript,
+      "/usr/local/bin/openclaw",
+      "gateway",
+      "openclaw-gateway",
+    );
+    const ciaoGuard = runEmbeddedPreload(
+      ciaoGuardScript,
+      "/usr/local/bin/openclaw",
+      "gateway",
+      "openclaw-gateway",
+    );
+    expect(safetyNet.status).toBe(0);
+    expect(ciaoGuard.status).toBe(0);
+    expect(safetyNet.stderr).toContain("[sandbox-safety-net] loaded (openclaw-gateway)");
+    expect(ciaoGuard.stderr).toContain("[guard] ciao-network-guard loaded (openclaw-gateway)");
   });
 
   it("does not install the safety net for non-gateway CLI commands", () => {

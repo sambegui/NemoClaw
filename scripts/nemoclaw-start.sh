@@ -1168,6 +1168,8 @@ emit_sandbox_sourced_file "$_SANDBOX_SAFETY_NET" <<'SAFETY_NET_EOF'
   }
 
   function gatewayProcessFlavor() {
+    if (basename(process.argv0) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.title) === 'openclaw-gateway') return 'openclaw-gateway';
     if (process.argv[2] === 'gateway') return 'launcher';
     if (basename(process.argv[1]) === 'openclaw-gateway') return 'openclaw-gateway';
     if (basename(process.argv[0]) === 'openclaw-gateway') return 'openclaw-gateway';
@@ -1594,6 +1596,8 @@ emit_sandbox_sourced_file "$_CIAO_GUARD_SCRIPT" <<'CIAO_GUARD_EOF'
   }
 
   function gatewayProcessFlavor() {
+    if (basename(process.argv0) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.title) === 'openclaw-gateway') return 'openclaw-gateway';
     if (process.argv[2] === 'gateway') return 'launcher';
     if (basename(process.argv[1]) === 'openclaw-gateway') return 'openclaw-gateway';
     if (basename(process.argv[0]) === 'openclaw-gateway') return 'openclaw-gateway';
