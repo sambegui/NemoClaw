@@ -6673,7 +6673,8 @@ const { createSandbox } = require(${onboardPath});
     );
 
     assert.match(source, /const preferredEntry = findForwardEntry/);
-    assert.match(source, /preferredEntry\.status !== "running"/);
+    assert.match(source, /function isLiveForwardStatus/);
+    assert.match(source, /!isLiveForwardStatus\(preferredEntry\.status\)/);
     assert.match(
       source,
       /runOpenshell\(\["forward", "stop", String\(preferredPort\)\], \{ ignoreError: true \}\)/,

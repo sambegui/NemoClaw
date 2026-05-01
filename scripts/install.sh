@@ -296,9 +296,7 @@ restore_onboard_forward_after_post_checks() {
       }
     ' <<<"$forward_list")"
     if [[ "$owner" == "$sandbox_name" && ("$status" == "running" || "$status" == "active") ]]; then
-      "$openshell_bin" forward stop "$port" "$sandbox_name" >/dev/null 2>&1 \
-        || "$openshell_bin" forward stop "$port" >/dev/null 2>&1 \
-        || true
+      "$openshell_bin" forward stop "$port" "$sandbox_name" >/dev/null 2>&1 || true
     fi
   }
 

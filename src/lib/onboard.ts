@@ -3479,12 +3479,13 @@ function updateReusedSandboxMetadata(
   model: string,
   provider: string,
   dashboardPort: number,
+  selectionVerified = true,
 ): void {
   const existingEntry = registry.getSandbox(sandboxName);
   const agentVersionKnown = existingEntry?.agentVersion !== null;
+  const selectionUpdates = selectionVerified ? { model, provider } : {};
   registry.updateSandbox(sandboxName, {
-    model,
-    provider,
+    ...selectionUpdates,
     dashboardPort,
     ...getSandboxAgentRegistryFields(agent, agentVersionKnown),
   });
@@ -3857,7 +3858,14 @@ async function createSandbox(
             }
             const reusedPort = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort}`;
-            updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort);
+            updateReusedSandboxMetadata(
+              sandboxName,
+              agent,
+              model,
+              provider,
+              reusedPort,
+              !selectionDrift.unknown,
+            );
             return sandboxName;
           }
         } else {
@@ -3886,7 +3894,14 @@ async function createSandbox(
             upsertMessagingProviders(messagingTokenDefs);
             const reusedPort2 = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort2}`;
-            updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort2);
+            updateReusedSandboxMetadata(
+              sandboxName,
+              agent,
+              model,
+              provider,
+              reusedPort2,
+              !selectionDrift.unknown,
+            );
             return sandboxName;
           }
         }
@@ -3926,7 +3941,14 @@ async function createSandbox(
           }
           const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
           process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
-          updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort3);
+          updateReusedSandboxMetadata(
+            sandboxName,
+            agent,
+            model,
+            provider,
+            reusedPort3,
+            !selectionDrift.unknown,
+          );
           return sandboxName;
         }
       } catch (err) {
@@ -3944,7 +3966,14 @@ async function createSandbox(
         }
         const reusedPort4 = ensureDashboardForward(sandboxName, chatUiUrl);
         process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort4}`;
-        updateReusedSandboxMetadata(sandboxName, agent, model, provider, reusedPort4);
+        updateReusedSandboxMetadata(
+          sandboxName,
+          agent,
+          model,
+          provider,
+          reusedPort4,
+          !selectionDrift.unknown,
+        );
         return sandboxName;
       }
     }
@@ -7040,6 +7069,10 @@ function findForwardEntry(
   return null;
 }
 
+function isLiveForwardStatus(status: string): boolean {
+  return status === "running" || status === "active";
+}
+
 function getRunningForwardPorts(forwardListOutput: string | null | undefined): string[] {
   const ports = new Set<string>();
   if (!forwardListOutput) return [];
@@ -7048,7 +7081,7 @@ function getRunningForwardPorts(forwardListOutput: string | null | undefined): s
     const parts = line.trim().split(/\s+/);
     if (parts.length < 5 || !/^\d+$/.test(parts[2])) continue;
     const status = (parts[4] || "").toLowerCase();
-    if (status === "running" || status === "active") {
+    if (isLiveForwardStatus(status)) {
       ports.add(parts[2]);
     }
   }
@@ -7079,7 +7112,7 @@ function getOccupiedPorts(forwardListOutput: string | null): Map<string, string>
     // parts: [sandbox, bind, port, pid, status...]
     if (parts.length < 3 || !/^\d+$/.test(parts[2])) continue;
     const status = (parts[4] || "").toLowerCase();
-    if (status !== "running") continue;
+    if (!isLiveForwardStatus(status)) continue;
     occupied.set(parts[2], parts[0]);
   }
   return occupied;
@@ -7189,7 +7222,7 @@ function ensureDashboardForward(
   const preferredEntry = findForwardEntry(existingForwards, String(preferredPort));
   if (
     preferredEntry &&
-    (preferredEntry.sandboxName === sandboxName || preferredEntry.status !== "running")
+    (preferredEntry.sandboxName === sandboxName || !isLiveForwardStatus(preferredEntry.status))
   ) {
     runOpenshell(["forward", "stop", String(preferredPort)], { ignoreError: true });
     existingForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });

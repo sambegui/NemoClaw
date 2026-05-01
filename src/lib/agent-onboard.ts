@@ -151,7 +151,8 @@ function verifyAgentBinaryAvailable(
       ignoreError: true,
     },
   );
-  if (result && result.includes("ok")) {
+  const status = result?.trim() ?? "";
+  if (status === "ok") {
     return { available: true };
   }
   if (binaryPath && result) {
