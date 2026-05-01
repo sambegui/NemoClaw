@@ -983,15 +983,6 @@ install_vllm() {
   vram_mb=$(get_vram_mb)
   vram_gb=$((vram_mb / 1024))
 
-  if [[ -n "${NEMOCLAW_VLLM_MODEL:-}" ]]; then
-    model_id="${NEMOCLAW_VLLM_MODEL}"
-  elif (( vram_gb >= 120 )); then
-    # NVFP4 quantized Nemotron Super 120B — native format for GB300 hardware
-    model_id="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-  else
-    model_id="Qwen/Qwen2.5-7B-Instruct"
-  fi
-
   hf_token="${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}"
   if [[ -z "$hf_token" ]]; then
     warn "HUGGING_FACE_HUB_TOKEN is not set. Gated models (Nemotron, Llama, etc.) will fail to download."
@@ -1008,11 +999,29 @@ install_vllm() {
   # the container to index 0 while the env var still says N, which causes
   # NVMLError_InvalidArgument in vLLM's worker processes.
   local best_gpu_idx=""
+  local best_gpu_vram_mb=0
   local gpus_arg="all"
   if command -v nvidia-smi >/dev/null 2>&1; then
-    best_gpu_idx=$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits \
-      2>/dev/null | sort -t',' -k2 -rn | head -1 | awk -F',' '{print $1}' | tr -d ' ')
+    local best_gpu_row=""
+    best_gpu_row=$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits \
+      2>/dev/null | sort -t',' -k2 -rn | head -1)
+    best_gpu_idx=$(printf "%s" "$best_gpu_row" | awk -F',' '{print $1}' | tr -d ' ')
+    best_gpu_vram_mb=$(printf "%s" "$best_gpu_row" | awk -F',' '{print $2}' | tr -d ' ')
     [[ -n "$best_gpu_idx" ]] && gpus_arg="device=${best_gpu_idx}"
+  fi
+  # Use the best single GPU's VRAM for model selection — get_vram_mb sums all
+  # GPUs, which would incorrectly trigger the large-model path on multi-GPU
+  # systems where no single GPU has enough memory (e.g. 4× 32 GB = 128 GB sum
+  # but only 32 GB per card).
+  local best_gpu_vram_gb=$(( best_gpu_vram_mb / 1024 ))
+
+  if [[ -n "${NEMOCLAW_VLLM_MODEL:-}" ]]; then
+    model_id="${NEMOCLAW_VLLM_MODEL}"
+  elif (( best_gpu_vram_gb >= 120 )); then
+    # NVFP4 quantized Nemotron Super 120B — native format for GB300 hardware
+    model_id="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+  else
+    model_id="Qwen/Qwen2.5-7B-Instruct"
   fi
 
   # Use --network host so that:
