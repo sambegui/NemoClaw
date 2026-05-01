@@ -2808,7 +2808,6 @@ describe("CLI dispatch", () => {
       ).toBeTruthy();
       expect(connectResult.out.includes("If the gateway never becomes healthy")).toBeTruthy();
     },
-    Number(process.env.NEMOCLAW_TEST_TIMEOUT || 10000),
   );
 
   it(
