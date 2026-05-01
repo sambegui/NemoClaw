@@ -80,8 +80,20 @@ The installer resolves the token from the first source available, in this order:
 
 1. `HUGGING_FACE_HUB_TOKEN` env var
 2. `HF_TOKEN` env var
-3. `~/.cache/huggingface/token` (created by `huggingface-cli login`)
+3. `$HF_HOME/token` (default `huggingface-cli login` write target; falls back to
+   `~/.cache/huggingface/token` when `HF_HOME` is unset)
 4. `~/.huggingface/token` (legacy CLI cache)
+5. `$HF_HOME/stored_tokens` (multi-token JSON written by recent
+   `huggingface-cli login` versions)
+6. `huggingface_hub` Python library lookup
+   (`HfFolder.get_token()`) — picks up whatever path the installed library knows
+   about regardless of HF version
+
+> **Persisting matters.** Setting `export HUGGING_FACE_HUB_TOKEN=hf_...` only lasts
+> for the current shell session — new terminals (or non-interactive installer runs)
+> don't see it and nothing is written to disk. To persist the token so every future
+> install finds it automatically, run `huggingface-cli login` once or add the export
+> to your `~/.bashrc`.
 
 The recommended one-time setup is to log in with the HuggingFace CLI so the token is
 persisted on disk and every subsequent install picks it up automatically with no
@@ -105,7 +117,16 @@ When the installer launches vLLM it logs which source it used:
 ```
 
 If no token is found, the installer continues but warns that gated models will fail and
-open-weight downloads will be slow.
+open-weight downloads will be slow. The warning lists every location that was checked,
+so you can tell whether you need to log in or move/export an existing token:
+
+```text
+[WARN]  HuggingFace token: not found in env or any HF cache location:
+[WARN]    - HUGGING_FACE_HUB_TOKEN / HF_TOKEN env vars
+[WARN]    - /home/<user>/.cache/huggingface/token
+[WARN]    - /home/<user>/.cache/huggingface/stored_tokens
+[WARN]    - /home/<user>/.huggingface/token
+```
 
 ---
 
@@ -681,12 +702,37 @@ curl -sf http://localhost:8000/health && echo "healthy" || echo "not ready"
 The installer logs the token source at the start of the vLLM launch step. If you see:
 
 ```text
-[WARN]  HuggingFace token: not provided — open models will download unauthenticated
+[WARN]  HuggingFace token: not found in env or any HF cache location:
 ```
 
 …vLLM is fetching weights without auth and HF will rate-limit you (a 72B model takes
 18+ minutes that way). Set up `huggingface-cli login` once (see
 **One-Time System Preparation → Obtain a HuggingFace token**) and re-run the installer.
+
+### "I used the token before — why does the installer say it's not found?"
+
+`export HUGGING_FACE_HUB_TOKEN=hf_...` only lives in the shell process where you ran
+the export. New terminals, scripts, and non-interactive installer runs don't inherit
+it and nothing is written to disk. If a previous install succeeded with the token but
+a later install reports it as missing, the env var is gone and you never persisted
+the token.
+
+Persist it once:
+
+```bash
+huggingface-cli login   # writes the token to ~/.cache/huggingface/token
+```
+
+After that every future installer run discovers the token automatically — even from
+a fresh shell, even from a `cron` job. Verify with:
+
+```bash
+huggingface-cli whoami
+ls -l ~/.cache/huggingface/token
+```
+
+If you relocated the cache via `HF_HOME`, the token file moves with it; the
+installer probes `$HF_HOME/token` and `$HF_HOME/stored_tokens` automatically.
 
 ### Dashboard port oscillates between 18789 and 18790 across reinstalls
 
