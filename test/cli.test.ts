@@ -189,20 +189,52 @@ function createDebugCommandTestEnv(prefix: string): Record<string, string> {
 }
 
 describe("CLI dispatch", () => {
-  it("config get validates flags and values before dispatch", () => {
-    const src = fs.readFileSync(
-      path.join(import.meta.dirname, "..", "src", "nemoclaw.ts"),
-      "utf-8",
+  it("config get validates flags and values before dispatch", async () => {
+    const sandboxConfigModule = await import("../dist/lib/sandbox-config.js");
+    const { parseConfigGetArgs } = (sandboxConfigModule.default ?? sandboxConfigModule) as {
+      parseConfigGetArgs: (
+        args: string[],
+      ) =>
+        | { ok: true; opts: { key: string | null; format: string } }
+        | { ok: false; errors: string[] };
+    };
+
+    const missingKey = parseConfigGetArgs(["--key"]);
+    expect(missingKey.ok).toBe(false);
+    expect(missingKey).toEqual(
+      expect.objectContaining({
+        errors: expect.arrayContaining([expect.stringContaining("--key requires a value")]),
+      }),
     );
-    const configGet = src.match(
-      /case "get": \{([\s\S]*?)sandboxConfig\.configGet\(cmd, configOpts\);/,
+
+    const missingFormat = parseConfigGetArgs(["--format"]);
+    expect(missingFormat.ok).toBe(false);
+    expect(missingFormat).toEqual(
+      expect.objectContaining({
+        errors: expect.arrayContaining([expect.stringContaining("--format requires a value")]),
+      }),
     );
-    expect(configGet).toBeTruthy();
-    expect(configGet![1]).toContain("--key requires a value");
-    expect(configGet![1]).toContain("--format requires a value");
-    expect(configGet![1]).toContain("Unknown format");
-    expect(configGet![1]).toContain("Unknown flag");
-    expect(configGet![1]).toContain('format !== "json" && format !== "yaml"');
+
+    const badFormat = parseConfigGetArgs(["--format", "xml"]);
+    expect(badFormat.ok).toBe(false);
+    expect(badFormat).toEqual(
+      expect.objectContaining({
+        errors: expect.arrayContaining([expect.stringContaining("Unknown format: xml")]),
+      }),
+    );
+
+    const unknownFlag = parseConfigGetArgs(["--bogus"]);
+    expect(unknownFlag.ok).toBe(false);
+    expect(unknownFlag).toEqual(
+      expect.objectContaining({
+        errors: expect.arrayContaining([expect.stringContaining("Unknown flag: --bogus")]),
+      }),
+    );
+
+    expect(parseConfigGetArgs(["--key", "gateway.auth", "--format", "yaml"])).toEqual({
+      ok: true,
+      opts: { key: "gateway.auth", format: "yaml" },
+    });
   });
 
   it("help exits 0 and shows sections", () => {

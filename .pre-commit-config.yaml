@@ -290,6 +290,14 @@ repos:
         files: ^nemoclaw/
         priority: 20
 
+      - id: source-shape-test-budget
+        name: Source-shape test budget
+        entry: npm run source-shape:check
+        language: system
+        pass_filenames: false
+        files: ^(test/|scripts/find-source-shape-tests\.ts$|ci/source-shape-test-budget\.json$)
+        priority: 20
+
       - id: test-skills-yaml
         name: Test (skills YAML)
         entry: npx vitest run test/skills-frontmatter.test.ts

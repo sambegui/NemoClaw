@@ -426,6 +426,7 @@ describe("runner", () => {
         );
         if (!providerCall) throw new Error("provider create call not found");
         expect(providerCall[2].env.OPENAI_API_KEY).toBe("secret-key-123");
+        expect(providerCall[2].env.MY_API_KEY).toBeUndefined();
         // Args pass the env var NAME, not the value
         expect(providerCall[1]).toContain("--credential");
         expect(providerCall[1]).toContain("OPENAI_API_KEY");

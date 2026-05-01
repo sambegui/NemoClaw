@@ -2111,7 +2111,7 @@ const { setupInference } = require(${onboardPath});
 
 (async () => {
   await setupInference("test-box", "nvidia/nemotron-3-super-120b-a12b", "nvidia-nim");
-  console.log(JSON.stringify(commands));
+  console.log(JSON.stringify({ commands, nvidiaApiKey: process.env.NVIDIA_API_KEY || null }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -2130,7 +2130,10 @@ const { setupInference } = require(${onboardPath});
     });
 
     expect(result.status).toBe(0);
-    const commands = parseStdoutJson<CommandEntry[]>(result.stdout);
+    const payload = parseStdoutJson<{ commands: CommandEntry[]; nvidiaApiKey: string | null }>(
+      result.stdout,
+    );
+    const commands = payload.commands;
     assert.equal(commands.length, 4);
     assert.match(commands[0].command, /gateway select nemoclaw/);
     assert.match(commands[1].command, /provider get/);
@@ -2138,6 +2141,7 @@ const { setupInference } = require(${onboardPath});
     assert.doesNotMatch(commands[2].command, /nvapi-secret-value/);
     assert.match(commands[2].command, /provider update/);
     assert.match(commands[3].command, /inference set/);
+    assert.equal(payload.nvidiaApiKey, "nvapi-secret-value");
   });
 
   it("does not delete saved OpenAI credentials when configuring local vLLM", () => {
@@ -3491,6 +3495,8 @@ const { createSandbox } = require(${onboardPath});
   process.env.SLACK_BOT_TOKEN = "xoxb-test-slack-token-value";
   process.env.SLACK_APP_TOKEN = "xapp-test-slack-app-token-value";
   process.env.TELEGRAM_BOT_TOKEN = "123456:ABC-test-telegram-token";
+  process.env.KUBECONFIG = "/tmp/host-kubeconfig";
+  process.env.SSH_AUTH_SOCK = "/tmp/host-ssh-agent.sock";
   const sandboxName = await createSandbox(null, "gpt-5.4");
   console.log(JSON.stringify({ sandboxName, commands }));
 })().catch((error) => {
@@ -3587,6 +3593,16 @@ const { createSandbox } = require(${onboardPath});
         createCommand.env.NVIDIA_API_KEY,
         undefined,
         "NVIDIA_API_KEY must not be in sandbox env",
+      );
+      assert.equal(
+        createCommand.env.KUBECONFIG,
+        undefined,
+        "KUBECONFIG must not be in sandbox env",
+      );
+      assert.equal(
+        createCommand.env.SSH_AUTH_SOCK,
+        undefined,
+        "SSH_AUTH_SOCK must not be in sandbox env",
       );
 
       // Belt-and-suspenders: raw token values must not appear anywhere in env

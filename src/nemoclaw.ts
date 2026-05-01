@@ -4438,44 +4438,12 @@ const [cmd, ...args] = process.argv.slice(2);
         const configSub = actionArgs[0];
         switch (configSub) {
           case "get": {
-            const configOpts: { key: string | null; format: string } = {
-              key: null,
-              format: "json",
-            };
-            for (let i = 1; i < actionArgs.length; i++) {
-              const flag = actionArgs[i];
-              if (flag === "--key") {
-                if (i + 1 >= actionArgs.length || actionArgs[i + 1].startsWith("--")) {
-                  console.error("  --key requires a value.");
-                  console.error(
-                    `  Usage: ${CLI_NAME} <name> config get [--key dotpath] [--format json|yaml]`,
-                  );
-                  process.exit(1);
-                }
-                configOpts.key = actionArgs[++i];
-              } else if (flag === "--format") {
-                if (i + 1 >= actionArgs.length || actionArgs[i + 1].startsWith("--")) {
-                  console.error("  --format requires a value (json|yaml).");
-                  console.error(
-                    `  Usage: ${CLI_NAME} <name> config get [--key dotpath] [--format json|yaml]`,
-                  );
-                  process.exit(1);
-                }
-                const format = actionArgs[++i];
-                if (format !== "json" && format !== "yaml") {
-                  console.error(`  Unknown format: ${format}. Use json or yaml.`);
-                  process.exit(1);
-                }
-                configOpts.format = format;
-              } else {
-                console.error(`  Unknown flag: ${flag}`);
-                console.error(
-                  `  Usage: ${CLI_NAME} <name> config get [--key dotpath] [--format json|yaml]`,
-                );
-                process.exit(1);
-              }
+            const parsedConfigGet = sandboxConfig.parseConfigGetArgs(actionArgs.slice(1), CLI_NAME);
+            if (!parsedConfigGet.ok) {
+              for (const line of parsedConfigGet.errors) console.error(line);
+              process.exit(1);
             }
-            sandboxConfig.configGet(cmd, configOpts);
+            sandboxConfig.configGet(cmd, parsedConfigGet.opts);
             break;
           }
           default:
