@@ -5348,7 +5348,7 @@ async function setupMessagingChannels(): Promise<string[]> {
       output.write(`    [${i + 1}] ${marker} ${ch.name} — ${ch.description}${status}\n`);
     });
     output.write("\n");
-    output.write(`  Press 1-${MESSAGING_CHANNELS.length} to toggle, Enter when done: `);
+    output.write(`  1-${MESSAGING_CHANNELS.length}  toggle    Enter  skip / confirm: `);
   };
 
   showList();
