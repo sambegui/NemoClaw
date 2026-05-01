@@ -625,7 +625,7 @@ Those commands do not update NemoClaw’s registry, session metadata, workspace-
 <p>Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">connect</span></code> for an interactive NemoClaw sandbox shell.
 It waits for readiness, handles stale SSH host keys after gateway restarts, and prints agent-specific hints.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">connect</span> <span class="pre">&lt;name&gt;</span></code> only when you intentionally want the raw OpenShell connection path.</p>
-<p>For a one-off command, use <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">exec</span></code> instead of opening an interactive shell:</p>
+<p>For a one-off command, use <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">exec</span></code> instead of opening an interactive shell.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-n<span class="w"> </span>my-assistant<span class="w"> </span>--<span class="w"> </span>cat<span class="w"> </span>/tmp/gateway.log
 </pre></div>
 </div>
@@ -660,7 +660,7 @@ The OpenShell TUI owns live network activity and operator approval prompts.</p>
 <section id="update-network-policy">
 <h3>Update Network Policy<a class="headerlink" href="#update-network-policy" title="Link to this heading">#</a></h3>
 <p>Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-add</span></code> or <code class="docutils literal notranslate"><span class="pre">policy-remove</span></code> for NemoClaw presets and custom preset files.
-This is the safest path because NemoClaw merges with the live policy and reapplies presets during rebuilds.</p>
+NemoClaw merges the new policy with the live policy and reapplies presets during rebuilds.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">policy</span> <span class="pre">update</span></code> for precise live endpoint or REST rule changes.
 Use <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">policy</span> <span class="pre">get</span> <span class="pre">--full</span></code> and <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">policy</span> <span class="pre">set</span></code> only when you need to edit and replace the raw policy file.</p>
 </section>
