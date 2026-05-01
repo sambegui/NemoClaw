@@ -99,9 +99,11 @@ function buildNoFollowLogSetupCommand(
 }
 
 function buildGatewayLogSetup(includeAutoPairLog = false, logOwnerUser?: string): string[] {
-  const lines = [`${buildNoFollowLogSetupCommand("/tmp/gateway.log", logOwnerUser)};`];
+  const lines = [`${buildNoFollowLogSetupCommand("/tmp/gateway.log", logOwnerUser)} || exit 1;`];
   if (includeAutoPairLog) {
-    lines.push(`${buildNoFollowLogSetupCommand("/tmp/auto-pair.log", "sandbox", "0o600")};`);
+    lines.push(
+      `${buildNoFollowLogSetupCommand("/tmp/auto-pair.log", "sandbox", "0o600")} || exit 1;`,
+    );
   }
   return lines;
 }

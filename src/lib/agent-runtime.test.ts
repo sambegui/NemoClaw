@@ -131,11 +131,17 @@ describe("buildRecoveryScript", () => {
       // And the warning must be deferred until AFTER gateway.log is
       // safely opened with O_NOFOLLOW, otherwise the redirect targets a
       // stale or attacker-controlled file.
-      const gatewayPrepIdx = script!.indexOf(" /tmp/gateway.log;");
+      const gatewayPrepIdx = script!.indexOf(" /tmp/gateway.log || exit 1;");
       const warnIdx = script!.indexOf('echo "$_W" >> /tmp/gateway.log');
       expect(gatewayPrepIdx).toBeGreaterThanOrEqual(0);
       expect(warnIdx).toBeGreaterThanOrEqual(0);
       expect(gatewayPrepIdx).toBeLessThan(warnIdx);
+    });
+
+    it("stops recovery when hardened log setup fails", () => {
+      const script = buildOpenClawRecoveryScript(18789);
+      expect(script).toContain(" /tmp/gateway.log 'gateway' || exit 1;");
+      expect(script).toContain(" /tmp/auto-pair.log 'sandbox' || exit 1;");
     });
 
     it("appends (not truncates) gateway.log on launch so warnings survive", () => {
