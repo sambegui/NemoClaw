@@ -1112,16 +1112,35 @@ install_vllm() {
   info "Pulling vLLM container (${image})…"
   maybe_sudo docker pull "$image"
 
-  local hf_token hf_cache
-
-  hf_token="${HUGGING_FACE_HUB_TOKEN:-${HF_TOKEN:-}}"
-  if [[ -z "$hf_token" ]]; then
-    warn "HUGGING_FACE_HUB_TOKEN is not set. Gated models (Nemotron, Llama, etc.) will fail to download."
-    warn "Export HUGGING_FACE_HUB_TOKEN=<your-token> and re-run with --force-reinstall to retry."
-  fi
-
+  local hf_token hf_token_source="" hf_cache
   hf_cache="${HOME}/.cache/huggingface"
   mkdir -p "$hf_cache"
+
+  # Resolve a HuggingFace token from any source the user might have set up.
+  # Priority: explicit env var > legacy env var > `huggingface-cli login` cache.
+  # The cache files are what `huggingface-cli login` writes, so if the user
+  # ran that once, every subsequent install picks up the token automatically.
+  if [[ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+    hf_token="$HUGGING_FACE_HUB_TOKEN"
+    hf_token_source="HUGGING_FACE_HUB_TOKEN env var"
+  elif [[ -n "${HF_TOKEN:-}" ]]; then
+    hf_token="$HF_TOKEN"
+    hf_token_source="HF_TOKEN env var"
+  elif [[ -r "${hf_cache}/token" ]]; then
+    hf_token="$(tr -d '[:space:]' < "${hf_cache}/token" 2>/dev/null || true)"
+    [[ -n "$hf_token" ]] && hf_token_source="${hf_cache}/token (huggingface-cli login)"
+  elif [[ -r "${HOME}/.huggingface/token" ]]; then
+    hf_token="$(tr -d '[:space:]' < "${HOME}/.huggingface/token" 2>/dev/null || true)"
+    [[ -n "$hf_token" ]] && hf_token_source="${HOME}/.huggingface/token (legacy huggingface-cli login)"
+  fi
+
+  if [[ -n "$hf_token" ]]; then
+    info "HuggingFace token: using ${hf_token_source} — gated models and faster downloads enabled"
+  else
+    warn "HuggingFace token: not provided — open models will download unauthenticated"
+    warn "  (slower / rate-limited); gated models (Nemotron, Llama, etc.) will fail."
+    warn "  To fix: export HUGGING_FACE_HUB_TOKEN=<your-token>, or run 'huggingface-cli login' once."
+  fi
 
   # Use --network host so that:
   # (a) the host's _port_listening check sees the port only when Uvicorn is
