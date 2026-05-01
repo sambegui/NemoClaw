@@ -108,6 +108,12 @@ export const COMMANDS: readonly CommandDef[] = [
     scope: "sandbox",
   },
   {
+    usage: "nemoclaw <name> doctor",
+    description: "Run host, gateway, sandbox, and inference health checks",
+    group: "Sandbox Management",
+    scope: "sandbox",
+  },
+  {
     usage: "nemoclaw <name> logs",
     description: "Stream sandbox logs",
     flags: "[--follow]",
