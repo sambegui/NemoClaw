@@ -5,10 +5,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+import type { Interface as ReadlineInterface } from "node:readline";
 import { describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import policies from "../dist/lib/policies";
+import { execTimeout } from "./helpers/timeouts";
 
+const requireForTest = createRequire(import.meta.url);
+const readline = requireForTest("node:readline") as typeof import("node:readline");
 const REPO_ROOT = path.join(import.meta.dirname, "..");
 const CLI_PATH = JSON.stringify(path.join(REPO_ROOT, "bin", "nemoclaw.js"));
 const CREDENTIALS_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "credentials.js"));
@@ -108,7 +113,7 @@ selectFromList(items, options)
   return spawnSync(process.execPath, ["-e", script], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
-    timeout: Number(process.env.NEMOCLAW_EXEC_TIMEOUT || 5000),
+    timeout: execTimeout(5_000),
     input,
     env: {
       ...process.env,
@@ -135,7 +140,7 @@ describe("policies", () => {
     it("returns expected preset names", () => {
       const names = policies
         .listPresets()
-        .map((p) => p.name)
+        .map((p: { name: string }) => p.name)
         .sort();
       const expected = [
         "brave",
@@ -865,7 +870,7 @@ selectForRemoval(items, options)
       return spawnSync(process.execPath, ["-e", script], {
         cwd: REPO_ROOT,
         encoding: "utf-8",
-        timeout: Number(process.env.NEMOCLAW_EXEC_TIMEOUT || 5000),
+        timeout: execTimeout(5_000),
         input,
         env: {
           ...process.env,
@@ -1477,11 +1482,11 @@ setImmediate(() => {
 
     it("--from-dir skips hidden dotfile yaml presets", () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-from-dir-hidden-"));
+      fs.writeFileSync(path.join(dir, ".bad.yaml"), "preset:\n  name: bad\nnetwork_policies: {}\n");
       fs.writeFileSync(
-        path.join(dir, ".bad.yaml"),
-        "preset:\n  name: bad\nnetwork_policies: {}\n",
+        path.join(dir, "real.yaml"),
+        "preset:\n  name: real\nnetwork_policies: {}\n",
       );
-      fs.writeFileSync(path.join(dir, "real.yaml"), "preset:\n  name: real\nnetwork_policies: {}\n");
       const result = runPolicyAddExternal(["--from-dir", dir, "--yes"]);
       expect(result.status).toBe(0);
       const calls = JSON.parse(result.stdout.split("__CALLS__")[1].trim()) as PolicyCall[];
@@ -1515,34 +1520,69 @@ setImmediate(() => {
   });
 
   describe("interactive prompt cleanup", () => {
-    it("releases stdin after preset prompts so the event loop drains on a TTY", () => {
-      const source = fs.readFileSync(
-        path.join(REPO_ROOT, "src", "lib", "policies.ts"),
-        "utf-8",
-      );
-      // A TTY-only guard around pause/unref pins the event loop on
-      // interactive runs and stops the wizard from exiting after its last
-      // prompt resolves.
-      expect(source).not.toMatch(/rl\.close\(\);\s*if\s*\(\s*!process\.stdin\.isTTY\s*\)/);
-      // Both prompt callbacks must release stdin after `rl.close()`.
-      const cleanupMatches = source.match(
-        /rl\.close\(\);[\s\S]*?process\.stdin\.pause\(\)[\s\S]*?process\.stdin\.unref\(\)/g,
-      );
-      expect(cleanupMatches?.length ?? 0).toBeGreaterThanOrEqual(2);
+    async function runPromptLifecycle(
+      functionName: "selectFromList" | "selectForRemoval",
+      input: string,
+    ) {
+      const counts = { ref: 0, pause: 0, unref: 0 };
+      const stdin = process.stdin as typeof process.stdin & {
+        ref: () => typeof process.stdin;
+        pause: () => typeof process.stdin;
+        unref: () => typeof process.stdin;
+      };
+      const original = {
+        ref: stdin.ref,
+        pause: stdin.pause,
+        unref: stdin.unref,
+      };
+      const createInterface = vi.spyOn(readline, "createInterface").mockReturnValue({
+        question: (_question: string, callback: (answer: string) => void) => callback(input),
+        close: vi.fn(),
+      } as unknown as ReadlineInterface);
+      stdin.ref = () => {
+        counts.ref += 1;
+        return process.stdin;
+      };
+      stdin.pause = () => {
+        counts.pause += 1;
+        return process.stdin;
+      };
+      stdin.unref = () => {
+        counts.unref += 1;
+        return process.stdin;
+      };
+      const items = [
+        { name: "alpha", description: "first", file: "/tmp/alpha.yaml" },
+        { name: "beta", description: "second", file: "/tmp/beta.yaml" },
+      ];
+      const options =
+        functionName === "selectForRemoval" ? { applied: ["alpha"] } : { applied: [] };
+
+      try {
+        const selected = await policies[functionName](items, options);
+        return { selected, counts };
+      } finally {
+        stdin.ref = original.ref;
+        stdin.pause = original.pause;
+        stdin.unref = original.unref;
+        createInterface.mockRestore();
+      }
+    }
+
+    it("releases and re-refs stdin around policy-add preset prompts", async () => {
+      const result = await runPromptLifecycle("selectFromList", "1\n");
+      expect(result.selected).toBe("alpha");
+      expect(result.counts.ref).toBeGreaterThanOrEqual(1);
+      expect(result.counts.pause).toBeGreaterThanOrEqual(1);
+      expect(result.counts.unref).toBeGreaterThanOrEqual(1);
     });
 
-    it("re-refs stdin before each preset prompt so a follow-up prompt is not stranded by a sticky unref()", () => {
-      const source = fs.readFileSync(
-        path.join(REPO_ROOT, "src", "lib", "policies.ts"),
-        "utf-8",
-      );
-      // unref() above is sticky — a subsequent createInterface will not
-      // re-ref by itself; an explicit ref() before each one keeps follow-up
-      // prompts able to wait for input.
-      const refMatches = source.match(
-        /process\.stdin\.ref\(\)[\s\S]*?readline\.createInterface\(\{\s*input:\s*process\.stdin/g,
-      );
-      expect(refMatches?.length ?? 0).toBeGreaterThanOrEqual(2);
+    it("releases and re-refs stdin around policy-remove preset prompts", async () => {
+      const result = await runPromptLifecycle("selectForRemoval", "1\n");
+      expect(result.selected).toBe("alpha");
+      expect(result.counts.ref).toBeGreaterThanOrEqual(1);
+      expect(result.counts.pause).toBeGreaterThanOrEqual(1);
+      expect(result.counts.unref).toBeGreaterThanOrEqual(1);
     });
   });
 });

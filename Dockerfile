@@ -22,6 +22,7 @@ WORKDIR /opt/nemoclaw
 RUN npm ci && npm run build
 
 # Stage 2: Runtime image — pull cached base from GHCR
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 
 # Harden: remove unnecessary build tools and network probes from base image (#830)
@@ -222,9 +223,14 @@ RUN mkdir -p /sandbox/.nemoclaw/blueprints/0.1.0 \
 # Copy startup script and shared sandbox initialisation library
 COPY scripts/lib/sandbox-init.sh /usr/local/lib/nemoclaw/sandbox-init.sh
 COPY scripts/nemoclaw-start.sh /usr/local/bin/nemoclaw-start
+# Copy ws-proxy-fix.js to a Landlock-accessible path. OpenShell ≥0.0.36
+# blocks /opt/nemoclaw-blueprint/ from non-root users, but the entrypoint
+# needs to read this file to install the NODE_OPTIONS --require preload.
+COPY nemoclaw-blueprint/scripts/ws-proxy-fix.js /usr/local/lib/nemoclaw/ws-proxy-fix.js
 COPY scripts/codex-acp-wrapper.sh /usr/local/bin/nemoclaw-codex-acp
 COPY scripts/generate-openclaw-config.py /usr/local/lib/nemoclaw/generate-openclaw-config.py
-RUN chmod 755 /usr/local/bin/nemoclaw-start /usr/local/bin/nemoclaw-codex-acp /usr/local/lib/nemoclaw/sandbox-init.sh
+RUN chmod 755 /usr/local/bin/nemoclaw-start /usr/local/bin/nemoclaw-codex-acp /usr/local/lib/nemoclaw/sandbox-init.sh \
+    && chmod 644 /usr/local/lib/nemoclaw/ws-proxy-fix.js
 
 # Build args for config that varies per deployment.
 # nemoclaw onboard passes these at image build time.
@@ -474,17 +480,37 @@ RUN set -eu; \
     done; \
     rm -rf /root/.npm /sandbox/.npm
 
+# Stale-base fallback for the gateway-in-sandbox-group setup (#2681).
+# Newer base images already add the gateway user to the sandbox group, but
+# the derived image must remain build-clean against older sandbox-base:latest
+# tags too. The `id -nG` check makes this idempotent.
+# hadolint ignore=DL4006
+RUN if id gateway >/dev/null 2>&1 && id sandbox >/dev/null 2>&1; then \
+        if ! id -nG gateway | tr ' ' '\n' | grep -qx sandbox; then \
+            usermod -aG sandbox gateway; \
+        fi; \
+    fi
+
 # Keep the image readable to the root entrypoint after capabilities are
 # dropped. OpenShell starts the runtime as the sandbox user; the entrypoint
 # restores the stricter mutable-default 600/700 permissions there.
 # Shields-up applies 444 root:root + chattr +i on top.
+#
+# `chmod g+w` + setgid (chmod g+s on dirs) on the mutable config tree means
+# both `sandbox` and `gateway` (now a member of the sandbox group) can write
+# to OpenClaw config/state in default mode. New files created in setgid
+# directories inherit group=sandbox regardless of which UID created them,
+# so OpenClaw's mutateConfigFile path (control-UI toggles) writes succeed
+# without needing an EACCES-swallow patch (#2681 supersedes #2693).
 RUN chown -R sandbox:sandbox /sandbox/.openclaw \
     && chmod 755 /sandbox/.openclaw \
-    && chmod 644 /sandbox/.openclaw/openclaw.json
+    && chmod 644 /sandbox/.openclaw/openclaw.json \
+    && chmod -R g+w /sandbox/.openclaw \
+    && find /sandbox/.openclaw -type d -exec chmod g+s {} +
 
 # Pin config hash at build time so the entrypoint can verify integrity.
 RUN sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
-    && chmod 644 /sandbox/.openclaw/.config-hash \
+    && chmod 664 /sandbox/.openclaw/.config-hash \
     && chown sandbox:sandbox /sandbox/.openclaw/.config-hash
 
 # DAC-protect .nemoclaw directory: /sandbox/.nemoclaw is Landlock read_write

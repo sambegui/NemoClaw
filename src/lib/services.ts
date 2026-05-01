@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { AGENT_PRODUCT_NAME, CLI_DISPLAY_NAME } from "./branding";
 import { dockerSpawnSync } from "./docker";
 import { DASHBOARD_PORT } from "./ports";
 import { resolveOpenshell } from "./resolve-openshell";
@@ -417,6 +418,7 @@ export function stopAll(opts: ServiceOptions = {}): void {
   // env var or the default sandbox.
   const pidDir = resolvePidDir(sandboxName ? { ...opts, sandboxName } : opts);
   ensurePidDir(pidDir);
+
   if (sandboxName) {
     stopSandboxChannels(sandboxName);
   } else if (rawSandboxName) {
@@ -424,6 +426,13 @@ export function stopAll(opts: ServiceOptions = {}): void {
   } else {
     warn("No sandbox name available — cannot stop in-sandbox messaging channels.");
     warn("Hint: run 'nemoclaw stop' with a registered sandbox or set NEMOCLAW_SANDBOX_NAME.");
+  }
+
+  try {
+    const { unloadOllamaModels } = require("./onboard-ollama-proxy");
+    unloadOllamaModels();
+  } catch {
+    /* best-effort */
   }
 
   // Stop host-side services.
@@ -475,7 +484,7 @@ export async function startAll(opts: ServiceOptions = {}): Promise<void> {
   // Banner
   console.log("");
   console.log("  ┌─────────────────────────────────────────────────────┐");
-  console.log("  │  NemoClaw Services                                  │");
+  console.log(`  │  ${(CLI_DISPLAY_NAME + " Services").padEnd(52)}│`);
   console.log("  │                                                     │");
 
   let tunnelUrl = "";
@@ -492,7 +501,7 @@ export async function startAll(opts: ServiceOptions = {}): Promise<void> {
     console.log(`  │  Public URL:  ${tunnelUrl.padEnd(40)}│`);
   }
 
-  console.log("  │  Messaging:   via OpenClaw native channels (if configured) │");
+  console.log(`  │  ${("Messaging:   via " + AGENT_PRODUCT_NAME + " native channels (if configured)").padEnd(52)}│`);
 
   console.log("  │                                                     │");
   console.log("  │  Run 'openshell term' to monitor egress approvals   │");

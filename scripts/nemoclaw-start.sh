@@ -32,6 +32,29 @@
 
 set -euo pipefail
 
+# SECURITY: Lock down PATH before any commands run so an injected PATH
+# cannot resolve id/chown/chmod/tee from an attacker-controlled location.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# ── Early stderr/stdout capture ──────────────────────────────────
+# Capture all entrypoint output to /tmp/nemoclaw-start.log so that if
+# the script crashes before touch /tmp/gateway.log (e.g., a Landlock
+# read failure), the output is still available for diagnostics.
+# The log is written in append mode and also forwarded to the original
+# stderr/stdout via tee so openshell sandbox create can still stream it.
+# SECURITY: restrict permissions before writing — the script later prints
+# tokenized dashboard URLs to stderr (#token=...).
+_START_LOG="/tmp/nemoclaw-start.log"
+if [ "$(id -u)" -eq 0 ]; then
+  : >"$_START_LOG"
+  chown root:root "$_START_LOG"
+  chmod 600 "$_START_LOG"
+else
+  : >"$_START_LOG"
+  chmod 600 "$_START_LOG" 2>/dev/null || true
+fi
+exec > >(tee -a "$_START_LOG") 2> >(tee -a "$_START_LOG" >&2)
+
 # ── Source shared sandbox initialisation library ─────────────────
 # Single source of truth for security-sensitive primitives shared with
 # agents/hermes/start.sh. Ref: https://github.com/NVIDIA/NemoClaw/issues/2277
@@ -54,9 +77,8 @@ if ! ulimit -Hu 512 2>/dev/null; then
   echo "[SECURITY] Could not set hard nproc limit (container runtime may restrict ulimit)" >&2
 fi
 
-# SECURITY: Lock down PATH so the agent cannot inject malicious binaries
-# into commands executed by the entrypoint or auto-pair watcher.
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# PATH was already locked down at the top of this script (before the
+# early stderr capture). This comment marks the original location.
 
 # Redirect tool caches and state to /tmp so they don't fail on the read-only
 # /sandbox home directory (#804). Without these, tools would try to create
@@ -181,6 +203,41 @@ _SANDBOX_HOME="/sandbox"          # Home dir for the sandbox user (useradd -d /s
 # verify_config_integrity_if_locked is provided by sandbox-init.sh. OpenClaw
 # mutable-default startup skips strict hash enforcement until shields-up locks
 # .config-hash into a root-owned read-only trust anchor.
+
+# ── Mutable-default permission normalize (#2681) ─────────────────
+# OpenClaw's control-UI toggles (Enable Dreaming, account toggles, etc.)
+# write through mutateConfigFile to /sandbox/.openclaw/openclaw.json.
+# In root mode the gateway runs as the gateway UID; the file is owned
+# sandbox:sandbox. Without group write, every toggle EACCESs.
+#
+# Make the mutable-default tree group-writable + setgid so both
+# `gateway` (now a member of the sandbox group via Dockerfile.base
+# usermod -aG) and `sandbox` can write. Setgid means new files
+# inherit group=sandbox regardless of which UID created them, so the
+# agent keeps read access and shields-up locking still works the same.
+#
+# Idempotent. Skips when shields are UP (config dir owned by root) so
+# the lock is not weakened.
+normalize_mutable_config_perms() {
+  # Only effective in root mode. Non-root containers can't chmod files
+  # they don't own; if shields are down they were normalized by an
+  # earlier root-mode startup.
+  [ "$(id -u)" -eq 0 ] || return 0
+
+  local config_dir="/sandbox/.openclaw"
+  [ -d "$config_dir" ] || return 0
+
+  # Detect shields-up. Config dir owned by root means shields are
+  # currently locked; normalizing would weaken the contract.
+  local config_dir_owner
+  config_dir_owner="$(stat -c '%U' "$config_dir" 2>/dev/null || echo unknown)"
+  if [ "$config_dir_owner" = "root" ]; then
+    return 0
+  fi
+
+  chmod -R g+w "$config_dir" 2>/dev/null || true
+  find "$config_dir" -type d -exec chmod g+s {} + 2>/dev/null || true
+}
 
 # ── Runtime model/provider override ──────────────────────────────
 # Patches openclaw.json at startup when NEMOCLAW_MODEL_OVERRIDE is set,
@@ -804,6 +861,152 @@ SLACK_GUARD_EOF
   printf '[channels] Slack channel guard installed (NODE_OPTIONS updated)\n' >&2
 }
 
+# ── Telegram diagnostics (provider-ready + inference-failure clarity) ─
+_TELEGRAM_DIAGNOSTICS_SCRIPT="/tmp/nemoclaw-telegram-diagnostics.js"
+
+install_telegram_diagnostics() {
+  local config_file="/sandbox/.openclaw/openclaw.json"
+
+  # Only install when Telegram is configured in the baked OpenClaw config.
+  if ! grep -q '"telegram"' "$config_file" 2>/dev/null; then
+    return 0
+  fi
+
+  printf '[channels] Installing Telegram diagnostics (provider readiness + inference errors)\n' >&2
+
+  emit_sandbox_sourced_file "$_TELEGRAM_DIAGNOSTICS_SCRIPT" <<'TELEGRAM_DIAGNOSTICS_EOF'
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// telegram-diagnostics.js — adds runtime breadcrumbs for OpenClaw's Telegram
+// channel without changing channel behavior. The important distinction for
+// NemoClaw#2766 is that "[telegram] [default] starting provider" means the
+// channel is initializing; an agent-turn failure later can be an inference
+// provider failure through inference.local, not a Telegram Bot API failure.
+
+(function () {
+  'use strict';
+
+  if (process.__nemoclawTelegramDiagnosticsInstalled) return;
+  try {
+    Object.defineProperty(process, '__nemoclawTelegramDiagnosticsInstalled', { value: true });
+  } catch (_e) {
+    process.__nemoclawTelegramDiagnosticsInstalled = true;
+  }
+
+  var providerStarted = false;
+  var readyLogged = false;
+  var inferenceLogged = false;
+  var inDiagnosticWrite = false;
+
+  function sanitize(value) {
+    var text = String(value || '');
+    text = text.replace(/\/bot[^/\s"']+/g, '/bot<redacted>');
+    text = text.replace(/\/file\/bot[^/\s"']+/g, '/file/bot<redacted>');
+    text = text.replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/g, 'Bearer <redacted>');
+    text = text.replace(
+      /\b(api[_-]?key|token|authorization)\b(["']?\s*[:=]\s*["']?)[^"'\s,)]+/gi,
+      '$1$2<redacted>'
+    );
+    return text;
+  }
+
+  var originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  function emit(line) {
+    if (inDiagnosticWrite) return;
+    inDiagnosticWrite = true;
+    try {
+      originalStderrWrite(line + '\n');
+    } finally {
+      inDiagnosticWrite = false;
+    }
+  }
+
+  function describeRequest(arg1, arg2) {
+    var url = null;
+    var opts = null;
+    if (typeof arg1 === 'string' || arg1 instanceof URL) {
+      try {
+        url = new URL(String(arg1));
+      } catch (_e) {
+        url = null;
+      }
+      if (arg2 && typeof arg2 === 'object' && typeof arg2 !== 'function') opts = arg2;
+    } else if (arg1 && typeof arg1 === 'object') {
+      opts = arg1;
+    }
+
+    var hostname = '';
+    var path = '';
+    if (url) {
+      hostname = url.hostname || '';
+      path = (url.pathname || '') + (url.search || '');
+    }
+    if (opts) {
+      hostname = String(opts.hostname || opts.host || hostname || '');
+      path = String(opts.path || path || '');
+    }
+    if (hostname.indexOf(':') !== -1) hostname = hostname.split(':')[0];
+    return { hostname: hostname, path: path };
+  }
+
+  function maybeLogTelegramReady(info, statusCode) {
+    if (readyLogged) return;
+    if (!info || info.hostname !== 'api.telegram.org') return;
+    if (!/\/(?:bot[^/]+\/)?(?:getUpdates|getMe|getWebhookInfo)(?:\?|$)/.test(info.path)) return;
+    if (Number(statusCode) < 200 || Number(statusCode) >= 300) return;
+    providerStarted = true;
+    readyLogged = true;
+    emit('[telegram] [default] provider ready (Bot API reachable; agent replies use inference.local)');
+  }
+
+  function wrapHttp(mod, methodName) {
+    var original = mod[methodName];
+    if (typeof original !== 'function') return;
+    mod[methodName] = function () {
+      var info = describeRequest(arguments[0], arguments[1]);
+      var req = original.apply(this, arguments);
+      if (info && info.hostname === 'api.telegram.org' && req && typeof req.once === 'function') {
+        req.once('response', function (res) {
+          maybeLogTelegramReady(info, res && res.statusCode);
+        });
+      }
+      return req;
+    };
+  }
+
+  process.stderr.write = function (chunk, encoding, cb) {
+    var ret = originalStderrWrite.apply(process.stderr, arguments);
+    if (!inDiagnosticWrite && !inferenceLogged) {
+      var text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '');
+      if (!providerStarted && /\[telegram\] \[default\] starting provider\b/i.test(text)) {
+        providerStarted = true;
+      }
+      if (providerStarted && /Embedded agent failed before reply|LLM request failed|FailoverError/i.test(text)) {
+        inferenceLogged = true;
+        var line = text.split(/\r?\n/).find(function (entry) {
+          return /Embedded agent failed before reply|LLM request failed|FailoverError/i.test(entry);
+        }) || text;
+        emit('[telegram] [default] agent turn failed after provider startup; inference error: ' + sanitize(line).slice(0, 600));
+      }
+    }
+    return ret;
+  };
+
+  var http = require('http');
+  var https = require('https');
+  wrapHttp(http, 'request');
+  wrapHttp(http, 'get');
+  wrapHttp(https, 'request');
+  wrapHttp(https, 'get');
+})();
+TELEGRAM_DIAGNOSTICS_EOF
+
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_TELEGRAM_DIAGNOSTICS_SCRIPT"
+  printf '[channels] Telegram diagnostics installed (NODE_OPTIONS updated)\n' >&2
+}
+
 _read_gateway_token() {
   python3 - <<'PYTOKEN'
 import json
@@ -1131,15 +1334,35 @@ emit_sandbox_sourced_file "$_SANDBOX_SAFETY_NET" <<'SAFETY_NET_EOF'
 //      want to avoid.
 //
 //   5. Only active when OPENSHELL_SANDBOX=1 (set by OpenShell at runtime),
-//      and only for `openclaw gateway run …` invocations
-//      (process.argv[2] === "gateway"). CLI commands (agent, doctor,
-//      plugins, tui, etc.) get default Node behavior so errors surface
-//      promptly to users running short-lived tools.
+//      and only for gateway processes. The gateway can appear as the
+//      launcher (`openclaw gateway run ...`) or the re-execed
+//      `openclaw-gateway` child. CLI commands (agent, doctor, plugins,
+//      tui, etc.) get default Node behavior so errors surface promptly
+//      to users running short-lived tools.
 
 (function () {
   'use strict';
   if (process.env.OPENSHELL_SANDBOX !== '1') return;
-  if (process.argv[2] !== 'gateway') return;
+
+  function basename(value) {
+    return String(value || '').split(/[\\/]/).pop();
+  }
+
+  function gatewayProcessFlavor() {
+    if (basename(process.argv0) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.title) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (process.argv[2] === 'gateway') return 'launcher';
+    if (basename(process.argv[1]) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.argv[0]) === 'openclaw-gateway') return 'openclaw-gateway';
+    return '';
+  }
+
+  var _gatewayProcess = gatewayProcessFlavor();
+  if (!_gatewayProcess) return;
+
+  try {
+    process.stderr.write('[sandbox-safety-net] loaded (' + _gatewayProcess + ')\n');
+  } catch (_) {}
 
   // KNOWN-BENIGN ERROR PATTERNS
   //
@@ -1549,6 +1772,26 @@ emit_sandbox_sourced_file "$_CIAO_GUARD_SCRIPT" <<'CIAO_GUARD_EOF'
 (function () {
   'use strict';
 
+  function basename(value) {
+    return String(value || '').split(/[\\/]/).pop();
+  }
+
+  function gatewayProcessFlavor() {
+    if (basename(process.argv0) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.title) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (process.argv[2] === 'gateway') return 'launcher';
+    if (basename(process.argv[1]) === 'openclaw-gateway') return 'openclaw-gateway';
+    if (basename(process.argv[0]) === 'openclaw-gateway') return 'openclaw-gateway';
+    return '';
+  }
+
+  var _gatewayProcess = gatewayProcessFlavor();
+  if (_gatewayProcess) {
+    try {
+      process.stderr.write('[guard] ciao-network-guard loaded (' + _gatewayProcess + ')\n');
+    } catch (_) {}
+  }
+
   // Monkey-patch os.networkInterfaces to return empty on failure.
   var os = require('os');
   var _origNetworkInterfaces = os.networkInterfaces;
@@ -1595,7 +1838,7 @@ emit_sandbox_sourced_file "$_CIAO_GUARD_SCRIPT" <<'CIAO_GUARD_EOF'
   // For gateway processes, non-ciao errors fall through (return) to the
   // sandbox safety net registered later in the preload chain. The safety
   // net is the single point of "keep gateway alive on unknown errors".
-  if (process.argv[2] === 'gateway') {
+  if (_gatewayProcess) {
     process.on('uncaughtException', function (err, origin) {
       if (
         err && err.code === 'ERR_SYSTEM_ERROR' &&
@@ -1630,10 +1873,61 @@ export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_CIAO_GUARD_SCRIP
 # The preload patches https.request() to inject a CONNECT tunnel agent for
 # WebSocket upgrade requests. Activates whenever HTTPS_PROXY is set (the
 # script itself guards on the env var).
-_WS_FIX_SCRIPT="/opt/nemoclaw-blueprint/scripts/ws-proxy-fix.js"
-if [ -f "$_WS_FIX_SCRIPT" ]; then
+_WS_FIX_SOURCE="/usr/local/lib/nemoclaw/ws-proxy-fix.js"
+_WS_FIX_SCRIPT="/tmp/nemoclaw-ws-proxy-fix.js"
+if [ -f "$_WS_FIX_SOURCE" ]; then
+  # Copy to /tmp so the sandbox user can read it — /usr/local/lib/ may be
+  # Landlock-restricted in some runtimes. Same pattern as the other preloads.
+  emit_sandbox_sourced_file "$_WS_FIX_SCRIPT" <"$_WS_FIX_SOURCE"
   export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_WS_FIX_SCRIPT"
 fi
+
+# ── Seccomp syscall guard ─────────────────────────────────────
+# OpenShell ≥0.0.36 seccomp policy blocks syscalls like getifaddrs
+# (used by Node's os.networkInterfaces()). Third-party libraries (e.g.,
+# @homebridge/ciao mDNS) call these without error handling, producing
+# unhandled promise rejections that crash the gateway under Node v22's
+# default --unhandled-rejections=throw.
+#
+# This preload catches those specific sandbox-infrastructure errors
+# and logs them as warnings instead of letting them kill the process.
+# Unlike the Slack channel guard, this is always installed because the
+# seccomp-blocked syscalls affect all sandboxes, not just Slack ones.
+_SECCOMP_GUARD_SCRIPT="/tmp/nemoclaw-seccomp-guard.js"
+emit_sandbox_sourced_file "$_SECCOMP_GUARD_SCRIPT" <<'SECCOMP_GUARD_EOF'
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// seccomp-guard.js — patch syscalls that are blocked by OpenShell ≥0.0.36
+// seccomp policy. Third-party libraries (e.g., @homebridge/ciao mDNS) call
+// os.networkInterfaces() without error handling, producing unhandled promise
+// rejections. OpenClaw's rejection handler (unhandled-rejections-*.js) calls
+// process.exit(1) for unrecognised errors, crashing the gateway.
+//
+// Rather than trying to catch the rejection (which races with OpenClaw's own
+// handler), this preload patches the syscall wrappers to return safe defaults
+// when the underlying call is blocked by seccomp.
+
+(function () {
+  'use strict';
+  var os = require('os');
+  var _origNetworkInterfaces = os.networkInterfaces;
+
+  os.networkInterfaces = function () {
+    try {
+      return _origNetworkInterfaces.call(os);
+    } catch (err) {
+      if (err && String(err.message || '').indexOf('uv_interface_addresses') !== -1) {
+        // seccomp blocks getifaddrs — return empty result.
+        // mDNS discovery is not needed inside a sandbox.
+        return {};
+      }
+      throw err;
+    }
+  };
+})();
+SECCOMP_GUARD_EOF
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_SECCOMP_GUARD_SCRIPT"
 
 # OpenShell re-injects narrow NO_PROXY/no_proxy=127.0.0.1,localhost,::1 every
 # time a user connects via `openshell sandbox connect`.  The connect path spawns
@@ -1754,8 +2048,12 @@ GUARDENVEOF
     fi
     # Nemotron inference fix for connect sessions. (NemoClaw#1193, #2051)
     echo "export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_NEMOTRON_FIX_SCRIPT\""
+    # Seccomp guard for connect sessions.
+    echo "export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_SECCOMP_GUARD_SCRIPT\""
     # ciao network guard for connect sessions.
     echo "export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_CIAO_GUARD_SCRIPT\""
+    # Telegram diagnostics for connect sessions — same conditional pattern.
+    echo "[ -f \"$_TELEGRAM_DIAGNOSTICS_SCRIPT\" ] && export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_TELEGRAM_DIAGNOSTICS_SCRIPT\""
     # Slack channel guard for connect sessions. The guard file is installed later
     # by install_slack_channel_guard() — conditional on the file existing at
     # source-time so connect sessions started before Slack is configured are safe.
@@ -2092,8 +2390,14 @@ if [ "$(id -u)" -ne 0 ]; then
   export_gateway_token
   write_runtime_shell_env
   ensure_runtime_shell_env_shim
-  lock_rc_files "$_SANDBOX_HOME"
+  lock_rc_files "$_SANDBOX_HOME" || true
+
+  if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
+    exec "${NEMOCLAW_CMD[@]}"
+  fi
+
   configure_messaging_channels
+  install_telegram_diagnostics
   install_slack_token_rewriter
   install_slack_channel_guard
   verify_no_slack_secrets_on_disk
@@ -2121,10 +2425,6 @@ if [ "$(id -u)" -ne 0 ]; then
   write_auth_profile
   harden_auth_profiles
 
-  if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
-    exec "${NEMOCLAW_CMD[@]}"
-  fi
-
   # In non-root mode, detach gateway stdout/stderr from the sandbox-create
   # stream so openshell sandbox create can return once the container is ready.
   # TODO(#2277-P2): migrate to shared emit_restricted_log() helper
@@ -2140,7 +2440,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
   # (both are trust-boundary files; tampering would let the sandbox user
   # inject code into any Node process via NODE_OPTIONS).
-  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
+  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
 
   # Start gateway in background, auto-pair, then wait
   nohup "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
@@ -2174,6 +2474,7 @@ fi
 # Verify locked config integrity before starting anything. Mutable-default
 # config is intentionally writable and is not a trust anchor until shields-up.
 verify_config_integrity_if_locked /sandbox/.openclaw
+normalize_mutable_config_perms
 apply_model_override
 apply_cors_override
 export_gateway_token
@@ -2185,6 +2486,7 @@ lock_rc_files "$_SANDBOX_HOME"
 # Must run AFTER integrity check (to detect build-time tampering) and
 # BEFORE chattr +i (which locks the config permanently).
 configure_messaging_channels
+install_telegram_diagnostics
 install_slack_token_rewriter
 install_slack_channel_guard
 verify_no_slack_secrets_on_disk
@@ -2295,7 +2597,7 @@ provision_agent_workspaces
 # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
 # (both are trust-boundary files; tampering would let the sandbox user
 # inject code into any Node process via NODE_OPTIONS).
-validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
+validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
 
 # Start the gateway as the 'gateway' user.
 # SECURITY: The sandbox user cannot kill this process because it runs
