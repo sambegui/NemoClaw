@@ -38,14 +38,12 @@ const {
 } = require("./lib/docker");
 const { resolveOpenshell } = require("./lib/resolve-openshell");
 const {
-  fetchGatewayAuthTokenFromSandbox,
   startGatewayForRecovery,
   pruneKnownHostsEntries,
   hydrateCredentialEnv,
   isNonInteractive,
 } = require("./lib/onboard");
 const { ensureOllamaAuthProxy } = require("./lib/onboard-ollama-proxy");
-const { parseGatewayTokenArgs, runGatewayTokenCommand } = require("./lib/gateway-token-command");
 const { getCredential, prompt: askPrompt } = require("./lib/credentials");
 const registry = require("./lib/registry");
 import type { SandboxEntry } from "./lib/registry";
@@ -60,7 +58,6 @@ const onboardSession = require("./lib/onboard-session");
 import type { Session } from "./lib/onboard-session";
 const { parseLiveSandboxNames } = require("./lib/runtime-recovery");
 const { NOTICE_ACCEPT_ENV, NOTICE_ACCEPT_FLAG } = require("./lib/usage-notice");
-const { runDebugCommand } = require("./lib/debug-command");
 const { runDeprecatedOnboardAliasCommand, runOnboardCommand } = require("./lib/onboard-command");
 const {
   captureOpenshellCommand,
@@ -69,11 +66,8 @@ const {
   stripAnsi,
   versionGte,
 } = require("./lib/openshell");
-const { showStatusCommand } = require("./lib/inventory-commands");
 const { runRegisteredOclifCommand } = require("./lib/oclif-runner");
 const { executeDeploy } = require("./lib/deploy");
-const { runStartCommand, runStopCommand } = require("./lib/services-command");
-const { buildVersionedUninstallUrl, runUninstallCommand } = require("./lib/uninstall-command");
 const agentRuntime = require("../bin/lib/agent-runtime");
 const sandboxVersion = require("./lib/sandbox-version");
 const sandboxState = require("./lib/sandbox-state");
@@ -141,7 +135,6 @@ type RecoveredSandboxMetadata = Partial<
   policyPresets?: string[] | null;
 };
 
-const REMOTE_UNINSTALL_URL = buildVersionedUninstallUrl(getVersion());
 let OPENSHELL_BIN: string | null = null;
 const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
 const DASHBOARD_FORWARD_PORT = String(DASHBOARD_PORT);
@@ -1157,30 +1150,20 @@ async function deploy(instanceName: string): Promise<void> {
   });
 }
 
-async function start() {
-  const { startAll } = require("./lib/services");
-  await runStartCommand({
-    listSandboxes: () => registry.listSandboxes(),
-    startAll,
-  });
+async function start(args: string[] = []): Promise<void> {
+  await runOclif("start", args);
 }
 
-function stop() {
-  const { stopAll } = require("./lib/services");
-  runStopCommand({
-    listSandboxes: () => registry.listSandboxes(),
-    stopAll,
-  });
+async function stop(args: string[] = []): Promise<void> {
+  await runOclif("stop", args);
 }
 
 async function tunnel(args: string[]): Promise<void> {
   const sub = args[0];
   switch (sub) {
     case "start":
-      await start();
-      return;
     case "stop":
-      stop();
+      await runOclif(`tunnel:${sub}`, args.slice(1));
       return;
     default:
       console.error(`  Usage: ${CLI_NAME} tunnel <start|stop>`);
@@ -1188,56 +1171,12 @@ async function tunnel(args: string[]): Promise<void> {
   }
 }
 
-function debug(args: string[]) {
-  const { runDebug } = require("./lib/debug");
-  const getDefaultSandbox = (): string | undefined => {
-    const { defaultSandbox, sandboxes } = registry.listSandboxes();
-    if (!defaultSandbox) return undefined;
-    if (!sandboxes.find((s: { name: string }) => s.name === defaultSandbox)) {
-      console.error(
-        `${_RD}Warning:${R} default sandbox '${defaultSandbox}' is no longer in the registry.`,
-      );
-      console.error(
-        `  Use ${B}--sandbox NAME${R} to target a specific sandbox, or run ${B}${CLI_NAME} onboard${R} again.\n`,
-      );
-      return undefined;
-    }
-    const liveList = captureOpenshell(["sandbox", "list"], {
-      ignoreError: true,
-      timeout: OPENSHELL_PROBE_TIMEOUT_MS,
-    });
-    if (liveList.status === 0 && !parseLiveSandboxNames(liveList.output).has(defaultSandbox)) {
-      console.error(
-        `${_RD}Warning:${R} default sandbox '${defaultSandbox}' exists in the local registry but not in OpenShell.`,
-      );
-      console.error(
-        `  Use ${B}--sandbox NAME${R} to target a specific sandbox, or run ${B}${CLI_NAME} onboard${R} again.\n`,
-      );
-      return undefined;
-    }
-    return defaultSandbox;
-  };
-  runDebugCommand(args, {
-    getDefaultSandbox,
-    runDebug,
-    log: console.log,
-    error: console.error,
-    exit: (code: number) => process.exit(code),
-  });
+async function debug(args: string[]): Promise<void> {
+  await runOclif("debug", args);
 }
 
-function uninstall(args: string[]) {
-  runUninstallCommand({
-    args,
-    rootDir: ROOT,
-    currentDir: __dirname,
-    remoteScriptUrl: REMOTE_UNINSTALL_URL,
-    env: process.env,
-    spawnSyncImpl: spawnSync,
-    log: console.log,
-    error: console.error,
-    exit: (code: number) => process.exit(code),
-  });
+async function uninstall(args: string[]): Promise<void> {
+  await runOclif("uninstall", args);
 }
 
 // Suffixes that mark a per-sandbox messaging integration in the gateway's
@@ -1433,116 +1372,8 @@ async function credentialsCommand(args: string[]): Promise<void> {
   process.exit(1);
 }
 
-/**
- * Inspect gateway logs for known Telegram conflict signatures without blocking
- * the broader status command when the probe cannot run.
- */
-function checkMessagingBridgeHealth(sandboxName: string, channels: string[]) {
-  // Only Telegram currently emits a recognizable conflict signature in the
-  // gateway log. Discord/Slack have similar single-consumer constraints but
-  // log differently; we can extend the regex when those patterns are known.
-  if (!Array.isArray(channels) || !channels.includes("telegram")) return [];
-  const { spawnSync } = require("child_process");
-  const script =
-    'tail -n 200 /tmp/gateway.log 2>/dev/null | grep -cE "getUpdates conflict|409[[:space:]:]+Conflict" || true';
-  try {
-    const result = spawnSync(
-      getOpenshellBinary(),
-      ["sandbox", "exec", "-n", sandboxName, "--", "sh", "-c", script],
-      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    const count = Number.parseInt((result.stdout || "").trim(), 10);
-    if (!Number.isFinite(count) || count === 0) return [];
-    return [{ channel: "telegram", conflicts: count }];
-  } catch {
-    return [];
-  }
-}
-
-function makeConflictProbe() {
-  // Upfront liveness check so we can distinguish "provider not attached" from
-  // "gateway unreachable". Without this, every non-zero `openshell provider
-  // get` collapses into "absent", and a transient gateway failure would
-  // persist messagingChannels: [] and permanently suppress future retries.
-  let gatewayAlive: boolean | null = null;
-  const isGatewayAlive = (): boolean => {
-    if (gatewayAlive === null) {
-      const result = captureOpenshell(["sandbox", "list"], {
-        ignoreError: true,
-        timeout: OPENSHELL_PROBE_TIMEOUT_MS,
-      });
-      gatewayAlive = result.status === 0;
-    }
-    return gatewayAlive;
-  };
-  return {
-    providerExists: (name: string) => {
-      if (!isGatewayAlive()) return "error";
-      const result = captureOpenshell(["provider", "get", name], {
-        ignoreError: true,
-        timeout: OPENSHELL_PROBE_TIMEOUT_MS,
-      });
-      return result.status === 0 ? "present" : "absent";
-    },
-  };
-}
-
-function backfillAndFindOverlaps() {
-  // Non-critical path: status must remain usable even if the gateway probe or
-  // registry write throws, so any failure yields an empty overlap list.
-  try {
-    const { backfillMessagingChannels, findAllOverlaps } = require("./lib/messaging-conflict");
-    backfillMessagingChannels(registry, makeConflictProbe());
-    return findAllOverlaps(registry);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Read a short tail of the gateway log for degraded messaging diagnostics.
- */
-function readGatewayLog(sandboxName: string) {
-  const { spawnSync } = require("child_process");
-  try {
-    const result = spawnSync(
-      getOpenshellBinary(),
-      [
-        "sandbox",
-        "exec",
-        "-n",
-        sandboxName,
-        "--",
-        "sh",
-        "-c",
-        "tail -n 10 /tmp/gateway.log 2>/dev/null",
-      ],
-      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    const output = (result.stdout || "").trim();
-    return output || null;
-  } catch {
-    return null;
-  }
-}
-
-function showStatus() {
-  const { showStatus: showServiceStatus } = require("./lib/services");
-  showStatusCommand({
-    listSandboxes: () => registry.listSandboxes(),
-    getLiveInference: () =>
-      parseGatewayInference(
-        captureOpenshell(["inference", "get"], {
-          ignoreError: true,
-          timeout: OPENSHELL_PROBE_TIMEOUT_MS,
-        }).output,
-      ),
-    showServiceStatus,
-    checkMessagingBridgeHealth,
-    backfillAndFindOverlaps,
-    readGatewayLog,
-    log: console.log,
-  });
+async function showStatus(args: string[] = []): Promise<void> {
+  await runOclif("status", args);
 }
 
 async function runOclif(commandId: string, args: string[] = []): Promise<void> {
@@ -4365,6 +4196,54 @@ function help() {
   console.log(lines.join("\n"));
 }
 
+function editDistance(left: string, right: string): number {
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let i = 0; i < rows; i++) matrix[i][0] = i;
+  for (let j = 0; j < cols; j++) matrix[0][j] = j;
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return matrix[left.length][right.length];
+}
+
+function suggestGlobalCommand(token: string): string | null {
+  let best: { command: string; distance: number } | null = null;
+  for (const command of GLOBAL_COMMANDS) {
+    if (command.startsWith("-")) continue;
+    const distance = editDistance(token, command);
+    if (!best || distance < best.distance) {
+      best = { command, distance };
+    }
+  }
+  if (!best) return null;
+  if (best.distance <= 1) return best.command;
+  if (token.length >= 5 && best.distance <= 2) return best.command;
+  return null;
+}
+
+function findRegisteredSandboxName(tokens: string[]): string | null {
+  const registered = new Set(
+    registry.listSandboxes().sandboxes.map((s: { name: string }) => s.name),
+  );
+  return tokens.find((token) => registered.has(token)) || null;
+}
+
+function printConnectOrderHint(candidate: string | null): void {
+  console.error(`  Command order is: ${CLI_NAME} <sandbox-name> connect`);
+  if (candidate) {
+    console.error(`  Did you mean: ${CLI_NAME} ${candidate} connect?`);
+  }
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -4399,28 +4278,22 @@ const [cmd, ...args] = process.argv.slice(2);
         await deploy(args[0]);
         break;
       case "start":
-        console.error(
-          `  ${YW}Deprecated:${R} '${CLI_NAME} start' is now '${CLI_NAME} tunnel start'. See '${CLI_NAME} help'.`,
-        );
-        await start();
+        await start(args);
         break;
       case "stop":
-        console.error(
-          `  ${YW}Deprecated:${R} '${CLI_NAME} stop' is now '${CLI_NAME} tunnel stop'. See '${CLI_NAME} help'.`,
-        );
-        stop();
+        await stop(args);
         break;
       case "tunnel":
         await tunnel(args);
         break;
       case "status":
-        showStatus();
+        await showStatus(args);
         break;
       case "debug":
-        debug(args);
+        await debug(args);
         break;
       case "uninstall":
-        uninstall(args);
+        await uninstall(args);
         break;
       case "credentials":
         await credentialsCommand(args);
@@ -4473,18 +4346,42 @@ const [cmd, ...args] = process.argv.slice(2);
     validateName(cmd, "sandbox name");
     await recoverRegistryEntries({ requestedSandboxName: cmd });
     if (!registry.getSandbox(cmd)) {
+      if (args.length === 0) {
+        const suggestion = suggestGlobalCommand(cmd);
+        if (suggestion) {
+          console.error(`  Unknown command: ${cmd}`);
+          console.error(`  Did you mean: ${CLI_NAME} ${suggestion}?`);
+          process.exit(1);
+        }
+      }
       console.error(`  Sandbox '${cmd}' does not exist.`);
       const allNames = registry.listSandboxes().sandboxes.map((s: { name: string }) => s.name);
       if (allNames.length > 0) {
         console.error("");
         console.error(`  Registered sandboxes: ${allNames.join(", ")}`);
         console.error(`  Run '${CLI_NAME} list' to see all sandboxes.`);
+        const reorderedCandidate =
+          args[0] === "connect" ? findRegisteredSandboxName(args.slice(1)) : null;
+        if (reorderedCandidate) {
+          console.error("");
+          printConnectOrderHint(reorderedCandidate);
+        }
       } else {
         console.error(`  Run '${CLI_NAME} onboard' to create one.`);
       }
       process.exit(1);
     }
   }
+
+  if (!registry.getSandbox(cmd)) {
+    const suggestion = suggestGlobalCommand(cmd);
+    if (suggestion) {
+      console.error(`  Unknown command: ${cmd}`);
+      console.error(`  Did you mean: ${CLI_NAME} ${suggestion}?`);
+      process.exit(1);
+    }
+  }
+
   const sandbox = registry.getSandbox(cmd);
   if (sandbox) {
     validateName(cmd, "sandbox name");
@@ -4513,25 +4410,13 @@ const [cmd, ...args] = process.argv.slice(2);
       case "destroy":
         await sandboxDestroy(cmd, actionArgs);
         break;
-      case "gateway-token": {
-        const { options: gatewayTokenOpts, unknown: gatewayTokenUnknown } =
-          parseGatewayTokenArgs(actionArgs);
-        if (gatewayTokenUnknown.length > 0) {
-          console.error(`  Unknown flag: ${gatewayTokenUnknown[0]}`);
-          console.error(`  Usage: ${CLI_NAME} <name> gateway-token [--quiet|-q]`);
-          process.exit(1);
+      case "gateway-token":
+        if (actionArgs.includes("--help") || actionArgs.includes("-h")) {
+          console.log(`  Usage: ${CLI_NAME} <name> gateway-token [--quiet|-q]`);
+          break;
         }
-        // Suppress EPIPE traces when the consumer closes the pipe early
-        // (e.g. `... | head -c 0`). The token has already been written.
-        process.stdout.on("error", (err: NodeJS.ErrnoException) => {
-          if (err.code === "EPIPE") process.exit(0);
-        });
-        const exitCode = runGatewayTokenCommand(cmd, gatewayTokenOpts, {
-          fetchToken: fetchGatewayAuthTokenFromSandbox,
-        });
-        if (exitCode !== 0) process.exit(exitCode);
+        await runOclif("sandbox:gateway-token", [cmd, ...actionArgs]);
         break;
-      }
       case "skill":
         await sandboxSkillInstall(cmd, actionArgs);
         break;

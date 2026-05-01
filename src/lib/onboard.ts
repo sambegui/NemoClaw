@@ -22,6 +22,8 @@ function envInt(name: string, fallback: number): number {
 }
 /** Inference timeout (seconds) for local providers (Ollama, vLLM, NIM). */
 const LOCAL_INFERENCE_TIMEOUT_SECS = envInt("NEMOCLAW_LOCAL_INFERENCE_TIMEOUT", 180);
+/** Sandbox Ready wait after OpenShell create returns but k3s is still converging. */
+const SANDBOX_READY_TIMEOUT_SECS = envInt("NEMOCLAW_SANDBOX_READY_TIMEOUT", 180);
 
 let onboardBrandingAgent: string | null = null;
 
@@ -125,7 +127,13 @@ const {
   startOllamaAuthProxy,
 } = require("./onboard-ollama-proxy");
 const inferenceConfig: typeof import("./inference-config") = require("./inference-config");
-const { DEFAULT_CLOUD_MODEL, getProviderSelectionConfig, parseGatewayInference } = inferenceConfig;
+const {
+  DEFAULT_CLOUD_MODEL,
+  INFERENCE_ROUTE_URL,
+  MANAGED_PROVIDER_ID,
+  getProviderSelectionConfig,
+  parseGatewayInference,
+} = inferenceConfig;
 
 const onboardProviders = require("./onboard-providers");
 
@@ -1235,6 +1243,237 @@ function isInferenceRouteReady(provider: string, model: string): boolean {
   return Boolean(live && live.provider === provider && live.model === model);
 }
 
+function shouldRunCompatibleEndpointSandboxSmoke(
+  provider: string | null | undefined,
+  messagingChannels: string[] | null | undefined,
+  agent: AgentDefinition | null | undefined = null,
+): boolean {
+  const agentName = agent?.name || "openclaw";
+  return (
+    agentName === "openclaw" &&
+    provider === "compatible-endpoint" &&
+    Array.isArray(messagingChannels) &&
+    messagingChannels.length > 0
+  );
+}
+
+function spawnOutputToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value)) return value.toString("utf-8");
+  if (value == null) return "";
+  return String(value);
+}
+
+function buildCompatibleEndpointSandboxSmokeScript(model: string): string {
+  return `
+set -eu
+MODEL=${shellQuote(model)}
+CONFIG=/sandbox/.openclaw/openclaw.json
+
+python3 - "$CONFIG" "$MODEL" <<'PYCFG'
+import json
+import sys
+
+path = sys.argv[1]
+model = sys.argv[2]
+
+def die(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception as exc:
+    die("could not read openclaw.json: %s" % exc)
+
+providers = cfg.get("models", {}).get("providers", {})
+if not isinstance(providers, dict):
+    die("openclaw.json models.providers is not an object")
+if "deepinfra" in providers:
+    die("openclaw.json contains a direct deepinfra provider; expected managed inference provider")
+
+provider = providers.get("${MANAGED_PROVIDER_ID}")
+if not isinstance(provider, dict):
+    die("openclaw.json missing models.providers.${MANAGED_PROVIDER_ID}")
+if provider.get("baseUrl") != "${INFERENCE_ROUTE_URL}":
+    die("models.providers.${MANAGED_PROVIDER_ID}.baseUrl is %r; expected ${INFERENCE_ROUTE_URL}" % provider.get("baseUrl"))
+if provider.get("apiKey") != "unused":
+    die("models.providers.${MANAGED_PROVIDER_ID}.apiKey must remain the non-secret placeholder 'unused'")
+
+primary = cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+expected_primary = "${MANAGED_PROVIDER_ID}/" + model
+if primary != expected_primary:
+    die("agents.defaults.model.primary is %r; expected %r" % (primary, expected_primary))
+
+print("OPENCLAW_CONFIG_OK")
+PYCFG
+
+payload_file="$(mktemp)"
+response_file="$(mktemp)"
+error_file="$(mktemp)"
+trap 'rm -f "$payload_file" "$response_file" "$error_file"' EXIT
+
+python3 - "$MODEL" >"$payload_file" <<'PYPAYLOAD'
+import json
+import sys
+
+model = sys.argv[1]
+print(json.dumps({
+    "model": model,
+    "messages": [
+        {"role": "user", "content": "Reply with exactly: PONG"}
+    ],
+    "max_tokens": 32,
+}))
+PYPAYLOAD
+
+curl -sS --connect-timeout 10 --max-time 60 \
+    "${INFERENCE_ROUTE_URL}/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "@$payload_file" >"$response_file" 2>"$error_file" || {
+  rc=$?
+  printf 'curl exit %s: ' "$rc" >&2
+  cat "$error_file" >&2
+  exit "$rc"
+}
+
+python3 - "$response_file" <<'PYRESP'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception as exc:
+    body = ""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            body = f.read(1000)
+    except Exception:
+        pass
+    print("inference.local returned non-JSON response: %s; body=%s" % (exc, body), file=sys.stderr)
+    sys.exit(1)
+
+content = (
+    data.get("choices", [{}])[0]
+    .get("message", {})
+    .get("content")
+)
+if not isinstance(content, str) or not content.strip():
+    print("inference.local response did not contain choices[0].message.content: %s" % json.dumps(data)[:1000], file=sys.stderr)
+    sys.exit(1)
+
+print("INFERENCE_SMOKE_OK " + content.strip()[:200])
+PYRESP
+`.trim();
+}
+
+function buildCompatibleEndpointSandboxSmokeCommand(model: string): string {
+  const script = buildCompatibleEndpointSandboxSmokeScript(model);
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  return [
+    'tmp="$(mktemp)"',
+    'trap \'rm -f "$tmp"\' EXIT',
+    `python3 -c 'import base64, pathlib, sys; pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(sys.argv[2]))' "$tmp" ${shellQuote(encoded)}`,
+    'sh "$tmp"',
+  ].join("; ");
+}
+
+function verifyCompatibleEndpointSandboxSmoke(options: {
+  sandboxName: string;
+  provider: string;
+  model: string;
+  endpointUrl?: string | null;
+  credentialEnv?: string | null;
+  messagingChannels?: string[] | null;
+  agent?: AgentDefinition | null;
+}): void {
+  if (
+    !shouldRunCompatibleEndpointSandboxSmoke(
+      options.provider,
+      options.messagingChannels,
+      options.agent,
+    )
+  ) {
+    return;
+  }
+
+  console.log("  Verifying compatible endpoint through the messaging sandbox...");
+
+  const providerResult = runOpenshell(["provider", "get", options.provider], {
+    ignoreError: true,
+    suppressOutput: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const providerDetails = [
+    spawnOutputToString(providerResult.stdout),
+    spawnOutputToString(providerResult.stderr),
+  ]
+    .join("\n")
+    .trim();
+
+  if (providerResult.status !== 0) {
+    console.error(
+      `  Compatible endpoint provider '${options.provider}' is missing from the OpenShell gateway.`,
+    );
+    console.error(
+      "  The sandbox would start Telegram, but agent turns would fail before reaching the model.",
+    );
+    if (providerDetails) console.error(`  ${compactText(redact(providerDetails)).slice(0, 800)}`);
+    process.exit(providerResult.status || 1);
+  }
+
+  if (
+    options.endpointUrl &&
+    providerDetails &&
+    /OPENAI_BASE_URL|baseUrl|base URL|endpoint/i.test(providerDetails) &&
+    !providerDetails.includes(options.endpointUrl)
+  ) {
+    console.warn(
+      `  ⚠ Gateway provider '${options.provider}' did not report the selected endpoint URL.`,
+    );
+    console.warn("    Continuing to the sandbox-side inference.local smoke check.");
+  }
+  if (
+    options.credentialEnv &&
+    providerDetails &&
+    /credential|api key|secret/i.test(providerDetails) &&
+    !providerDetails.includes(options.credentialEnv)
+  ) {
+    console.warn(
+      `  ⚠ Gateway provider '${options.provider}' did not report ${options.credentialEnv}.`,
+    );
+  }
+
+  const script = buildCompatibleEndpointSandboxSmokeCommand(options.model);
+  const smokeResult = runOpenshell(
+    ["sandbox", "exec", "-n", options.sandboxName, "--", "sh", "-lc", script],
+    {
+      ignoreError: true,
+      suppressOutput: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 90_000,
+    },
+  );
+  const smokeOutput = [
+    spawnOutputToString(smokeResult.stdout),
+    spawnOutputToString(smokeResult.stderr),
+  ]
+    .join("\n")
+    .trim();
+
+  if (smokeResult.status !== 0 || !/INFERENCE_SMOKE_OK/.test(smokeOutput)) {
+    console.error("  Compatible endpoint sandbox smoke check failed.");
+    console.error("  Telegram provider startup is not the root cause; inference.local failed.");
+    if (smokeOutput) console.error(`  ${compactText(redact(smokeOutput)).slice(0, 1200)}`);
+    process.exit(smokeResult.status || 1);
+  }
+
+  console.log("  ✓ Compatible endpoint responds through inference.local inside the sandbox");
+}
+
 function sandboxExistsInGateway(sandboxName: string): boolean {
   const output = runCaptureOpenshell(["sandbox", "get", sandboxName], { ignoreError: true });
   return Boolean(output);
@@ -1618,10 +1857,13 @@ function verifyWebSearchInsideSandbox(
     if (agentName === "hermes") {
       // `hermes dump` outputs config_overrides and active toolsets.
       // Look for the web backend in its output.
-      const dump = runCaptureOpenshell(["sandbox", "exec", sandboxName, "hermes", "dump"], {
-        ignoreError: true,
-        timeout: 10_000,
-      });
+      const dump = runCaptureOpenshell(
+        ["sandbox", "exec", "-n", sandboxName, "--", "hermes", "dump"],
+        {
+          ignoreError: true,
+          timeout: 10_000,
+        },
+      );
       if (!dump) {
         console.warn("  ⚠ Could not verify web search config inside sandbox (hermes dump failed).");
         return;
@@ -1644,7 +1886,7 @@ function verifyWebSearchInsideSandbox(
     } else if (agentName === "openclaw") {
       // OpenClaw: verify tools.web.search block exists in the baked config.
       const configCheck = runCaptureOpenshell(
-        ["sandbox", "exec", sandboxName, "cat", "/sandbox/.openclaw/openclaw.json"],
+        ["sandbox", "exec", "-n", sandboxName, "--", "cat", "/sandbox/.openclaw/openclaw.json"],
         { ignoreError: true, timeout: 10_000 },
       );
       if (!configCheck) {
@@ -2152,7 +2394,8 @@ function isOpenshellInstalled(): boolean {
 }
 
 function getFutureShellPathHint(binDir: string, pathValue = process.env.PATH || ""): string | null {
-  if (String(pathValue).split(path.delimiter).includes(binDir)) {
+  const parts = String(pathValue).split(path.delimiter).filter(Boolean);
+  if (parts[0] === binDir) {
     return null;
   }
   return `export PATH="${binDir}:$PATH"`;
@@ -2201,6 +2444,9 @@ function installOpenshell(): {
     process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
   }
   OPENSHELL_BIN = resolveOpenshell();
+  if (OPENSHELL_BIN) {
+    process.env.NEMOCLAW_OPENSHELL_BIN = OPENSHELL_BIN;
+  }
   return {
     installed: OPENSHELL_BIN !== null,
     localBin,
@@ -2235,6 +2481,33 @@ function getGatewayClusterContainerState(): string {
     .trim()
     .toLowerCase();
   return state || "missing";
+}
+
+function parseGatewayClusterImageVersion(imageRef: string | null | undefined): string | null {
+  const match = String(imageRef || "").match(/openshell\/cluster:([0-9]+\.[0-9]+\.[0-9]+)/);
+  return match ? match[1] : null;
+}
+
+function getGatewayClusterImageRef(): string | null {
+  const containerName = getGatewayClusterContainerName();
+  const imageRef = dockerContainerInspectFormat("{{.Config.Image}}", containerName, {
+    ignoreError: true,
+  }).trim();
+  return imageRef || null;
+}
+
+function getGatewayClusterImageDrift(): {
+  currentImage: string;
+  currentVersion: string;
+  expectedVersion: string;
+} | null {
+  const expectedVersion = getInstalledOpenshellVersion();
+  const currentImage = getGatewayClusterImageRef();
+  const currentVersion = parseGatewayClusterImageVersion(currentImage);
+  if (!expectedVersion || !currentImage || !currentVersion || currentVersion === expectedVersion) {
+    return null;
+  }
+  return { currentImage, currentVersion, expectedVersion };
 }
 
 function getGatewayHealthWaitConfig(_startStatus = 0, containerState = "") {
@@ -2792,6 +3065,18 @@ async function preflight(): Promise<ReturnType<typeof nim.detectGpu>> {
       console.log(
         "  Warning: could not verify gateway container state (Docker may be unavailable). Proceeding with cached health status.",
       );
+    } else {
+      const imageDrift = getGatewayClusterImageDrift();
+      if (imageDrift) {
+        console.log(
+          `  Gateway image ${imageDrift.currentVersion} does not match openshell ${imageDrift.expectedVersion}. Recreating...`,
+        );
+        stopAllDashboardForwards();
+        destroyGateway();
+        registry.clearAll();
+        gatewayReuseState = "missing";
+        console.log("  ✓ Previous gateway cleaned up");
+      }
     }
   }
 
@@ -3365,15 +3650,97 @@ const RESERVED_SANDBOX_NAMES = new Set([
   "help",
 ]);
 
-async function promptValidatedSandboxName() {
+function normalizeSandboxAgentName(agentName: string | null | undefined): string {
+  const trimmed = typeof agentName === "string" ? agentName.trim() : "";
+  return trimmed && trimmed !== "openclaw" ? trimmed : "openclaw";
+}
+
+const UNKNOWN_SANDBOX_AGENT_NAME = "unknown";
+
+function getRequestedSandboxAgentName(agent: AgentDefinition | null | undefined): string {
+  return normalizeSandboxAgentName(agent?.name);
+}
+
+function formatSandboxAgentName(agentName: string | null | undefined): string {
+  const normalized = normalizeSandboxAgentName(agentName);
+  if (normalized === "openclaw") return "OpenClaw";
+  if (normalized === "hermes") return "Hermes";
+  return normalized;
+}
+
+function getDefaultSandboxNameForAgent(agent: AgentDefinition | null | undefined): string {
+  return getRequestedSandboxAgentName(agent) === "hermes" ? "hermes" : "my-assistant";
+}
+
+function getSandboxPromptDefault(agent: AgentDefinition | null | undefined): string {
+  return getDefaultSandboxNameForAgent(agent);
+}
+
+function getEffectiveSandboxAgent(agent: AgentDefinition | null | undefined): AgentDefinition {
+  return agent || agentDefs.loadAgent("openclaw");
+}
+
+function getSandboxAgentRegistryFields(
+  agent: AgentDefinition | null | undefined,
+  agentVersionKnown = true,
+): Pick<SandboxEntry, "agent" | "agentVersion"> {
+  const effectiveAgent = getEffectiveSandboxAgent(agent);
+  const agentName = normalizeSandboxAgentName(effectiveAgent.name);
+  return {
+    agent: agentName === "openclaw" ? null : agentName,
+    agentVersion: agentVersionKnown ? effectiveAgent.expectedVersion || null : null,
+  };
+}
+
+function getSandboxAgentDrift(
+  sandboxName: string,
+  requestedAgentName: string,
+): { changed: boolean; existingAgentName: string; requestedAgentName: string } {
+  const existingEntry: SandboxEntry | null = registry.getSandbox(sandboxName);
+  if (!existingEntry) {
+    return {
+      changed: true,
+      existingAgentName: UNKNOWN_SANDBOX_AGENT_NAME,
+      requestedAgentName,
+    };
+  }
+  const existingAgentName = normalizeSandboxAgentName(existingEntry?.agent);
+  return {
+    changed: existingAgentName !== requestedAgentName,
+    existingAgentName,
+    requestedAgentName,
+  };
+}
+
+function updateReusedSandboxMetadata(
+  sandboxName: string,
+  agent: AgentDefinition | null | undefined,
+  model: string,
+  provider: string,
+  dashboardPort: number,
+  selectionVerified = true,
+): void {
+  const existingEntry = registry.getSandbox(sandboxName);
+  const agentVersionKnown = existingEntry?.agentVersion !== null;
+  const selectionUpdates = selectionVerified ? { model, provider } : {};
+  registry.updateSandbox(sandboxName, {
+    ...selectionUpdates,
+    dashboardPort,
+    ...getSandboxAgentRegistryFields(agent, agentVersionKnown),
+  });
+  registry.setDefault(sandboxName);
+}
+
+async function promptValidatedSandboxName(agent: AgentDefinition | null = null) {
   const MAX_ATTEMPTS = 3;
+  const defaultSandboxName = getSandboxPromptDefault(agent);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const nameAnswer = await promptOrDefault(
-      "  Sandbox name (lowercase, starts with letter, hyphens ok) [my-assistant]: ",
+      `  Sandbox name (lowercase, starts with letter, hyphens ok) [${defaultSandboxName}]: `,
       "NEMOCLAW_SANDBOX_NAME",
-      "my-assistant",
+      defaultSandboxName,
     );
-    const sandboxName = (nameAnswer || "my-assistant").trim();
+    const sandboxName = (nameAnswer || defaultSandboxName).trim();
 
     try {
       const validatedSandboxName = validateName(sandboxName, "sandbox name");
@@ -3494,7 +3861,7 @@ async function createSandbox(
   step(6, 8, "Creating sandbox");
 
   const sandboxName = validateName(
-    sandboxNameOverride ?? (await promptValidatedSandboxName()),
+    sandboxNameOverride ?? (await promptValidatedSandboxName(agent)),
     "sandbox name",
   );
 
@@ -3647,6 +4014,43 @@ async function createSandbox(
 
   if (liveExists) {
     const existingSandboxState = getSandboxReuseState(sandboxName);
+    const requestedAgentName = getRequestedSandboxAgentName(agent);
+    const agentDrift = getSandboxAgentDrift(sandboxName, requestedAgentName);
+    let recreateForAgentDrift = agentDrift.changed && isRecreateSandbox();
+
+    if (agentDrift.changed && !isRecreateSandbox()) {
+      console.log(
+        `  Sandbox '${sandboxName}' already exists as ${formatSandboxAgentName(agentDrift.existingAgentName)}.`,
+      );
+      console.log(
+        `  ${cliDisplayName()} is onboarding ${formatSandboxAgentName(agentDrift.requestedAgentName)} for this sandbox name.`,
+      );
+      console.log("  Side-by-side agents are supported, but each sandbox name has one agent type.");
+      if (isNonInteractive()) {
+        console.error(
+          `  Aborting: choose a different name or set NEMOCLAW_RECREATE_SANDBOX=1 to recreate '${sandboxName}'.`,
+        );
+        console.error(
+          `  Example: ${cliName()} onboard --name ${getDefaultSandboxNameForAgent(agent)}`,
+        );
+        process.exit(1);
+      }
+      if (
+        await promptYesNoOrDefault(
+          `  Delete and recreate '${sandboxName}' as ${formatSandboxAgentName(agentDrift.requestedAgentName)}?`,
+          null,
+          false,
+        )
+      ) {
+        recreateForAgentDrift = true;
+      } else {
+        console.error("  Aborted. Existing sandbox left unchanged.");
+        console.error(
+          `  Re-run with a different name, for example: ${cliName()} onboard --name ${getDefaultSandboxNameForAgent(agent)}`,
+        );
+        process.exit(1);
+      }
+    }
 
     // Check whether messaging providers are missing from the gateway. Only
     // force recreation when at least one required provider doesn't exist yet —
@@ -3664,7 +4068,12 @@ async function createSandbox(
       ? detectMessagingCredentialRotation(sandboxName, messagingTokenDefs)
       : { changed: false, changedProviders: [] };
 
-    if (!isRecreateSandbox() && !needsProviderMigration && !credentialRotation.changed) {
+    if (
+      !isRecreateSandbox() &&
+      !recreateForAgentDrift &&
+      !needsProviderMigration &&
+      !credentialRotation.changed
+    ) {
       if (isNonInteractive()) {
         if (existingSandboxState === "ready") {
           if (confirmedSelectionDrift) {
@@ -3688,7 +4097,14 @@ async function createSandbox(
             }
             const reusedPort = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort}`;
-            registry.updateSandbox(sandboxName, { dashboardPort: reusedPort });
+            updateReusedSandboxMetadata(
+              sandboxName,
+              agent,
+              model,
+              provider,
+              reusedPort,
+              !selectionDrift.unknown,
+            );
             return sandboxName;
           }
         } else {
@@ -3717,7 +4133,14 @@ async function createSandbox(
             upsertMessagingProviders(messagingTokenDefs);
             const reusedPort2 = ensureDashboardForward(sandboxName, chatUiUrl);
             process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort2}`;
-            registry.updateSandbox(sandboxName, { dashboardPort: reusedPort2 });
+            updateReusedSandboxMetadata(
+              sandboxName,
+              agent,
+              model,
+              provider,
+              reusedPort2,
+              !selectionDrift.unknown,
+            );
             return sandboxName;
           }
         }
@@ -3757,7 +4180,14 @@ async function createSandbox(
           }
           const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
           process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
-          registry.updateSandbox(sandboxName, { dashboardPort: reusedPort3 });
+          updateReusedSandboxMetadata(
+            sandboxName,
+            agent,
+            model,
+            provider,
+            reusedPort3,
+            !selectionDrift.unknown,
+          );
           return sandboxName;
         }
       } catch (err) {
@@ -3775,12 +4205,23 @@ async function createSandbox(
         }
         const reusedPort4 = ensureDashboardForward(sandboxName, chatUiUrl);
         process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort4}`;
-        registry.updateSandbox(sandboxName, { dashboardPort: reusedPort4 });
+        updateReusedSandboxMetadata(
+          sandboxName,
+          agent,
+          model,
+          provider,
+          reusedPort4,
+          !selectionDrift.unknown,
+        );
         return sandboxName;
       }
     }
 
-    if (needsProviderMigration) {
+    if (recreateForAgentDrift) {
+      note(
+        `  Sandbox '${sandboxName}' exists as ${formatSandboxAgentName(agentDrift.existingAgentName)} — recreating as ${formatSandboxAgentName(agentDrift.requestedAgentName)}.`,
+      );
+    } else if (needsProviderMigration) {
       console.log(`  Sandbox '${sandboxName}' exists but messaging providers are not attached.`);
       console.log("  Recreating to ensure credentials flow through the provider pipeline.");
     } else if (confirmedSelectionDrift) {
@@ -4178,13 +4619,14 @@ async function createSandbox(
   // causes "sandbox not found" on every subsequent connect/status call.
   console.log("  Waiting for sandbox to become ready...");
   let ready = false;
-  for (let i = 0; i < 30; i++) {
+  const readyAttempts = Math.max(1, Math.ceil(SANDBOX_READY_TIMEOUT_SECS / 2));
+  for (let i = 0; i < readyAttempts; i++) {
     const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
     if (isSandboxReady(list, sandboxName)) {
       ready = true;
       break;
     }
-    sleep(2);
+    if (i < readyAttempts - 1) sleep(2);
   }
 
   if (!ready) {
@@ -4192,7 +4634,9 @@ async function createSandbox(
     // name doesn't fail on "sandbox already exists".
     const delResult = runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
     console.error("");
-    console.error(`  Sandbox '${sandboxName}' was created but did not become ready within 60s.`);
+    console.error(
+      `  Sandbox '${sandboxName}' was created but did not become ready within ${SANDBOX_READY_TIMEOUT_SECS}s.`,
+    );
     if (delResult.status === 0) {
       console.error("  The orphaned sandbox has been removed — you can safely retry.");
     } else {
@@ -4213,7 +4657,9 @@ async function createSandbox(
       [
         "sandbox",
         "exec",
+        "-n",
         sandboxName,
+        "--",
         "curl",
         "-sf",
         `http://localhost:${effectiveDashboardPort}/`,
@@ -4257,7 +4703,6 @@ async function createSandbox(
   process.env.CHAT_UI_URL = chatUiUrl;
 
   // Register only after confirmed ready — prevents phantom entries
-  const effectiveAgent = agent || agentDefs.loadAgent("openclaw");
   const providerCredentialHashes: Record<string, string> = {};
   for (const { envKey, token } of messagingTokenDefs) {
     const hash = token ? hashCredential(token) : null;
@@ -4266,9 +4711,7 @@ async function createSandbox(
     }
   }
   // openshell tags images with seconds; buildId is ms. Parse actual tag from output. Fixes #2672.
-  const builtImageMatch = createResult.output.match(
-    /Built image (openshell\/sandbox-from:\d+)/,
-  );
+  const builtImageMatch = createResult.output.match(/Built image (openshell\/sandbox-from:\d+)/);
   if (!builtImageMatch) {
     console.warn(
       "  Warning: could not parse image tag from build output; imageTag may be stale. Run 'nemoclaw gc' if destroy fails.",
@@ -4283,8 +4726,7 @@ async function createSandbox(
     model: model || null,
     provider: provider || null,
     gpuEnabled: !!gpu,
-    agent: agent ? agent.name : null,
-    agentVersion: fromDockerfile ? null : effectiveAgent.expectedVersion || null,
+    ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
     imageTag: resolvedImageTag,
     providerCredentialHashes:
       Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
@@ -4292,6 +4734,7 @@ async function createSandbox(
     disabledChannels: disabledChannels.length > 0 ? [...disabledChannels] : undefined,
     dashboardPort: actualDashboardPort,
   });
+  registry.setDefault(sandboxName);
 
   // Restore workspace state if we backed it up during credential rotation.
   if (pendingStateRestore?.success && pendingStateRestore.manifest) {
@@ -5633,6 +6076,11 @@ const MESSAGING_CHANNELS = listChannels();
 const TELEGRAM_NETWORK_CURL_CODES = new Set([6, 7, 28, 35, 52, 56]);
 
 async function checkTelegramReachability(token: string) {
+  if (process.env.NEMOCLAW_SKIP_TELEGRAM_REACHABILITY === "1") {
+    note("  [non-interactive] Skipping Telegram reachability probe by request.");
+    return;
+  }
+
   const result = runCurlProbe([
     "-sS",
     "--connect-timeout",
@@ -6851,6 +7299,49 @@ function findDashboardForwardOwner(
   return portLine ? (portLine.split(/\s+/)[0] ?? null) : null;
 }
 
+function findForwardEntry(
+  forwardListOutput: string | null | undefined,
+  port: string,
+): { sandboxName: string; status: string } | null {
+  if (!forwardListOutput) return null;
+  for (const line of forwardListOutput.split("\n")) {
+    if (/^\s*SANDBOX\s/i.test(line)) continue;
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 3 || parts[2] !== port) continue;
+    return {
+      sandboxName: parts[0] || "",
+      status: (parts[4] || "").toLowerCase(),
+    };
+  }
+  return null;
+}
+
+function isLiveForwardStatus(status: string): boolean {
+  return status === "running" || status === "active";
+}
+
+function getRunningForwardPorts(forwardListOutput: string | null | undefined): string[] {
+  const ports = new Set<string>();
+  if (!forwardListOutput) return [];
+  for (const line of forwardListOutput.split("\n")) {
+    if (/^\s*SANDBOX\s/i.test(line)) continue;
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || !/^\d+$/.test(parts[2])) continue;
+    const status = (parts[4] || "").toLowerCase();
+    if (isLiveForwardStatus(status)) {
+      ports.add(parts[2]);
+    }
+  }
+  return [...ports];
+}
+
+function stopAllDashboardForwards(): void {
+  const forwardList = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+  for (const port of getRunningForwardPorts(forwardList)) {
+    runOpenshell(["forward", "stop", port], { ignoreError: true });
+  }
+}
+
 /**
  * Parse `openshell forward list` output into a Map<port, sandboxName>.
  * Only includes running forwards — stopped/stale entries are ignored so
@@ -6868,7 +7359,7 @@ function getOccupiedPorts(forwardListOutput: string | null): Map<string, string>
     // parts: [sandbox, bind, port, pid, status...]
     if (parts.length < 3 || !/^\d+$/.test(parts[2])) continue;
     const status = (parts[4] || "").toLowerCase();
-    if (status !== "running") continue;
+    if (!isLiveForwardStatus(status)) continue;
     occupied.set(parts[2], parts[0]);
   }
   return occupied;
@@ -6974,7 +7465,15 @@ function ensureDashboardForward(
 ): number {
   const { rollbackSandboxOnFailure = false } = options;
   const preferredPort = Number(getDashboardForwardPort(chatUiUrl));
-  const existingForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+  let existingForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+  const preferredEntry = findForwardEntry(existingForwards, String(preferredPort));
+  if (
+    preferredEntry &&
+    (preferredEntry.sandboxName === sandboxName || !isLiveForwardStatus(preferredEntry.status))
+  ) {
+    runOpenshell(["forward", "stop", String(preferredPort)], { ignoreError: true });
+    existingForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+  }
   let actualPort: number;
   try {
     actualPort = findAvailableDashboardPort(sandboxName, preferredPort, existingForwards);
@@ -7023,6 +7522,17 @@ function ensureDashboardForward(
     console.warn(`  Free the port, then reconnect: ${cliName()} ${sandboxName} connect`);
   }
   return actualPort;
+}
+
+function ensureAgentDashboardForward(
+  sandboxName: string,
+  agent: { forwardPort?: number | null },
+): number {
+  const agentDashboardPort = agent.forwardPort ?? CONTROL_UI_PORT;
+  const agentDashboardUrl = `http://127.0.0.1:${agentDashboardPort}`;
+  const actualAgentDashboardPort = ensureDashboardForward(sandboxName, agentDashboardUrl);
+  process.env.CHAT_UI_URL = `http://127.0.0.1:${actualAgentDashboardPort}`;
+  return actualAgentDashboardPort;
 }
 
 function findOpenclawJsonPath(dir: string): string | null {
@@ -7737,6 +8247,18 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         console.log(
           "  Warning: could not verify gateway container state (Docker may be unavailable). Proceeding with cached health status.",
         );
+      } else {
+        const imageDrift = getGatewayClusterImageDrift();
+        if (imageDrift) {
+          console.log(
+            `  Gateway image ${imageDrift.currentVersion} does not match openshell ${imageDrift.expectedVersion}. Recreating...`,
+          );
+          stopAllDashboardForwards();
+          destroyGateway();
+          registry.clearAll();
+          gatewayReuseState = "missing";
+          console.log("  ✓ Previous gateway cleaned up");
+        }
       }
     }
 
@@ -7839,7 +8361,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       // for provider/model above and sees this gate again with the new config.
       // See #2221 (CodeRabbit).
       if (!sandboxName) {
-        sandboxName = await promptValidatedSandboxName();
+        sandboxName = await promptValidatedSandboxName(agent);
       }
       console.log(
         formatOnboardConfigSummary({
@@ -7971,7 +8493,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       // Persist model and provider after the sandbox entry exists in the registry.
       // updateSandbox() silently no-ops when the entry is missing, so this must
       // run after createSandbox() / registerSandbox() — not before. Fixes #1881.
-      registry.updateSandbox(sandboxName, { model, provider });
+      registry.updateSandbox(sandboxName, {
+        model,
+        provider,
+        ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
+      });
+      registry.setDefault(sandboxName);
       onboardSession.markStepComplete(
         "sandbox",
         toSessionUpdates({ sandboxName, provider, model, nimContainer, webSearchConfig }),
@@ -7999,6 +8526,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         startRecordedStep,
         skippedStepMessage,
       });
+      ensureAgentDashboardForward(sandboxName, agent);
       onboardSession.markStepSkipped("openclaw");
     } else {
       const resumeOpenclaw = resume && sandboxName && isOpenclawReady(sandboxName);
@@ -8026,6 +8554,16 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const recordedMessagingChannels = Array.isArray(latestSession?.messagingChannels)
       ? latestSession.messagingChannels
       : [];
+    const activeMessagingChannels = registry.getSandbox(sandboxName)?.messagingChannels;
+    verifyCompatibleEndpointSandboxSmoke({
+      sandboxName,
+      provider,
+      model,
+      endpointUrl,
+      credentialEnv,
+      messagingChannels: Array.isArray(activeMessagingChannels) ? activeMessagingChannels : [],
+      agent,
+    });
     const resumePolicies =
       resume && sandboxName && arePolicyPresetsApplied(sandboxName, recordedPolicyPresets || []);
     if (resumePolicies) {
@@ -8070,6 +8608,10 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       );
     }
 
+    if (agent) {
+      ensureAgentDashboardForward(sandboxName, agent);
+    }
+
     onboardSession.completeSession(toSessionUpdates({ sandboxName, provider, model }));
     completed = true;
     // Onboarding finished successfully. Delete the legacy plaintext
@@ -8103,6 +8645,8 @@ module.exports = {
   buildOrphanedSandboxRollbackMessage,
   buildProviderArgs,
   buildGatewayBootstrapSecretsScript,
+  buildCompatibleEndpointSandboxSmokeCommand,
+  buildCompatibleEndpointSandboxSmokeScript,
   buildSandboxConfigSyncScript,
   compactText,
   copyBuildContextDir,
@@ -8170,6 +8714,7 @@ module.exports = {
   readRecordedNimContainer,
   formatOnboardConfigSummary,
   isInferenceRouteReady,
+  shouldRunCompatibleEndpointSandboxSmoke,
   isNonInteractive,
   isOpenclawReady,
   arePolicyPresetsApplied,
@@ -8186,6 +8731,10 @@ module.exports = {
   upsertProvider,
   hashCredential,
   detectMessagingCredentialRotation,
+  getDefaultSandboxNameForAgent,
+  getSandboxPromptDefault,
+  getRequestedSandboxAgentName,
+  normalizeSandboxAgentName,
   hydrateCredentialEnv,
   pruneKnownHostsEntries,
   shouldIncludeBuildContextPath,
@@ -8197,4 +8746,5 @@ module.exports = {
   getValidationProbeCurlArgs,
   checkTelegramReachability,
   TELEGRAM_NETWORK_CURL_CODES,
+  verifyCompatibleEndpointSandboxSmoke,
 };

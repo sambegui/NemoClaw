@@ -1,32 +1,12 @@
----
-title:
-  page: "Set Up Telegram with NemoClaw and OpenShell"
-  nav: "Set Up Telegram"
-description:
-  main: "Connect Telegram to your sandboxed OpenClaw agent using OpenShell-managed channel messaging configured during onboarding."
-  agent: "Explains how Telegram reaches the sandboxed OpenClaw agent through OpenShell-managed processes and onboarding-time channel configuration. Use when setting up Telegram, a chat interface, or messaging integration without relying on nemoclaw tunnel start for bridges."
-keywords: ["nemoclaw telegram", "telegram bot openclaw agent", "openshell channel messaging"]
-topics: ["generative_ai", "ai_agents"]
-tags: ["openclaw", "openshell", "telegram", "deployment", "nemoclaw"]
-content:
-  type: how_to
-  difficulty: intermediate
-  audience: ["developer", "engineer"]
-status: published
----
-
-<!--
-  SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-  SPDX-License-Identifier: Apache-2.0
--->
-
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Set Up Telegram
 
 Telegram, Discord, and Slack reach your agent through OpenShell-managed processes and gateway constructs.
 NemoClaw configures those channels during `nemoclaw onboard`. Tokens are registered with OpenShell providers, channel configuration is baked into the sandbox image, and runtime delivery stays under OpenShell control.
 
 `nemoclaw tunnel start` does not start Telegram (or other chat bridges). It only starts optional host services such as the cloudflared tunnel when that binary is present. (`nemoclaw start` is kept as a deprecated alias.)
-For details, refer to [Commands](../reference/commands.md).
+For details, refer to Commands (use the `nemoclaw-user-reference` skill).
 
 ## Prerequisites
 
@@ -79,12 +59,12 @@ Telegram, Discord, and Slack each allow only one active consumer per bot token.
 If you enable a messaging channel and another sandbox already uses the same token, onboard prompts you to confirm before continuing in interactive mode and exits non-zero in non-interactive mode.
 `nemoclaw status` also reports cross-sandbox overlaps so you can resolve duplicates before messages start dropping.
 
-For a full first-time flow, refer to [Quickstart](../get-started/quickstart.md).
+For a full first-time flow, refer to Quickstart (use the `nemoclaw-user-get-started` skill).
 
 ## Confirm Delivery
 
 After the sandbox is running, send a message to your bot in Telegram.
-If something fails, use `openshell term` on the host, check gateway logs, and verify network policy allows the Telegram API (see [Customize the Network Policy](../network-policy/customize-network-policy.md) and the `telegram` preset).
+If something fails, use `openshell term` on the host, check gateway logs, and verify network policy allows the Telegram API (see Customize the Network Policy (use the `nemoclaw-user-manage-policy` skill) and the `telegram` preset).
 
 ## `nemoclaw tunnel start` (cloudflared Only)
 
@@ -99,6 +79,6 @@ To pause the Telegram bridge without removing its credentials or destroying the 
 
 ## Related Topics
 
-- [Deploy NemoClaw to a Remote GPU Instance](deploy-to-remote-gpu.md) for remote deployment with messaging.
-- [Architecture](../reference/architecture.md) for how providers, the gateway, and the sandbox fit together.
-- [Commands](../reference/commands.md) for `tunnel start`, `tunnel stop`, `channels start`, `channels stop`, and `status`.
+- Deploy NemoClaw to a Remote GPU Instance (use the `nemoclaw-user-deploy-remote` skill) for remote deployment with messaging.
+- Architecture (use the `nemoclaw-user-reference` skill) for how providers, the gateway, and the sandbox fit together.
+- Commands (use the `nemoclaw-user-reference` skill) for `tunnel start`, `tunnel stop`, `channels start`, `channels stop`, and `status`.

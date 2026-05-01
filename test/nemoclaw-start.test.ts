@@ -35,6 +35,40 @@ function runtimeShellEnvShimBlock(src: string): string {
   return src.slice(start, end);
 }
 
+function nonRootFallbackBlock(src: string): string {
+  const start = src.indexOf("# ── Non-root fallback");
+  const end = src.indexOf("# ── Root path", start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  return src.slice(start, end);
+}
+
+function startScriptHeredoc(src: string, marker: string): string {
+  const match = src.match(new RegExp(`<<'${marker}'\\n([\\s\\S]*?)\\n${marker}`));
+  expect(match).toBeTruthy();
+  return match![1];
+}
+
+function runEmbeddedPreload(
+  script: string,
+  argv1: string,
+  argv2: string,
+  title = "node",
+): ReturnType<typeof spawnSync> {
+  return spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `process.env.OPENSHELL_SANDBOX = '1';
+process.title = ${JSON.stringify(title)};
+process.argv[1] = ${JSON.stringify(argv1)};
+process.argv[2] = ${JSON.stringify(argv2)};
+${script}`,
+    ],
+    { encoding: "utf-8" },
+  );
+}
+
 describe("nemoclaw-start non-root fallback", () => {
   it("detaches gateway output from sandbox create in non-root mode", () => {
     const src = fs.readFileSync(START_SCRIPT, "utf-8");
@@ -49,10 +83,9 @@ describe("nemoclaw-start non-root fallback", () => {
   it("exits on locked config integrity failure in non-root mode", () => {
     const src = fs.readFileSync(START_SCRIPT, "utf-8");
 
-    const nonRootBlock = src.match(/if \[ "\$\(id -u\)" -ne 0 \]; then([\s\S]*?)# ── Root path/);
-    expect(nonRootBlock).toBeTruthy();
+    const nonRootBlock = nonRootFallbackBlock(src);
     // Non-root block must call the locked-aware verifier and exit 1 on failure.
-    expect(nonRootBlock[1]).toMatch(/if ! verify_config_integrity_if_locked\b.*; then\s+.*exit 1/s);
+    expect(nonRootBlock).toMatch(/if ! verify_config_integrity_if_locked\b.*; then\s+.*exit 1/s);
     // Must not contain the old "proceeding anyway" fallback
     expect(src).not.toMatch(/proceeding anyway/i);
   });
@@ -75,9 +108,7 @@ describe("nemoclaw-start non-root fallback", () => {
     // Using ^fi$ would match the first nested fi inside helper functions,
     // truncating the block and including file-writing echo lines that
     // intentionally omit >&2 (e.g., proxy-env.sh generation).
-    const nonRootBlock = src.match(/if \[ "\$\(id -u\)" -ne 0 \]; then([\s\S]*?)# ── Root path/);
-    expect(nonRootBlock).toBeTruthy();
-    const block = nonRootBlock[1];
+    const block = nonRootFallbackBlock(src);
 
     // Only check top-level echo lines that are NOT inside { } > file redirects
     // or { } | emit_sandbox_sourced_file pipe patterns (proxy-env.sh, etc.)
@@ -108,6 +139,17 @@ describe("nemoclaw-start non-root fallback", () => {
     expect(src).toContain('set -- "${_raw_args[@]:$((_self_wrapper_index + 1))}"');
   });
 
+  it("executes explicit non-root commands before gateway startup setup", () => {
+    const src = fs.readFileSync(START_SCRIPT, "utf-8");
+    const block = nonRootFallbackBlock(src);
+
+    const commandExecIndex = block.indexOf("if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then");
+    expect(commandExecIndex).toBeGreaterThan(-1);
+    expect(commandExecIndex).toBeLessThan(block.indexOf("configure_messaging_channels"));
+    expect(commandExecIndex).toBeLessThan(block.indexOf("install_telegram_diagnostics"));
+    expect(commandExecIndex).toBeLessThan(block.indexOf("fix_openclaw_ownership"));
+  });
+
   it("repairs ownership for all writable OpenClaw state directories in non-root mode", () => {
     const src = fs.readFileSync(START_SCRIPT, "utf-8");
     const fn = src.match(/fix_openclaw_ownership\(\) \{([\s\S]*?)^\s*\}/m);
@@ -115,6 +157,58 @@ describe("nemoclaw-start non-root fallback", () => {
     for (const dir of ["workspace", "memory", "credentials", "flows", "telegram", "media"]) {
       expect(fn![1]).toContain(dir);
     }
+  });
+});
+
+describe("nemoclaw-start gateway preload process detection (#2478)", () => {
+  const src = fs.readFileSync(START_SCRIPT, "utf-8");
+  const safetyNetScript = startScriptHeredoc(src, "SAFETY_NET_EOF");
+  const ciaoGuardScript = startScriptHeredoc(src, "CIAO_GUARD_EOF");
+
+  it("activates the safety net for the re-execed openclaw-gateway child", () => {
+    const run = runEmbeddedPreload(safetyNetScript, "/usr/local/bin/openclaw-gateway", "--port");
+    expect(run.status).toBe(0);
+    expect(run.stderr).toContain("[sandbox-safety-net] loaded (openclaw-gateway)");
+  });
+
+  it("activates the ciao guard fallback for the re-execed openclaw-gateway child", () => {
+    const run = runEmbeddedPreload(ciaoGuardScript, "/usr/local/bin/openclaw-gateway", "--port");
+    expect(run.status).toBe(0);
+    expect(run.stderr).toContain("[guard] ciao-network-guard loaded (openclaw-gateway)");
+  });
+
+  it("still recognizes the openclaw gateway launcher path", () => {
+    const safetyNet = runEmbeddedPreload(safetyNetScript, "/usr/local/bin/openclaw", "gateway");
+    const ciaoGuard = runEmbeddedPreload(ciaoGuardScript, "/usr/local/bin/openclaw", "gateway");
+    expect(safetyNet.status).toBe(0);
+    expect(ciaoGuard.status).toBe(0);
+    expect(safetyNet.stderr).toContain("[sandbox-safety-net] loaded (launcher)");
+    expect(ciaoGuard.stderr).toContain("[guard] ciao-network-guard loaded (launcher)");
+  });
+
+  it("prefers the re-execed process title over launcher argv", () => {
+    const safetyNet = runEmbeddedPreload(
+      safetyNetScript,
+      "/usr/local/bin/openclaw",
+      "gateway",
+      "openclaw-gateway",
+    );
+    const ciaoGuard = runEmbeddedPreload(
+      ciaoGuardScript,
+      "/usr/local/bin/openclaw",
+      "gateway",
+      "openclaw-gateway",
+    );
+    expect(safetyNet.status).toBe(0);
+    expect(ciaoGuard.status).toBe(0);
+    expect(safetyNet.stderr).toContain("[sandbox-safety-net] loaded (openclaw-gateway)");
+    expect(ciaoGuard.stderr).toContain("[guard] ciao-network-guard loaded (openclaw-gateway)");
+  });
+
+  it("does not install the safety net for non-gateway CLI commands", () => {
+    const run = runEmbeddedPreload(safetyNetScript, "/usr/local/bin/openclaw", "agent");
+    expect(run.status).toBe(0);
+    expect(run.stderr).not.toContain("[sandbox-safety-net] loaded");
   });
 });
 
@@ -1042,5 +1136,113 @@ describe("Slack token rewriter (#2085)", () => {
     expect(run('{"appToken":"xapp-real-token"}\n')).toBe(0);
     expect(run('{"botToken":"xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN"}\n')).toBe(1);
     expect(run('{"token":"openshell:resolve:env:SLACK_BOT_TOKEN"}\n')).toBe(1);
+  });
+});
+
+describe("Telegram diagnostics (#2766)", () => {
+  const src = fs.readFileSync(START_SCRIPT, "utf-8");
+  const telegramDiagnosticsScript = startScriptHeredoc(src, "TELEGRAM_DIAGNOSTICS_EOF");
+
+  it("installs a Telegram diagnostics preload only when Telegram is configured", () => {
+    expect(src).toContain('_TELEGRAM_DIAGNOSTICS_SCRIPT="/tmp/nemoclaw-telegram-diagnostics.js"');
+    expect(src).toContain("install_telegram_diagnostics()");
+    expect(src).toContain("grep -q '\"telegram\"'");
+    expect(src).toContain(
+      'export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_TELEGRAM_DIAGNOSTICS_SCRIPT"',
+    );
+  });
+
+  it("logs provider readiness and inference-specific agent failures", () => {
+    expect(src).toContain("provider ready (Bot API reachable; agent replies use inference.local)");
+    expect(src).toContain("agent turn failed after provider startup; inference error:");
+    expect(src).toContain("LLM request failed");
+    expect(src).toContain("Embedded agent failed before reply");
+    expect(src).toContain(
+      "if (!/\\/(?:bot[^/]+\\/)?(?:getUpdates|getMe|getWebhookInfo)(?:\\?|$)/.test(info.path)) return;",
+    );
+    expect(src).toContain("var providerStarted = false;");
+    expect(src).toContain(
+      "if (!providerStarted && /\\[telegram\\] \\[default\\] starting provider\\b/i.test(text))",
+    );
+    expect(src).toContain(
+      "if (providerStarted && /Embedded agent failed before reply|LLM request failed|FailoverError/i.test(text))",
+    );
+  });
+
+  it("redacts colon-delimited Telegram-style token values in diagnostics", () => {
+    expect(src).toContain(
+      "/\\b(api[_-]?key|token|authorization)\\b([\"']?\\s*[:=]\\s*[\"']?)[^\"'\\s,)]+/gi",
+    );
+    expect(src).not.toContain(
+      '/(api[_-]?key|token|authorization)["\':\\s]+[A-Za-z0-9._~+\\/=-]+/gi',
+    );
+  });
+
+  it("emits provider readiness for successful Telegram Bot API startup probes", () => {
+    const run = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `
+const { EventEmitter } = require('node:events');
+const https = require('node:https');
+https.request = function () {
+  const req = new EventEmitter();
+  process.nextTick(() => req.emit('response', { statusCode: 200 }));
+  return req;
+};
+${telegramDiagnosticsScript}
+https.request('https://api.telegram.org/bot123456:SECRET/getMe');
+setTimeout(() => {}, 5);
+`,
+      ],
+      { encoding: "utf-8" },
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.stderr).toContain(
+      "[telegram] [default] provider ready (Bot API reachable; agent replies use inference.local)",
+    );
+  });
+
+  it("emits inference diagnostics only after provider startup and redacts token values", () => {
+    const run = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `
+${telegramDiagnosticsScript}
+process.stderr.write('LLM request failed: token=123456:BEFORE\\n');
+process.stderr.write('[telegram] [default] starting provider\\n');
+process.stderr.write('LLM request failed: token=123456:AFTER\\n');
+`,
+      ],
+      { encoding: "utf-8" },
+    );
+
+    expect(run.status).toBe(0);
+    const diagnosticLines = run.stderr
+      .split(/\r?\n/)
+      .filter((line) => line.includes("agent turn failed after provider startup"));
+    expect(diagnosticLines).toHaveLength(1);
+    expect(diagnosticLines[0]).toContain("token=<redacted>");
+    expect(diagnosticLines[0]).not.toContain("AFTER");
+  });
+
+  it("calls install_telegram_diagnostics in both entrypoint paths before gateway launch", () => {
+    const calls =
+      src.match(/configure_messaging_channels[\s\S]*?install_telegram_diagnostics/g) || [];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("validates the Telegram diagnostics preload permissions when present", () => {
+    const calls = src.match(/validate_tmp_permissions\s+.*"\$_TELEGRAM_DIAGNOSTICS_SCRIPT"/g) || [];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("connect-shell rc sources the diagnostics preload when present", () => {
+    expect(src).toMatch(
+      /\[ -f \\"\$_TELEGRAM_DIAGNOSTICS_SCRIPT\\" \].*--require \$_TELEGRAM_DIAGNOSTICS_SCRIPT/,
+    );
   });
 });

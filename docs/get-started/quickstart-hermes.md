@@ -12,6 +12,8 @@ content:
   type: get_started
   difficulty: technical_beginner
   audience: ["developer", "engineer"]
+skill:
+  priority: 20
 status: published
 ---
 
@@ -30,10 +32,8 @@ The Hermes agent option is experimental.
 Interfaces, defaults, and supported features may change without notice, and it is not recommended for production use.
 :::
 
-:::{note}
 Review the [Prerequisites](prerequisites.md) before starting.
 The first Hermes build can take several minutes because NemoClaw builds the Hermes sandbox base image if it is not already cached.
-:::
 
 ## Install and Onboard
 
@@ -166,5 +166,5 @@ $ nemohermes my-hermes destroy
 
 - [Inference Options](../inference/inference-options.md) to choose a provider and model.
 - [Commands](../reference/commands.md) to see the full `nemohermes` alias behavior.
-- [Backup and Restore](../workspace/backup-restore.md) to preserve sandbox state before destructive operations.
+- [Backup and Restore](../manage-sandboxes/backup-restore.md) to preserve sandbox state before destructive operations.
 - [Monitor Sandbox Activity](../monitoring/monitor-sandbox-activity.md) to inspect OpenShell events and sandbox logs.
