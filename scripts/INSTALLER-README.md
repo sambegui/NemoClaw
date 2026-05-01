@@ -19,6 +19,18 @@ A HuggingFace token is **required** for Nemotron and **strongly recommended** fo
 open-weight models — unauthenticated downloads from the HF Hub are rate-limited and a
 72B model can take 18+ minutes to download without one.
 
+## Helper scripts
+
+The repo ships two helper scripts in `scripts/`:
+
+| Script                  | Purpose                                                                 |
+|-------------------------|-------------------------------------------------------------------------|
+| `scripts/install.sh`    | Full installer — dependency check, model picker, vLLM, gateway, onboard |
+| `scripts/cleanup.sh`    | Tears down sandboxes, gateway, vLLM container; verifies GPU memory release. Pass `--all` to also purge cached HuggingFace model weights, `--yes` to skip the confirmation prompt |
+
+See [Teardown for Re-testing](#teardown-for-re-testing) for the full cleanup
+procedure.
+
 ---
 
 ## One-Time System Preparation
@@ -397,7 +409,15 @@ du -sh ~/.cache/huggingface/hub/models--*/ | sort -h
 
 ### Free up space
 
-The installer never deletes cached weights automatically. Remove a single model:
+The installer never deletes cached weights automatically. To purge **every** cached
+model in one shot (and tear down the rest of NemoClaw at the same time), use the
+helper script:
+
+```bash
+bash scripts/cleanup.sh --all
+```
+
+To remove a single model manually:
 
 ```bash
 rm -rf ~/.cache/huggingface/hub/models--Qwen--Qwen2.5-72B-Instruct
