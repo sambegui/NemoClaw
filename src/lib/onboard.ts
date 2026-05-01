@@ -1531,6 +1531,10 @@ function agentSupportsWebSearch(
   agent: AgentDefinition | null | undefined,
   dockerfilePathOverride: string | null = null,
 ): boolean {
+  if (!dockerfilePathOverride && agent?.onboardIntegrations?.webSearchSupported === false) {
+    return false;
+  }
+
   const candidates = [
     dockerfilePathOverride,
     agent?.dockerfilePath,
@@ -1548,6 +1552,30 @@ function agentSupportsWebSearch(
     }
   }
   return false;
+}
+
+function filterPolicyPresetsForAgent(
+  presets: string[],
+  agent: AgentDefinition | null | undefined,
+): string[] {
+  const supported = agent?.onboardIntegrations?.policyPresets;
+  if (!Array.isArray(supported) || supported.length === 0) {
+    return presets;
+  }
+  const allowed = new Set(supported);
+  return presets.filter((name) => allowed.has(name));
+}
+
+function filterPolicyPresetDefinitionsForAgent<T extends { name: string }>(
+  presets: T[],
+  agent: AgentDefinition | null | undefined,
+): T[] {
+  const supported = agent?.onboardIntegrations?.policyPresets;
+  if (!Array.isArray(supported) || supported.length === 0) {
+    return presets;
+  }
+  const allowed = new Set(supported);
+  return presets.filter((preset) => allowed.has(preset.name));
 }
 
 async function configureWebSearch(
@@ -6147,10 +6175,12 @@ function getSuggestedPolicyPresets({
   enabledChannels = null,
   webSearchConfig = null,
   provider = null,
+  agent = null,
 }: {
   enabledChannels?: string[] | null;
   webSearchConfig?: WebSearchConfig | null;
   provider?: string | null;
+  agent?: AgentDefinition | null;
 } = {}): string[] {
   const suggestions = ["pypi", "npm"];
 
@@ -6179,7 +6209,7 @@ function getSuggestedPolicyPresets({
 
   if (webSearchConfig) suggestions.push("brave");
 
-  return suggestions;
+  return filterPolicyPresetsForAgent(suggestions, agent);
 }
 
 // ── Step 7: OpenClaw ─────────────────────────────────────────────
@@ -6817,9 +6847,10 @@ function computeSetupPresetSuggestions(
     webSearchConfig?: WebSearchConfig | null;
     provider?: string | null;
     knownPresetNames?: string[] | null;
+    agent?: AgentDefinition | null;
   } = {},
 ): string[] {
-  const { enabledChannels = null, webSearchConfig = null, provider = null } = options;
+  const { enabledChannels = null, webSearchConfig = null, provider = null, agent = null } = options;
   const known = Array.isArray(options.knownPresetNames) ? new Set(options.knownPresetNames) : null;
   const suggestions = tiers.resolveTierPresets(tierName).map((p) => p.name);
   const add = (name: string) => {
@@ -6832,7 +6863,7 @@ function computeSetupPresetSuggestions(
   if (Array.isArray(enabledChannels)) {
     for (const channel of enabledChannels) add(channel);
   }
-  return suggestions;
+  return filterPolicyPresetsForAgent(suggestions, agent);
 }
 
 // eslint-disable-next-line complexity
@@ -6844,10 +6875,14 @@ async function setupPoliciesWithSelection(
     webSearchConfig?: WebSearchConfig | null;
     enabledChannels?: string[] | null;
     provider?: string | null;
+    agent?: AgentDefinition | null;
     knownPresetNames?: string[];
   } = {},
 ) {
-  const selectedPresets = Array.isArray(options.selectedPresets) ? options.selectedPresets : null;
+  const agent = options.agent || null;
+  const selectedPresets = Array.isArray(options.selectedPresets)
+    ? filterPolicyPresetsForAgent(options.selectedPresets, agent)
+    : null;
   const onSelection = typeof options.onSelection === "function" ? options.onSelection : null;
   const webSearchConfig = options.webSearchConfig || null;
   const enabledChannels = Array.isArray(options.enabledChannels) ? options.enabledChannels : null;
@@ -6855,7 +6890,7 @@ async function setupPoliciesWithSelection(
 
   step(8, 8, "Policy presets");
 
-  const allPresets = policies.listPresets();
+  const allPresets = filterPolicyPresetDefinitionsForAgent(policies.listPresets(), agent);
   const applied = policies.getAppliedPresets(sandboxName);
   let chosen = selectedPresets;
 
@@ -6878,6 +6913,7 @@ async function setupPoliciesWithSelection(
     enabledChannels,
     webSearchConfig,
     provider,
+    agent,
     knownPresetNames: allPresets.map((p) => p.name),
   });
 
@@ -8338,6 +8374,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
             : recordedMessagingChannels,
         webSearchConfig,
         provider,
+        agent,
         onSelection: (policyPresets) => {
           onboardSession.updateSession((current: Session) => {
             current.policyPresets = policyPresets;

@@ -49,6 +49,11 @@ export interface AgentLegacyPaths {
   plugin: string | null;
 }
 
+export interface AgentOnboardIntegrations {
+  webSearchSupported: boolean | null;
+  policyPresets: string[] | null;
+}
+
 export interface AgentDefinition {
   name: string;
   description?: string;
@@ -78,6 +83,7 @@ export interface AgentDefinition {
   readonly hasDevicePairing: boolean;
   readonly phoneHomeHosts: string[];
   readonly messagingPlatforms: string[];
+  readonly onboardIntegrations: AgentOnboardIntegrations;
   readonly dockerfileBasePath: string | null;
   readonly dockerfilePath: string | null;
   readonly startScriptPath: string | null;
@@ -214,6 +220,17 @@ function readMessagingPlatforms(record: ManifestRecord): { supported?: string[] 
   return supported ? { supported } : {};
 }
 
+function readOnboardIntegrations(record: ManifestRecord): AgentOnboardIntegrations {
+  const integrations = readObject(record, "onboard_integrations");
+  const webSearch = integrations ? readObject(integrations, "web_search") : undefined;
+  const policyPresets = integrations ? readObject(integrations, "policy_presets") : undefined;
+
+  return {
+    webSearchSupported: webSearch ? (readBoolean(webSearch, "supported") ?? null) : null,
+    policyPresets: policyPresets ? (readStringArray(policyPresets, "supported") ?? null) : null,
+  };
+}
+
 function loadManifestRecord(manifestPath: string): ManifestRecord {
   const parsed = yaml.load(fs.readFileSync(manifestPath, "utf8"));
   if (!isManifestRecord(parsed)) {
@@ -263,6 +280,7 @@ export function loadAgent(name: string): AgentDefinition {
   const stateDirs = readStringArray(raw, "state_dirs");
   const phoneHomeHosts = readStringArray(raw, "phone_home_hosts");
   const messagingPlatforms = readMessagingPlatforms(raw);
+  const onboardIntegrations = readOnboardIntegrations(raw);
   const legacyPathConfig = readStringMap(raw, "_legacy_paths");
 
   const agent: AgentDefinition = {
@@ -348,6 +366,10 @@ export function loadAgent(name: string): AgentDefinition {
 
     get messagingPlatforms(): string[] {
       return messagingPlatforms?.supported ?? [];
+    },
+
+    get onboardIntegrations(): AgentOnboardIntegrations {
+      return onboardIntegrations;
     },
 
     get dockerfileBasePath(): string | null {

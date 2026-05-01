@@ -27,6 +27,7 @@ function makeAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
     hasDevicePairing: false,
     phoneHomeHosts: [],
     messagingPlatforms: [],
+    onboardIntegrations: { webSearchSupported: null, policyPresets: null },
     dockerfileBasePath: null,
     dockerfilePath: null,
     startScriptPath: null,

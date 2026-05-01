@@ -44,7 +44,16 @@ type OnboardTestInternals = {
   buildSandboxConfigSyncScript: ShimFn<string>;
   classifySandboxCreateFailure: (output?: string) => { kind: string; uploadedToGateway: boolean };
   compactText: (value?: string) => string;
-  computeSetupPresetSuggestions: ShimFn<string[]>;
+  computeSetupPresetSuggestions: (
+    tierName: string,
+    options?: {
+      enabledChannels?: string[] | null;
+      webSearchConfig?: ShimValue;
+      provider?: string | null;
+      knownPresetNames?: string[] | null;
+      agent?: AgentDefinition | null;
+    },
+  ) => string[];
   formatEnvAssignment: (name: string, value: string) => string;
   findDashboardForwardOwner: (
     forwardListOutput: string | null | undefined,
@@ -76,7 +85,12 @@ type OnboardTestInternals = {
   } | null>;
   getSandboxStateFromOutputs: ShimFn<string>;
   getStableGatewayImageRef: (versionOutput?: string | null) => string | null;
-  getSuggestedPolicyPresets: ShimFn<string[]>;
+  getSuggestedPolicyPresets: (options?: {
+    enabledChannels?: string[] | null;
+    webSearchConfig?: ShimValue;
+    provider?: string | null;
+    agent?: AgentDefinition | null;
+  }) => string[];
   isGatewayHealthy: ShimFn<boolean>;
   classifyValidationFailure: ShimFn<ValidationClassification>;
   hasResponsesToolCall: (body?: string | null) => boolean;
@@ -315,6 +329,17 @@ describe("onboard helpers", () => {
     expect(getSuggestedPolicyPresets({})).not.toContain("local-inference");
   });
 
+  it("filters legacy policy suggestions through the selected agent's onboarding support", () => {
+    const hermes = loadAgent("hermes");
+    const presets = getSuggestedPolicyPresets({
+      agent: hermes,
+      enabledChannels: ["slack"],
+      webSearchConfig: { provider: "brave" },
+    });
+    expect(presets).toEqual(["pypi", "npm", "slack"]);
+    expect(presets).not.toContain("brave");
+  });
+
   describe("computeSetupPresetSuggestions", () => {
     const known = [
       "npm",
@@ -378,6 +403,23 @@ describe("onboard helpers", () => {
     it("still adds brave when webSearchConfig is provided", () => {
       const suggestions = computeSetupPresetSuggestions("restricted", {
         webSearchConfig: { provider: "brave" },
+        knownPresetNames: known,
+      });
+      expect(suggestions).toContain("brave");
+    });
+
+    it("does not suggest unsupported Brave policy access for Hermes", () => {
+      const suggestions = computeSetupPresetSuggestions("balanced", {
+        agent: loadAgent("hermes"),
+        knownPresetNames: known,
+      });
+      expect(suggestions).toEqual(["npm", "pypi", "huggingface", "brew"]);
+      expect(suggestions).not.toContain("brave");
+    });
+
+    it("keeps Brave policy access available for OpenClaw", () => {
+      const suggestions = computeSetupPresetSuggestions("balanced", {
+        agent: loadAgent("openclaw"),
         knownPresetNames: known,
       });
       expect(suggestions).toContain("brave");
@@ -1071,6 +1113,17 @@ describe("onboard helpers", () => {
     expect(agentSupportsWebSearch(null)).toBe(true);
     expect(agentSupportsWebSearch(loadAgent("openclaw"))).toBe(true);
     expect(agentSupportsWebSearch(loadAgent("hermes"))).toBe(false);
+  });
+
+  it("#2433: manifests describe per-agent onboarding integration support", () => {
+    const openclaw = loadAgent("openclaw");
+    const hermes = loadAgent("hermes");
+
+    expect(openclaw.onboardIntegrations.webSearchSupported).toBe(true);
+    expect(openclaw.onboardIntegrations.policyPresets).toContain("brave");
+    expect(hermes.onboardIntegrations.webSearchSupported).toBe(false);
+    expect(hermes.onboardIntegrations.policyPresets).toContain("slack");
+    expect(hermes.onboardIntegrations.policyPresets).not.toContain("brave");
   });
 
   it("#2433: agentSupportsWebSearch honors the effective custom Dockerfile", () => {

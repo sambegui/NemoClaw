@@ -87,6 +87,27 @@ messaging_platforms:
   # Future: whatsapp, signal, matrix, mattermost, email, etc.
   # Each needs a network policy entry before enabling.
 
+# ── Onboarding integrations ─────────────────────────────────────
+# Keep NemoClaw's install/onboard affordances honest per agent. Hermes has
+# native web tools, but v2026.4.23 supports Exa, Firecrawl, Parallel, and
+# Tavily backends rather than the Brave provider NemoClaw wires for OpenClaw.
+onboard_integrations:
+  web_search:
+    supported: false
+    reason: "Hermes v2026.4.23 web search does not support the Brave provider wired by NemoClaw onboarding."
+  policy_presets:
+    supported:
+      - npm
+      - pypi
+      - huggingface
+      - brew
+      - telegram
+      - discord
+      - slack
+      - jira
+      - outlook
+      - local-inference
+
 # ── Inference ───────────────────────────────────────────────────
 # Hermes supports custom OpenAI-compatible endpoints natively via
 # provider: "custom" + base_url in config.yaml. This is how we

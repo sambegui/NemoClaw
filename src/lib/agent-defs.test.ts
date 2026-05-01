@@ -48,6 +48,8 @@ describe("agent definitions", () => {
       format: "json",
     });
     expect(openclaw.messagingPlatforms).toEqual(["telegram", "discord", "slack"]);
+    expect(openclaw.onboardIntegrations.webSearchSupported).toBe(true);
+    expect(openclaw.onboardIntegrations.policyPresets).toContain("brave");
     expect(openclaw.legacyPaths?.startScript).toContain("scripts/nemoclaw-start.sh");
   });
 
@@ -65,6 +67,9 @@ describe("agent definitions", () => {
     });
     expect(hermes.healthProbe.url).toBe("http://localhost:8642/health");
     expect(hermes.messagingPlatforms).toEqual(["telegram", "discord", "slack"]);
+    expect(hermes.onboardIntegrations.webSearchSupported).toBe(false);
+    expect(hermes.onboardIntegrations.policyPresets).toContain("slack");
+    expect(hermes.onboardIntegrations.policyPresets).not.toContain("brave");
   });
 
   it("orders OpenClaw first in interactive choices", () => {

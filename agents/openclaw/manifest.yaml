@@ -64,6 +64,26 @@ messaging_platforms:
     - discord
     - slack
 
+# ── Onboarding integrations ─────────────────────────────────────
+onboard_integrations:
+  web_search:
+    supported: true
+    provider: brave
+    credential_env: BRAVE_API_KEY
+  policy_presets:
+    supported:
+      - npm
+      - pypi
+      - huggingface
+      - brew
+      - brave
+      - telegram
+      - discord
+      - slack
+      - jira
+      - outlook
+      - local-inference
+
 # ── Inference ───────────────────────────────────────────────────
 inference:
   provider_type: gateway_managed

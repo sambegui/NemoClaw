@@ -63,7 +63,7 @@ prepare_restricted_log() {
     rm -f "$tmp"
     return 1
   fi
-  if ! mv -f "$tmp" "$path"; then
+  if ! mv -fT "$tmp" "$path"; then
     rm -f "$tmp"
     return 1
   fi

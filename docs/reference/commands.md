@@ -126,7 +126,8 @@ $ BRAVE_API_KEY=... \
   nemoclaw onboard --non-interactive
 ```
 
-`BRAVE_API_KEY` enables Brave Search in non-interactive mode and also enables `web_fetch`.
+`BRAVE_API_KEY` enables Brave Search in non-interactive mode for OpenClaw sandboxes and also enables `web_fetch`.
+Hermes onboarding skips Brave because the pinned Hermes release uses different native web-search providers.
 If Brave Search key validation fails in non-interactive mode, onboarding prints a warning, skips web search setup, and continues with the rest of the sandbox setup.
 After fixing the key, re-enable web search with `nemoclaw config web-search`.
 
