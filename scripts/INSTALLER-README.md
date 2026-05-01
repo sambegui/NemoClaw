@@ -441,14 +441,40 @@ the last 30 lines of container logs. Free up space and re-run with `--fresh`.
 
 Use this procedure when cycling through installs during testing. It tears down only
 the NemoClaw-specific resources and leaves Docker, Node.js, and the model cache intact.
-Tear down in reverse startup order to avoid orphaned containers and stale gateway state.
+
+### Quick teardown (recommended)
+
+The repo ships `scripts/cleanup.sh` which performs every step below in the right order
+and verifies that GPU memory is released. Run it from the repo root:
 
 ```bash
-# 1. Stop the sandbox
+bash scripts/cleanup.sh           # standard teardown, prompts for confirmation
+bash scripts/cleanup.sh --yes     # skip confirmation (scripted teardowns)
+bash scripts/cleanup.sh --all     # standard teardown + purge HuggingFace model cache
+```
+
+What the script does:
+
+1. Stops every sandbox registered in `~/.nemoclaw/sandboxes.json` (not just `my-assistant`).
+2. Destroys the OpenShell gateway named `nemoclaw`.
+3. Captures `nvidia-smi` VRAM before vLLM teardown, stops and removes the
+   `nemoclaw-vllm` container, then re-samples VRAM until it stabilises and prints
+   the before/after used MiB.
+4. Removes `~/.nemoclaw/onboard-session.json` so the installer starts fresh.
+5. With `--all`, additionally deletes every `~/.cache/huggingface/hub/models--*`
+   directory and reports the bytes reclaimed.
+
+### Manual teardown (if you can't run the script)
+
+Tear down in reverse startup order to avoid orphaned containers and stale gateway
+state:
+
+```bash
+# 1. Stop the sandbox(es) — repeat for each name in ~/.nemoclaw/sandboxes.json
 nemoclaw my-assistant stop 2>/dev/null || true
 
 # 2. Destroy the gateway (removes the OpenShell k3s cluster)
-openshell gateway destroy --name nemoclaw
+openshell gateway destroy --name nemoclaw --force
 
 # 3. Stop and remove the vLLM container
 docker stop nemoclaw-vllm && docker rm nemoclaw-vllm
