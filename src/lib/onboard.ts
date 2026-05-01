@@ -1618,10 +1618,13 @@ function verifyWebSearchInsideSandbox(
     if (agentName === "hermes") {
       // `hermes dump` outputs config_overrides and active toolsets.
       // Look for the web backend in its output.
-      const dump = runCaptureOpenshell(["sandbox", "exec", sandboxName, "hermes", "dump"], {
-        ignoreError: true,
-        timeout: 10_000,
-      });
+      const dump = runCaptureOpenshell(
+        ["sandbox", "exec", "-n", sandboxName, "--", "hermes", "dump"],
+        {
+          ignoreError: true,
+          timeout: 10_000,
+        },
+      );
       if (!dump) {
         console.warn("  ⚠ Could not verify web search config inside sandbox (hermes dump failed).");
         return;
@@ -1644,7 +1647,7 @@ function verifyWebSearchInsideSandbox(
     } else if (agentName === "openclaw") {
       // OpenClaw: verify tools.web.search block exists in the baked config.
       const configCheck = runCaptureOpenshell(
-        ["sandbox", "exec", sandboxName, "cat", "/sandbox/.openclaw/openclaw.json"],
+        ["sandbox", "exec", "-n", sandboxName, "--", "cat", "/sandbox/.openclaw/openclaw.json"],
         { ignoreError: true, timeout: 10_000 },
       );
       if (!configCheck) {
@@ -4367,7 +4370,9 @@ async function createSandbox(
       [
         "sandbox",
         "exec",
+        "-n",
         sandboxName,
+        "--",
         "curl",
         "-sf",
         `http://localhost:${effectiveDashboardPort}/`,

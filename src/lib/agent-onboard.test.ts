@@ -132,6 +132,10 @@ describe("handleAgentSetup guards", () => {
       'resolved="$(command -v ${shellQuote(executable)} 2>/dev/null || true)"',
     );
     expect(source).toContain('[ "$resolved" = ${shellQuote(binaryPath)} ]');
+    expect(source).toMatch(
+      /"sandbox",\s*"exec",\s*"-n",\s*sandboxName,\s*"--",\s*"sh",\s*"-lc",\s*script/,
+    );
+    expect(source).not.toMatch(/\["sandbox",\s*"exec",\s*sandboxName,\s*"sh"/);
     expect(source).toContain("failAgentSetup");
     expect(source).toContain('onboardSession.markStepFailed("agent_setup"');
     expect(source).toContain("gateway did not respond within");

@@ -135,9 +135,12 @@ function verifyAgentBinaryAvailable(
         "echo ok",
       ].join(" && ")
     : `command -v ${shellQuote(executable)} >/dev/null 2>&1 && echo ok`;
-  const result = runCaptureOpenshell(["sandbox", "exec", sandboxName, "sh", "-lc", script], {
-    ignoreError: true,
-  });
+  const result = runCaptureOpenshell(
+    ["sandbox", "exec", "-n", sandboxName, "--", "sh", "-lc", script],
+    {
+      ignoreError: true,
+    },
+  );
   return Boolean(result && result.includes("ok"));
 }
 
@@ -178,7 +181,7 @@ export async function handleAgentSetup(
     const probe = agent.healthProbe;
     if (probe?.url) {
       const result = runCaptureOpenshell(
-        ["sandbox", "exec", sandboxName, "curl", "-sf", "--max-time", "3", probe.url],
+        ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-sf", "--max-time", "3", probe.url],
         { ignoreError: true },
       );
       if (result && result.includes("ok")) {
@@ -229,7 +232,7 @@ export async function handleAgentSetup(
     let healthy = false;
     for (let i = 0; i < maxAttempts; i++) {
       const result = runCaptureOpenshell(
-        ["sandbox", "exec", sandboxName, "curl", "-sf", "--max-time", "3", probe.url],
+        ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-sf", "--max-time", "3", probe.url],
         { ignoreError: true },
       );
       if (result && result.includes("ok")) {
