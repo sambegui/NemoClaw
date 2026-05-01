@@ -1186,15 +1186,52 @@ PY
   if [[ -n "$hf_token" ]]; then
     info "HuggingFace token: using ${hf_token_source} — gated models and faster downloads enabled"
   else
-    warn "HuggingFace token: not found in env or any HF cache location:"
-    warn "  - HUGGING_FACE_HUB_TOKEN / HF_TOKEN env vars"
-    warn "  - ${hf_home}/token"
-    warn "  - ${hf_home}/stored_tokens"
-    warn "  - ${HOME}/.huggingface/token"
-    warn "  Open models will download unauthenticated (slower / rate-limited);"
-    warn "  gated models (Nemotron, Llama, etc.) will fail."
-    warn "  To fix:  huggingface-cli login   (one-time, persists in ${hf_home}/token)"
-    warn "  Or:      export HUGGING_FACE_HUB_TOKEN=<your-token>   (per-shell)"
+    # Interactive prompt — give the user a chance to paste a token in-place
+    # rather than abort or fall through to slow/anonymous downloads. Skip the
+    # prompt in non-interactive mode (CI / piped installs).
+    if [[ -t 0 ]] && [[ -z "${NEMOCLAW_NON_INTERACTIVE:-}" ]]; then
+      printf "\n"
+      printf "  ${C_YELLOW}No HuggingFace token found.${C_RESET}\n"
+      printf "  Gated models (Nemotron, Llama, etc.) require a token; open models will\n"
+      printf "  download faster with one. Get a token at https://huggingface.co/settings/tokens\n"
+      printf "  Paste your hf_... token now (or press Enter to continue without one): "
+      # -s hides the input so it doesn't end up in scrollback
+      read -r -s hf_token_input
+      printf "\n"
+      hf_token_input="${hf_token_input//[[:space:]]/}"
+      if [[ -n "$hf_token_input" ]]; then
+        if [[ ! "$hf_token_input" =~ ^hf_ ]]; then
+          warn "Token does not start with 'hf_' — saving anyway, but it may be invalid."
+        fi
+        # Persist to the canonical HF cache file so future installs find it
+        # automatically (matches what `huggingface-cli login` writes).
+        printf '%s' "$hf_token_input" > "${hf_home}/token"
+        chmod 600 "${hf_home}/token" 2>/dev/null || true
+        hf_token="$hf_token_input"
+        hf_token_source="user-provided (saved to ${hf_home}/token)"
+        ok "HuggingFace token saved to ${hf_home}/token (mode 600)"
+      fi
+    fi
+  fi
+
+  # Final outcome banner — use the result of env discovery + optional prompt.
+  if [[ -n "$hf_token" ]]; then
+    info "HuggingFace token: ${hf_token_source} — gated models and faster downloads enabled"
+  else
+    printf "\n"
+    printf "${C_RED}════════════════════════════════════════════════════════════════════${C_RESET}\n"
+    printf "${C_RED}[WARN]  PROCEEDING WITHOUT A HUGGINGFACE TOKEN${C_RESET}\n"
+    printf "${C_RED}════════════════════════════════════════════════════════════════════${C_RESET}\n"
+    printf "${C_RED}  Gated models (e.g. Nemotron-3 Super 120B NVFP4) will fail to${C_RESET}\n"
+    printf "${C_RED}  download with HTTP 401.${C_RESET}\n"
+    printf "${C_RED}  Open-weight models (Qwen, DeepSeek) will download unauthenticated${C_RESET}\n"
+    printf "${C_RED}  and HF will rate-limit you (a 70B model can take 18+ minutes).${C_RESET}\n"
+    printf "${C_RED}${C_RESET}\n"
+    printf "${C_RED}  To recover later without re-running the installer:${C_RESET}\n"
+    printf "${C_RED}    mkdir -p ${hf_home} && printf '%%s' \"<token>\" > ${hf_home}/token${C_RESET}\n"
+    printf "${C_RED}    chmod 600 ${hf_home}/token${C_RESET}\n"
+    printf "${C_RED}════════════════════════════════════════════════════════════════════${C_RESET}\n"
+    printf "\n"
   fi
 
   # Use --network host so that:
