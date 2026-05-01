@@ -1086,7 +1086,7 @@ install_vllm() {
         if maybe_sudo docker ps -a --format '{{.Names}}' 2>/dev/null \
              | grep -q "^${container_name}$"; then
           sleep 1
-          (( wait_n++ ))
+          (( ++wait_n ))
           continue
         fi
         vram_after=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits \
@@ -1095,7 +1095,7 @@ install_vllm() {
         [[ -n "$prev" && "$vram_after" == "$prev" ]] && break
         prev="$vram_after"
         sleep 1
-        (( wait_n++ ))
+        (( ++wait_n ))
       done
       printf "${C_RED}        Container removed.${C_RESET}\n"
       printf "${C_RED}        GPU %s VRAM used: %s MiB → %s MiB (memory released)${C_RESET}\n" \
