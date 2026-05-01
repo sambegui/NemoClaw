@@ -826,6 +826,152 @@ SLACK_GUARD_EOF
   printf '[channels] Slack channel guard installed (NODE_OPTIONS updated)\n' >&2
 }
 
+# ── Telegram diagnostics (provider-ready + inference-failure clarity) ─
+_TELEGRAM_DIAGNOSTICS_SCRIPT="/tmp/nemoclaw-telegram-diagnostics.js"
+
+install_telegram_diagnostics() {
+  local config_file="/sandbox/.openclaw/openclaw.json"
+
+  # Only install when Telegram is configured in the baked OpenClaw config.
+  if ! grep -q '"telegram"' "$config_file" 2>/dev/null; then
+    return 0
+  fi
+
+  printf '[channels] Installing Telegram diagnostics (provider readiness + inference errors)\n' >&2
+
+  emit_sandbox_sourced_file "$_TELEGRAM_DIAGNOSTICS_SCRIPT" <<'TELEGRAM_DIAGNOSTICS_EOF'
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// telegram-diagnostics.js — adds runtime breadcrumbs for OpenClaw's Telegram
+// channel without changing channel behavior. The important distinction for
+// NemoClaw#2766 is that "[telegram] [default] starting provider" means the
+// channel is initializing; an agent-turn failure later can be an inference
+// provider failure through inference.local, not a Telegram Bot API failure.
+
+(function () {
+  'use strict';
+
+  if (process.__nemoclawTelegramDiagnosticsInstalled) return;
+  try {
+    Object.defineProperty(process, '__nemoclawTelegramDiagnosticsInstalled', { value: true });
+  } catch (_e) {
+    process.__nemoclawTelegramDiagnosticsInstalled = true;
+  }
+
+  var providerStarted = false;
+  var readyLogged = false;
+  var inferenceLogged = false;
+  var inDiagnosticWrite = false;
+
+  function sanitize(value) {
+    var text = String(value || '');
+    text = text.replace(/\/bot[^/\s"']+/g, '/bot<redacted>');
+    text = text.replace(/\/file\/bot[^/\s"']+/g, '/file/bot<redacted>');
+    text = text.replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/g, 'Bearer <redacted>');
+    text = text.replace(
+      /\b(api[_-]?key|token|authorization)\b(["']?\s*[:=]\s*["']?)[^"'\s,)]+/gi,
+      '$1$2<redacted>'
+    );
+    return text;
+  }
+
+  var originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  function emit(line) {
+    if (inDiagnosticWrite) return;
+    inDiagnosticWrite = true;
+    try {
+      originalStderrWrite(line + '\n');
+    } finally {
+      inDiagnosticWrite = false;
+    }
+  }
+
+  function describeRequest(arg1, arg2) {
+    var url = null;
+    var opts = null;
+    if (typeof arg1 === 'string' || arg1 instanceof URL) {
+      try {
+        url = new URL(String(arg1));
+      } catch (_e) {
+        url = null;
+      }
+      if (arg2 && typeof arg2 === 'object' && typeof arg2 !== 'function') opts = arg2;
+    } else if (arg1 && typeof arg1 === 'object') {
+      opts = arg1;
+    }
+
+    var hostname = '';
+    var path = '';
+    if (url) {
+      hostname = url.hostname || '';
+      path = (url.pathname || '') + (url.search || '');
+    }
+    if (opts) {
+      hostname = String(opts.hostname || opts.host || hostname || '');
+      path = String(opts.path || path || '');
+    }
+    if (hostname.indexOf(':') !== -1) hostname = hostname.split(':')[0];
+    return { hostname: hostname, path: path };
+  }
+
+  function maybeLogTelegramReady(info, statusCode) {
+    if (readyLogged) return;
+    if (!info || info.hostname !== 'api.telegram.org') return;
+    if (!/\/(?:bot[^/]+\/)?(?:getUpdates|getMe|getWebhookInfo)(?:\?|$)/.test(info.path)) return;
+    if (Number(statusCode) < 200 || Number(statusCode) >= 300) return;
+    providerStarted = true;
+    readyLogged = true;
+    emit('[telegram] [default] provider ready (Bot API reachable; agent replies use inference.local)');
+  }
+
+  function wrapHttp(mod, methodName) {
+    var original = mod[methodName];
+    if (typeof original !== 'function') return;
+    mod[methodName] = function () {
+      var info = describeRequest(arguments[0], arguments[1]);
+      var req = original.apply(this, arguments);
+      if (info && info.hostname === 'api.telegram.org' && req && typeof req.once === 'function') {
+        req.once('response', function (res) {
+          maybeLogTelegramReady(info, res && res.statusCode);
+        });
+      }
+      return req;
+    };
+  }
+
+  process.stderr.write = function (chunk, encoding, cb) {
+    var ret = originalStderrWrite.apply(process.stderr, arguments);
+    if (!inDiagnosticWrite && !inferenceLogged) {
+      var text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '');
+      if (!providerStarted && /\[telegram\] \[default\] starting provider\b/i.test(text)) {
+        providerStarted = true;
+      }
+      if (providerStarted && /Embedded agent failed before reply|LLM request failed|FailoverError/i.test(text)) {
+        inferenceLogged = true;
+        var line = text.split(/\r?\n/).find(function (entry) {
+          return /Embedded agent failed before reply|LLM request failed|FailoverError/i.test(entry);
+        }) || text;
+        emit('[telegram] [default] agent turn failed after provider startup; inference error: ' + sanitize(line).slice(0, 600));
+      }
+    }
+    return ret;
+  };
+
+  var http = require('http');
+  var https = require('https');
+  wrapHttp(http, 'request');
+  wrapHttp(http, 'get');
+  wrapHttp(https, 'request');
+  wrapHttp(https, 'get');
+})();
+TELEGRAM_DIAGNOSTICS_EOF
+
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_TELEGRAM_DIAGNOSTICS_SCRIPT"
+  printf '[channels] Telegram diagnostics installed (NODE_OPTIONS updated)\n' >&2
+}
+
 _read_gateway_token() {
   python3 - <<'PYTOKEN'
 import json
@@ -1871,6 +2017,8 @@ GUARDENVEOF
     echo "export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_SECCOMP_GUARD_SCRIPT\""
     # ciao network guard for connect sessions.
     echo "export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_CIAO_GUARD_SCRIPT\""
+    # Telegram diagnostics for connect sessions — same conditional pattern.
+    echo "[ -f \"$_TELEGRAM_DIAGNOSTICS_SCRIPT\" ] && export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }--require $_TELEGRAM_DIAGNOSTICS_SCRIPT\""
     # Slack channel guard for connect sessions. The guard file is installed later
     # by install_slack_channel_guard() — conditional on the file existing at
     # source-time so connect sessions started before Slack is configured are safe.
@@ -2207,8 +2355,14 @@ if [ "$(id -u)" -ne 0 ]; then
   export_gateway_token
   write_runtime_shell_env
   ensure_runtime_shell_env_shim
-  lock_rc_files "$_SANDBOX_HOME"
+  lock_rc_files "$_SANDBOX_HOME" || true
+
+  if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
+    exec "${NEMOCLAW_CMD[@]}"
+  fi
+
   configure_messaging_channels
+  install_telegram_diagnostics
   install_slack_token_rewriter
   install_slack_channel_guard
   verify_no_slack_secrets_on_disk
@@ -2236,10 +2390,6 @@ if [ "$(id -u)" -ne 0 ]; then
   write_auth_profile
   harden_auth_profiles
 
-  if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
-    exec "${NEMOCLAW_CMD[@]}"
-  fi
-
   # In non-root mode, detach gateway stdout/stderr from the sandbox-create
   # stream so openshell sandbox create can return once the container is ready.
   # TODO(#2277-P2): migrate to shared emit_restricted_log() helper
@@ -2255,7 +2405,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
   # (both are trust-boundary files; tampering would let the sandbox user
   # inject code into any Node process via NODE_OPTIONS).
-  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
+  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
 
   # Start gateway in background, auto-pair, then wait
   nohup "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
@@ -2300,6 +2450,7 @@ lock_rc_files "$_SANDBOX_HOME"
 # Must run AFTER integrity check (to detect build-time tampering) and
 # BEFORE chattr +i (which locks the config permanently).
 configure_messaging_channels
+install_telegram_diagnostics
 install_slack_token_rewriter
 install_slack_channel_guard
 verify_no_slack_secrets_on_disk
@@ -2410,7 +2561,7 @@ provision_agent_workspaces
 # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
 # (both are trust-boundary files; tampering would let the sandbox user
 # inject code into any Node process via NODE_OPTIONS).
-validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
+validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_SLACK_REWRITER_SCRIPT"
 
 # Start the gateway as the 'gateway' user.
 # SECURITY: The sandbox user cannot kill this process because it runs

@@ -4,9 +4,8 @@
 /**
  * Regression guard for issue #2376:
  *   Hermes Agent crashes on every keypress because HERMES_HOME is unset
- *   in interactive sandbox shells, so prompt_toolkit tries to write its
- *   history file to /sandbox/.hermes (immutable, root-owned) instead of
- *   /sandbox/.hermes-data.
+ *   in interactive sandbox shells, so proxy settings and Hermes runtime
+ *   configuration from /tmp/nemoclaw-proxy-env.sh are missing.
  *
  * Root cause:
  *   The OpenClaw base image (Dockerfile.base) pre-creates /sandbox/.bashrc
@@ -36,6 +35,7 @@ describe("Issue #2376: Hermes base image pre-creates rc files that source HERMES
     expect(src).toContain("[ -f /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh");
     expect(src).toContain("> /sandbox/.bashrc");
     expect(src).toContain("> /sandbox/.profile");
-    expect(src).toContain("chown sandbox:sandbox /sandbox/.bashrc /sandbox/.profile");
+    expect(src).toContain("chown root:root /sandbox/.bashrc /sandbox/.profile");
+    expect(src).toContain("chmod 444 /sandbox/.bashrc /sandbox/.profile");
   });
 });

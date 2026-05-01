@@ -28,13 +28,13 @@ describe("Issue #2376 — additional coverage on top of repro-2376.test.ts", () 
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nc-2376-"));
     const proxyEnv = path.join(tmp, "nemoclaw-proxy-env.sh");
     const bashrc = path.join(tmp, ".bashrc");
-    fs.writeFileSync(proxyEnv, "export HERMES_HOME=/sandbox/.hermes-data\n");
+    fs.writeFileSync(proxyEnv, "export HERMES_HOME=/sandbox/.hermes\n");
     fs.writeFileSync(bashrc, `[ -f ${proxyEnv} ] && . ${proxyEnv}\n`);
     const out = execSync(`bash -c '. ${bashrc}; echo "$HERMES_HOME"'`, {
       encoding: "utf-8",
     }).trim();
     fs.rmSync(tmp, { recursive: true, force: true });
-    expect(out).toBe("/sandbox/.hermes-data");
+    expect(out).toBe("/sandbox/.hermes");
   });
 
   it("NO-CLOBBER: agents/hermes/Dockerfile.base writes /sandbox/.bashrc exactly once", () => {

@@ -22,6 +22,8 @@ function envInt(name: string, fallback: number): number {
 }
 /** Inference timeout (seconds) for local providers (Ollama, vLLM, NIM). */
 const LOCAL_INFERENCE_TIMEOUT_SECS = envInt("NEMOCLAW_LOCAL_INFERENCE_TIMEOUT", 180);
+/** Sandbox Ready wait after OpenShell create returns but k3s is still converging. */
+const SANDBOX_READY_TIMEOUT_SECS = envInt("NEMOCLAW_SANDBOX_READY_TIMEOUT", 180);
 
 let onboardBrandingAgent: string | null = null;
 
@@ -125,7 +127,13 @@ const {
   startOllamaAuthProxy,
 } = require("./onboard-ollama-proxy");
 const inferenceConfig: typeof import("./inference-config") = require("./inference-config");
-const { DEFAULT_CLOUD_MODEL, getProviderSelectionConfig, parseGatewayInference } = inferenceConfig;
+const {
+  DEFAULT_CLOUD_MODEL,
+  INFERENCE_ROUTE_URL,
+  MANAGED_PROVIDER_ID,
+  getProviderSelectionConfig,
+  parseGatewayInference,
+} = inferenceConfig;
 
 const onboardProviders = require("./onboard-providers");
 
@@ -1235,6 +1243,237 @@ function isInferenceRouteReady(provider: string, model: string): boolean {
   return Boolean(live && live.provider === provider && live.model === model);
 }
 
+function shouldRunCompatibleEndpointSandboxSmoke(
+  provider: string | null | undefined,
+  messagingChannels: string[] | null | undefined,
+  agent: AgentDefinition | null | undefined = null,
+): boolean {
+  const agentName = agent?.name || "openclaw";
+  return (
+    agentName === "openclaw" &&
+    provider === "compatible-endpoint" &&
+    Array.isArray(messagingChannels) &&
+    messagingChannels.length > 0
+  );
+}
+
+function spawnOutputToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value)) return value.toString("utf-8");
+  if (value == null) return "";
+  return String(value);
+}
+
+function buildCompatibleEndpointSandboxSmokeScript(model: string): string {
+  return `
+set -eu
+MODEL=${shellQuote(model)}
+CONFIG=/sandbox/.openclaw/openclaw.json
+
+python3 - "$CONFIG" "$MODEL" <<'PYCFG'
+import json
+import sys
+
+path = sys.argv[1]
+model = sys.argv[2]
+
+def die(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception as exc:
+    die("could not read openclaw.json: %s" % exc)
+
+providers = cfg.get("models", {}).get("providers", {})
+if not isinstance(providers, dict):
+    die("openclaw.json models.providers is not an object")
+if "deepinfra" in providers:
+    die("openclaw.json contains a direct deepinfra provider; expected managed inference provider")
+
+provider = providers.get("${MANAGED_PROVIDER_ID}")
+if not isinstance(provider, dict):
+    die("openclaw.json missing models.providers.${MANAGED_PROVIDER_ID}")
+if provider.get("baseUrl") != "${INFERENCE_ROUTE_URL}":
+    die("models.providers.${MANAGED_PROVIDER_ID}.baseUrl is %r; expected ${INFERENCE_ROUTE_URL}" % provider.get("baseUrl"))
+if provider.get("apiKey") != "unused":
+    die("models.providers.${MANAGED_PROVIDER_ID}.apiKey must remain the non-secret placeholder 'unused'")
+
+primary = cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+expected_primary = "${MANAGED_PROVIDER_ID}/" + model
+if primary != expected_primary:
+    die("agents.defaults.model.primary is %r; expected %r" % (primary, expected_primary))
+
+print("OPENCLAW_CONFIG_OK")
+PYCFG
+
+payload_file="$(mktemp)"
+response_file="$(mktemp)"
+error_file="$(mktemp)"
+trap 'rm -f "$payload_file" "$response_file" "$error_file"' EXIT
+
+python3 - "$MODEL" >"$payload_file" <<'PYPAYLOAD'
+import json
+import sys
+
+model = sys.argv[1]
+print(json.dumps({
+    "model": model,
+    "messages": [
+        {"role": "user", "content": "Reply with exactly: PONG"}
+    ],
+    "max_tokens": 32,
+}))
+PYPAYLOAD
+
+curl -sS --connect-timeout 10 --max-time 60 \
+    "${INFERENCE_ROUTE_URL}/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "@$payload_file" >"$response_file" 2>"$error_file" || {
+  rc=$?
+  printf 'curl exit %s: ' "$rc" >&2
+  cat "$error_file" >&2
+  exit "$rc"
+}
+
+python3 - "$response_file" <<'PYRESP'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception as exc:
+    body = ""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            body = f.read(1000)
+    except Exception:
+        pass
+    print("inference.local returned non-JSON response: %s; body=%s" % (exc, body), file=sys.stderr)
+    sys.exit(1)
+
+content = (
+    data.get("choices", [{}])[0]
+    .get("message", {})
+    .get("content")
+)
+if not isinstance(content, str) or not content.strip():
+    print("inference.local response did not contain choices[0].message.content: %s" % json.dumps(data)[:1000], file=sys.stderr)
+    sys.exit(1)
+
+print("INFERENCE_SMOKE_OK " + content.strip()[:200])
+PYRESP
+`.trim();
+}
+
+function buildCompatibleEndpointSandboxSmokeCommand(model: string): string {
+  const script = buildCompatibleEndpointSandboxSmokeScript(model);
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  return [
+    'tmp="$(mktemp)"',
+    'trap \'rm -f "$tmp"\' EXIT',
+    `python3 -c 'import base64, pathlib, sys; pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(sys.argv[2]))' "$tmp" ${shellQuote(encoded)}`,
+    'sh "$tmp"',
+  ].join("; ");
+}
+
+function verifyCompatibleEndpointSandboxSmoke(options: {
+  sandboxName: string;
+  provider: string;
+  model: string;
+  endpointUrl?: string | null;
+  credentialEnv?: string | null;
+  messagingChannels?: string[] | null;
+  agent?: AgentDefinition | null;
+}): void {
+  if (
+    !shouldRunCompatibleEndpointSandboxSmoke(
+      options.provider,
+      options.messagingChannels,
+      options.agent,
+    )
+  ) {
+    return;
+  }
+
+  console.log("  Verifying compatible endpoint through the messaging sandbox...");
+
+  const providerResult = runOpenshell(["provider", "get", options.provider], {
+    ignoreError: true,
+    suppressOutput: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const providerDetails = [
+    spawnOutputToString(providerResult.stdout),
+    spawnOutputToString(providerResult.stderr),
+  ]
+    .join("\n")
+    .trim();
+
+  if (providerResult.status !== 0) {
+    console.error(
+      `  Compatible endpoint provider '${options.provider}' is missing from the OpenShell gateway.`,
+    );
+    console.error(
+      "  The sandbox would start Telegram, but agent turns would fail before reaching the model.",
+    );
+    if (providerDetails) console.error(`  ${compactText(redact(providerDetails)).slice(0, 800)}`);
+    process.exit(providerResult.status || 1);
+  }
+
+  if (
+    options.endpointUrl &&
+    providerDetails &&
+    /OPENAI_BASE_URL|baseUrl|base URL|endpoint/i.test(providerDetails) &&
+    !providerDetails.includes(options.endpointUrl)
+  ) {
+    console.warn(
+      `  ⚠ Gateway provider '${options.provider}' did not report the selected endpoint URL.`,
+    );
+    console.warn("    Continuing to the sandbox-side inference.local smoke check.");
+  }
+  if (
+    options.credentialEnv &&
+    providerDetails &&
+    /credential|api key|secret/i.test(providerDetails) &&
+    !providerDetails.includes(options.credentialEnv)
+  ) {
+    console.warn(
+      `  ⚠ Gateway provider '${options.provider}' did not report ${options.credentialEnv}.`,
+    );
+  }
+
+  const script = buildCompatibleEndpointSandboxSmokeCommand(options.model);
+  const smokeResult = runOpenshell(
+    ["sandbox", "exec", "-n", options.sandboxName, "--", "sh", "-lc", script],
+    {
+      ignoreError: true,
+      suppressOutput: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 90_000,
+    },
+  );
+  const smokeOutput = [
+    spawnOutputToString(smokeResult.stdout),
+    spawnOutputToString(smokeResult.stderr),
+  ]
+    .join("\n")
+    .trim();
+
+  if (smokeResult.status !== 0 || !/INFERENCE_SMOKE_OK/.test(smokeOutput)) {
+    console.error("  Compatible endpoint sandbox smoke check failed.");
+    console.error("  Telegram provider startup is not the root cause; inference.local failed.");
+    if (smokeOutput) console.error(`  ${compactText(redact(smokeOutput)).slice(0, 1200)}`);
+    process.exit(smokeResult.status || 1);
+  }
+
+  console.log("  ✓ Compatible endpoint responds through inference.local inside the sandbox");
+}
+
 function sandboxExistsInGateway(sandboxName: string): boolean {
   const output = runCaptureOpenshell(["sandbox", "get", sandboxName], { ignoreError: true });
   return Boolean(output);
@@ -1531,6 +1770,13 @@ function agentSupportsWebSearch(
   agent: AgentDefinition | null | undefined,
   dockerfilePathOverride: string | null = null,
 ): boolean {
+  // Hermes has native web tools, but the NemoClaw onboarding wizard wires the
+  // OpenClaw Brave provider path. Do not offer a Brave prompt for Hermes until
+  // that provider is supported end to end.
+  if (agent?.name === "hermes") {
+    return false;
+  }
+
   const candidates = [
     dockerfilePathOverride,
     agent?.dockerfilePath,
@@ -4380,13 +4626,14 @@ async function createSandbox(
   // causes "sandbox not found" on every subsequent connect/status call.
   console.log("  Waiting for sandbox to become ready...");
   let ready = false;
-  for (let i = 0; i < 30; i++) {
+  const readyAttempts = Math.max(1, Math.ceil(SANDBOX_READY_TIMEOUT_SECS / 2));
+  for (let i = 0; i < readyAttempts; i++) {
     const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
     if (isSandboxReady(list, sandboxName)) {
       ready = true;
       break;
     }
-    sleep(2);
+    if (i < readyAttempts - 1) sleep(2);
   }
 
   if (!ready) {
@@ -4394,7 +4641,9 @@ async function createSandbox(
     // name doesn't fail on "sandbox already exists".
     const delResult = runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
     console.error("");
-    console.error(`  Sandbox '${sandboxName}' was created but did not become ready within 60s.`);
+    console.error(
+      `  Sandbox '${sandboxName}' was created but did not become ready within ${SANDBOX_READY_TIMEOUT_SECS}s.`,
+    );
     if (delResult.status === 0) {
       console.error("  The orphaned sandbox has been removed — you can safely retry.");
     } else {
@@ -5834,6 +6083,11 @@ const MESSAGING_CHANNELS = listChannels();
 const TELEGRAM_NETWORK_CURL_CODES = new Set([6, 7, 28, 35, 52, 56]);
 
 async function checkTelegramReachability(token: string) {
+  if (process.env.NEMOCLAW_SKIP_TELEGRAM_REACHABILITY === "1") {
+    note("  [non-interactive] Skipping Telegram reachability probe by request.");
+    return;
+  }
+
   const result = runCurlProbe([
     "-sS",
     "--connect-timeout",
@@ -8307,6 +8561,16 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const recordedMessagingChannels = Array.isArray(latestSession?.messagingChannels)
       ? latestSession.messagingChannels
       : [];
+    const activeMessagingChannels = registry.getSandbox(sandboxName)?.messagingChannels;
+    verifyCompatibleEndpointSandboxSmoke({
+      sandboxName,
+      provider,
+      model,
+      endpointUrl,
+      credentialEnv,
+      messagingChannels: Array.isArray(activeMessagingChannels) ? activeMessagingChannels : [],
+      agent,
+    });
     const resumePolicies =
       resume && sandboxName && arePolicyPresetsApplied(sandboxName, recordedPolicyPresets || []);
     if (resumePolicies) {
@@ -8388,6 +8652,8 @@ module.exports = {
   buildOrphanedSandboxRollbackMessage,
   buildProviderArgs,
   buildGatewayBootstrapSecretsScript,
+  buildCompatibleEndpointSandboxSmokeCommand,
+  buildCompatibleEndpointSandboxSmokeScript,
   buildSandboxConfigSyncScript,
   compactText,
   copyBuildContextDir,
@@ -8455,6 +8721,7 @@ module.exports = {
   readRecordedNimContainer,
   formatOnboardConfigSummary,
   isInferenceRouteReady,
+  shouldRunCompatibleEndpointSandboxSmoke,
   isNonInteractive,
   isOpenclawReady,
   arePolicyPresetsApplied,
@@ -8486,4 +8753,5 @@ module.exports = {
   getValidationProbeCurlArgs,
   checkTelegramReachability,
   TELEGRAM_NETWORK_CURL_CODES,
+  verifyCompatibleEndpointSandboxSmoke,
 };
