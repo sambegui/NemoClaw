@@ -83,6 +83,8 @@ describe("Issue #2681 — mutable OpenClaw config permissions", () => {
       );
 
       expect(result.status).toBe(0);
+      expect(modeBits(configDir) & 0o7777).toBe(0o2770);
+      expect(modeBits(configFile) & 0o7777).toBe(0o660);
       expect(modeBits(configDir) & 0o070).toBe(0o070);
       expect(modeBits(configDir) & 0o020).toBe(0o020);
       expect(modeBits(configFile) & 0o060).toBe(0o060);
@@ -143,10 +145,10 @@ process.stdout.write(JSON.stringify(calls));
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/openclaw.json"]);
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/.config-hash"]);
     expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw"]);
-    expect(commands).toContainEqual(["chmod", "2775", "/sandbox/.openclaw/workspace"]);
-    expect(commands).toContainEqual(["chmod", "-R", "g+w,o-w", "/sandbox/.openclaw/workspace"]);
+    expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw/workspace"]);
+    expect(commands).toContainEqual(["chmod", "-R", "g+rwX,o-rwx", "/sandbox/.openclaw/workspace"]);
     expect(commands.find((command) => command[0] === "sh" && command[1] === "-c")).toEqual(
-      expect.arrayContaining(["/sandbox/.openclaw", "sandbox:sandbox", "g+w,o-w", "2775"]),
+      expect.arrayContaining(["/sandbox/.openclaw", "sandbox:sandbox", "g+rwX,o-rwx", "2770"]),
     );
   });
 

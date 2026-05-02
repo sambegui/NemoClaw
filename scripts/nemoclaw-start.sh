@@ -232,6 +232,8 @@ normalize_mutable_config_perms() {
 
   chmod -R g+rwX,o-rwx "$config_dir" 2>/dev/null || true
   find "$config_dir" -type d -exec chmod g+s {} + 2>/dev/null || true
+  chmod 2770 "$config_dir" 2>/dev/null || true
+  chmod 660 "$config_dir/openclaw.json" "$config_dir/.config-hash" 2>/dev/null || true
 }
 
 # ── Runtime model/provider override ──────────────────────────────
