@@ -124,12 +124,12 @@ type AgentBinaryAvailability =
   | { available: true }
   | {
       available: false;
-      reason: "not_found" | "not_executable" | "path_mismatch";
+      reason: "not_found" | "not_executable";
       binaryPath?: string;
-      resolvedPath?: string;
     };
 
-function verifyAgentBinaryAvailable(
+// Exported for unit coverage of the sandbox-side guard without running onboarding.
+export function verifyAgentBinaryAvailable(
   sandboxName: string,
   agent: AgentDefinition,
   runCaptureOpenshell: OnboardContext["runCaptureOpenshell"],
@@ -138,10 +138,10 @@ function verifyAgentBinaryAvailable(
   const binaryPath = typeof agent.binary_path === "string" ? agent.binary_path.trim() : "";
   const script = binaryPath
     ? [
-        `binary_path=${shellQuote(binaryPath)}`,
-        `resolved="$(command -v ${shellQuote(executable)} 2>/dev/null || true)"`,
-        'if [ ! -x "$binary_path" ]; then echo not_executable; elif [ -n "$resolved" ] && [ "$resolved" != "$binary_path" ]; then printf \'path_mismatch:%s\\n\' "$resolved"; else echo ok; fi',
-      ].join("; ")
+        `[ -e ${shellQuote(binaryPath)} ] || { echo not_found; exit 1; }`,
+        `[ -x ${shellQuote(binaryPath)} ] || { echo not_executable; exit 1; }`,
+        "echo ok",
+      ].join(" && ")
     : `command -v ${shellQuote(executable)} >/dev/null 2>&1 && echo ok || echo not_found`;
   const result = runCaptureOpenshell(
     ["sandbox", "exec", "-n", sandboxName, "--", "sh", "-lc", script],
@@ -154,15 +154,6 @@ function verifyAgentBinaryAvailable(
     return { available: true };
   }
   if (binaryPath && result) {
-    const mismatch = result.match(/path_mismatch:([^\n]+)/);
-    if (mismatch) {
-      return {
-        available: false,
-        reason: "path_mismatch",
-        binaryPath,
-        resolvedPath: mismatch[1].trim(),
-      };
-    }
     if (result.includes("not_executable")) {
       return { available: false, reason: "not_executable", binaryPath };
     }
@@ -176,9 +167,6 @@ function describeAgentBinaryFailure(
   result: Exclude<AgentBinaryAvailability, { available: true }>,
 ): string {
   const executable = agentExecutableName(agent);
-  if (result.reason === "path_mismatch") {
-    return `${agent.displayName} binary '${executable}' resolves to '${result.resolvedPath}', expected '${result.binaryPath}' inside sandbox '${sandboxName}'`;
-  }
   if (result.reason === "not_executable") {
     return `${agent.displayName} configured binary '${result.binaryPath}' is not executable inside sandbox '${sandboxName}'`;
   }

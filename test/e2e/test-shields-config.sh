@@ -184,6 +184,12 @@ else
   fail "Config directory should be mode 2770: ${DIR_PERMS}"
 fi
 
+if [ "$(echo "$DIR_PERMS" | awk '{print $2}')" = "sandbox:sandbox" ]; then
+  pass "Config directory owned by sandbox:sandbox (mutable default)"
+else
+  fail "Config directory should be owned by sandbox:sandbox: ${DIR_PERMS}"
+fi
+
 STATUS_DEFAULT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
 echo "$STATUS_DEFAULT"
 if echo "$STATUS_DEFAULT" | grep -q "Shields: NOT CONFIGURED"; then

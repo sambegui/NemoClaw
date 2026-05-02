@@ -278,9 +278,17 @@ function applyStateDirLockMode(sandboxName: string, configDir: string, owner: st
     }
     try {
       kubectlExec(sandboxName, ["chmod", dirMode, dirPath]);
-      if (isLocking) {
+    } catch {
+      // Silently skip
+    }
+    if (isLocking) {
+      try {
         kubectlExec(sandboxName, ["chmod", "g-s", dirPath]);
+      } catch {
+        // Best effort; do not skip recursive write stripping.
       }
+    }
+    try {
       kubectlExec(sandboxName, ["chmod", "-R", recursiveMode, dirPath]);
     } catch {
       // Silently skip

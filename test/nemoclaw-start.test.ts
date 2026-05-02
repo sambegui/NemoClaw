@@ -1454,7 +1454,6 @@ describe("Telegram diagnostics (#2766)", () => {
         'harden_auth_profiles() { :; }',
         'chown() { :; }',
         'chown_tree_no_symlink_follow() { :; }',
-        'normalize_mutable_config_perms() { :; }',
         'start_persistent_gateway_log_mirror() { :; }',
         'gosu() { shift; "$@"; }',
         'validate_tmp_permissions() { printf "VALIDATE:%s\\n" "$*"; }',

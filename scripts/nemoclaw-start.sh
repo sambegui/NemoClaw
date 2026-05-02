@@ -225,7 +225,7 @@ normalize_mutable_config_perms() {
   # Detect shields-up. Config dir owned by root means shields are
   # currently locked; normalizing would weaken the contract.
   local config_dir_owner
-  config_dir_owner="$(stat -c '%U' "$config_dir" 2>/dev/null || echo unknown)"
+  config_dir_owner="$(stat -c '%U' "$config_dir" 2>/dev/null || stat -f '%Su' "$config_dir" 2>/dev/null || echo unknown)"
   if [ "$config_dir_owner" = "root" ]; then
     return 0
   fi

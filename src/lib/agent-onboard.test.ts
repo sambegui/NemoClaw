@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vites
 import fs from "node:fs";
 import path from "node:path";
 // Import from compiled dist/ so coverage is attributed correctly.
-import { printDashboardUi } from "../../dist/lib/agent-onboard";
+import { printDashboardUi, verifyAgentBinaryAvailable } from "../../dist/lib/agent-onboard";
 import type { AgentDefinition } from "./agent-defs";
 
 function makeAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -128,11 +128,10 @@ describe("handleAgentSetup guards", () => {
     const source = fs.readFileSync(path.join(import.meta.dirname, "agent-onboard.ts"), "utf-8");
 
     expect(source).toContain("verifyAgentBinaryAvailable");
-    expect(source).toContain(
-      'resolved="$(command -v ${shellQuote(executable)} 2>/dev/null || true)"',
-    );
-    expect(source).toContain("binary_path=${shellQuote(binaryPath)}");
-    expect(source).toContain('[ "$resolved" != "$binary_path" ]');
+    expect(source).toContain("[ -e ${shellQuote(binaryPath)} ]");
+    expect(source).toContain("[ -x ${shellQuote(binaryPath)} ]");
+    expect(source).not.toContain('[ -n "$resolved" ] || { echo not_found');
+    expect(source).not.toContain("path_mismatch");
     expect(source).toMatch(
       /"sandbox",\s*"exec",\s*"-n",\s*sandboxName,\s*"--",\s*"sh",\s*"-lc",\s*script/,
     );
@@ -150,5 +149,37 @@ describe("handleAgentSetup guards", () => {
     expect(source).toContain("JSON.parse(body)");
     expect(source).toContain('parsed.status === "ok"');
     expect(source).not.toContain('.includes("ok")');
+  });
+
+  it("accepts an executable configured binary path when PATH lookup is empty", () => {
+    let script = "";
+    const result = verifyAgentBinaryAvailable(
+      "alpha",
+      makeAgent({ name: "hermes", binary_path: "/usr/local/bin/hermes" }),
+      (args) => {
+        script = String(args[7] || "");
+        return "ok";
+      },
+    );
+
+    expect(result).toEqual({ available: true });
+    expect(script).toContain("[ -e '/usr/local/bin/hermes' ]");
+    expect(script).toContain("[ -x '/usr/local/bin/hermes' ]");
+    expect(script).not.toContain("command -v 'hermes'");
+  });
+
+  it("does not reject a configured binary when PATH resolves the symlink target", () => {
+    let script = "";
+    const result = verifyAgentBinaryAvailable(
+      "alpha",
+      makeAgent({ name: "hermes", binary_path: "/usr/local/bin/hermes" }),
+      (args) => {
+        script = String(args[7] || "");
+        return "ok";
+      },
+    );
+
+    expect(result).toEqual({ available: true });
+    expect(script).not.toContain("path_mismatch");
   });
 });
