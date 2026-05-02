@@ -156,7 +156,8 @@ pass "NemoClaw installed (sandbox: $SANDBOX_NAME)"
 # ══════════════════════════════════════════════════════════════════
 section "Phase 2: Config is writable (mutable default)"
 
-# Verify file permissions — should start as 600 sandbox:sandbox
+# Verify file permissions — fresh OpenClaw starts as 600 sandbox:sandbox in
+# the default mutable state.
 PERMS=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "${CONFIG_PATH}" 2>/dev/null || true)
 info "Config perms (default): ${PERMS}"
@@ -177,10 +178,10 @@ DIR_PERMS=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "$(dirname "${CONFIG_PATH}")" 2>/dev/null || true)
 info "Config dir perms (default): ${DIR_PERMS}"
 
-if [ "$(echo "$DIR_PERMS" | awk '{print $1}')" = "700" ]; then
-  pass "Config directory mode is 700 (mutable default)"
+if [ "$(echo "$DIR_PERMS" | awk '{print $1}')" = "2700" ]; then
+  pass "Config directory mode is 2700 (mutable default)"
 else
-  fail "Config directory should be mode 700: ${DIR_PERMS}"
+  fail "Config directory should be mode 2700: ${DIR_PERMS}"
 fi
 
 STATUS_DEFAULT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
@@ -321,15 +322,16 @@ else
   fail "shields down did not report success: ${SHIELDS_DOWN_OUTPUT}"
 fi
 
-# Check permissions changed — should be sandbox:sandbox 600/700 (doctor-aligned)
+# Check permissions changed — OpenClaw shields-down uses sandbox:sandbox
+# 660/2770 so the gateway UID can write the mutable config tree.
 PERMS_DOWN=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "${CONFIG_PATH}" 2>/dev/null || true)
 info "Config perms (shields DOWN): ${PERMS_DOWN}"
 
-if [ "$(echo "$PERMS_DOWN" | awk '{print $1}')" = "600" ]; then
-  pass "Config file mode is 600 (restored to mutable default)"
+if [ "$(echo "$PERMS_DOWN" | awk '{print $1}')" = "660" ]; then
+  pass "Config file mode is 660 (restored to mutable default)"
 else
-  fail "Config file should be mode 600 after shields down: ${PERMS_DOWN}"
+  fail "Config file should be mode 660 after shields down: ${PERMS_DOWN}"
 fi
 
 if [ "$(echo "$PERMS_DOWN" | awk '{print $2}')" = "sandbox:sandbox" ]; then
@@ -342,10 +344,10 @@ DIR_PERMS_DOWN=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "$(dirname "${CONFIG_PATH}")" 2>/dev/null || true)
 info "Config dir perms (shields DOWN): ${DIR_PERMS_DOWN}"
 
-if [ "$(echo "$DIR_PERMS_DOWN" | awk '{print $1}')" = "700" ]; then
-  pass "Config directory mode is 700 (restored to mutable default)"
+if [ "$(echo "$DIR_PERMS_DOWN" | awk '{print $1}')" = "2770" ]; then
+  pass "Config directory mode is 2770 (restored to mutable default)"
 else
-  fail "Config directory should be mode 700 after shields down: ${DIR_PERMS_DOWN}"
+  fail "Config directory should be mode 2770 after shields down: ${DIR_PERMS_DOWN}"
 fi
 
 if [ "$(echo "$DIR_PERMS_DOWN" | awk '{print $2}')" = "sandbox:sandbox" ]; then

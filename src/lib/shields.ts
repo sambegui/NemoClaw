@@ -339,8 +339,9 @@ function assertNoLegacyStateLayout(sandboxName: string, configDir: string): void
 // ---------------------------------------------------------------------------
 // Config unlock — returns config to the default (mutable) state
 //
-// Sets permissions to sandbox:sandbox 0600/0700, matching what OpenClaw
-// writes natively (mode 384 = 0o600). This keeps `openclaw doctor` happy.
+// Sets OpenClaw permissions to sandbox:sandbox 0660/2770 so both the sandbox
+// user and the gateway UID can write the mutable config tree. Hermes keeps its
+// tighter single-user layout.
 //
 // Note on chattr: best-effort — it may silently fail if kubectl exec
 // lacks CAP_LINUX_IMMUTABLE or if the file was never immutable. That's fine:
@@ -506,6 +507,20 @@ function lockAgentConfig(
   // existing ones.
   applyStateDirLockMode(sandboxName, target.configDir, "root:root");
 
+  // OpenClaw's mutable-default config root is setgid (#2681). Clear setgid
+  // after descendant locking so shields-up verifies the root config dir as
+  // plain 755, not 2755.
+  try {
+    kubectlExec(sandboxName, ["chmod", "g-s", target.configDir]);
+  } catch {
+    errors.push("chmod g-s config dir");
+  }
+  try {
+    kubectlExec(sandboxName, ["chmod", "755", target.configDir]);
+  } catch {
+    errors.push("chmod 755 config dir");
+  }
+
   if (errors.length > 0) {
     console.error(`  Some lock operations failed: ${errors.join(", ")}`);
   }
@@ -632,9 +647,8 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
   run(buildPolicySetCommand(policyFile, sandboxName));
 
   // 2b. Return config to default mutable state.
-  //     Permissions are set to sandbox:sandbox 0600/0700 to match what
-  //     OpenClaw natively creates (mode 384 = 0o600) so `openclaw doctor`
-  //     sees the expected owner and mode without recommending fixes.
+  //     OpenClaw uses sandbox:sandbox 0660/2770 here so the gateway UID, which
+  //     is a member of the sandbox group, can mutate runtime config.
   const target = resolveAgentConfig(sandboxName);
   console.log(`  Unlocking ${target.agentName} config (${target.configPath})...`);
   try {
