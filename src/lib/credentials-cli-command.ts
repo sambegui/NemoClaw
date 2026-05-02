@@ -1,39 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { StdioOptions } from "node:child_process";
+/* v8 ignore start -- thin oclif adapter covered through CLI integration tests. */
 
 import { Args, Command, Flags } from "@oclif/core";
 
 import { CLI_DISPLAY_NAME, CLI_NAME } from "./branding";
 import { prompt as askPrompt } from "./credentials";
+import { getNemoClawRuntimeBridge } from "./nemoclaw-runtime-bridge";
 import { OPENSHELL_OPERATION_TIMEOUT_MS } from "./openshell-timeouts";
-
-interface SpawnLikeResult {
-  status: number | null;
-  stdout?: string | Buffer;
-  stderr?: string | Buffer;
-}
-
-interface RuntimeRecovery {
-  recovered: boolean;
-  before?: unknown;
-  after?: unknown;
-  attempted?: boolean;
-  via?: string;
-}
-
-interface RuntimeBridgeRunOptions {
-  env?: Record<string, string | undefined>;
-  ignoreError?: boolean;
-  stdio?: StdioOptions;
-  timeout?: number;
-}
-
-interface RuntimeBridge {
-  recoverNamedGatewayRuntime: () => Promise<RuntimeRecovery>;
-  runOpenshell: (args: string[], opts?: RuntimeBridgeRunOptions) => SpawnLikeResult;
-}
 
 // Suffixes that mark per-sandbox messaging integrations in the gateway's
 // provider list. These are managed by `channels`, not `credentials`.
@@ -43,10 +18,6 @@ const BRIDGE_PROVIDER_SUFFIXES: readonly string[] = [
   "-slack-bridge",
   "-slack-app",
 ];
-
-function getRuntimeBridge(): RuntimeBridge {
-  return require("../nemoclaw") as RuntimeBridge;
-}
 
 function isBridgeProviderName(name: string): boolean {
   return BRIDGE_PROVIDER_SUFFIXES.some((suffix) => name.endsWith(suffix));
@@ -66,7 +37,7 @@ function printCredentialsUsage(log: (message?: string) => void = console.log): v
 }
 
 async function recoverGatewayOrExit(kind: "query" | "reach"): Promise<void> {
-  const runtime = getRuntimeBridge();
+  const runtime = getNemoClawRuntimeBridge();
   const recovery = await runtime.recoverNamedGatewayRuntime();
   if (recovery.recovered) return;
 
@@ -110,7 +81,7 @@ export class CredentialsListCommand extends Command {
     await this.parse(CredentialsListCommand);
     await recoverGatewayOrExit("query");
 
-    const runtime = getRuntimeBridge();
+    const runtime = getNemoClawRuntimeBridge();
     const result = runtime.runOpenshell(["provider", "list", "--names"], {
       ignoreError: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -195,7 +166,7 @@ export class CredentialsResetCommand extends Command {
 
     await recoverGatewayOrExit("reach");
 
-    const runtime = getRuntimeBridge();
+    const runtime = getNemoClawRuntimeBridge();
     const result = runtime.runOpenshell(["provider", "delete", key], {
       ignoreError: true,
       stdio: ["ignore", "pipe", "pipe"],
