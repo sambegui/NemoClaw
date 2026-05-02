@@ -16,7 +16,10 @@ describe("http-proxy-fix heredoc sync (#2109)", () => {
     const canonical = fs.readFileSync(CANONICAL_FIX, "utf-8");
     const startScript = fs.readFileSync(START_SCRIPT, "utf-8");
     const start = startScript.indexOf('_PROXY_FIX_SCRIPT="/tmp/nemoclaw-http-proxy-fix.js"');
-    const end = startScript.indexOf("# Nemotron inference parameter injection", start);
+    const end = startScript.indexOf(
+      "# NVIDIA endpoint model-specific inference parameter injection",
+      start,
+    );
     if (start === -1 || end === -1 || end <= start) {
       throw new Error("Expected HTTP proxy fix entrypoint block in scripts/nemoclaw-start.sh");
     }

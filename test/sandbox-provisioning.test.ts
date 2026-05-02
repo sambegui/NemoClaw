@@ -326,7 +326,7 @@ describe("Hermes sandbox provisioning", () => {
       runHermesLayoutBlock(
         HERMES_DOCKERFILE_BASE,
         "# Create .hermes with mutable integration dirs",
-        "# Install Hermes Agent",
+        "# Pre-create shell init files",
       ),
       runHermesLayoutBlock(
         HERMES_DOCKERFILE,

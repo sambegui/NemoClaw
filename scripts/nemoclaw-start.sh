@@ -1624,27 +1624,31 @@ HTTP_PROXY_FIX_EOF
   export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_PROXY_FIX_SCRIPT"
 fi
 
-# Nemotron inference parameter injection (NemoClaw#1193, NemoClaw#2051).
+# NVIDIA endpoint model-specific inference parameter injection
+# (NemoClaw#1193, NemoClaw#2051).
 # Nemotron models may return empty content (tool call instead of text) or
 # thinking-only blocks (stalls the conversation) when the model's chat
 # template produces an empty assistant turn. The vLLM / NIM chat template
 # kwarg `force_nonempty_content` prevents this by ensuring the template
 # always emits a non-empty content field.
 #
+# DeepSeek V4 Pro on NVIDIA Build expects its chat template thinking mode
+# disabled for NemoClaw's OpenAI-compatible chat-completions path.
+#
 # The preload wraps http.request() — the lowest common denominator every
 # HTTP client bottoms out at — buffers the JSON body for POST requests
-# to /v1/chat/completions, and injects the kwarg when the model ID
-# contains "nemotron". Backends that do not recognise the extra field
+# to /v1/chat/completions, and injects model-specific kwargs for the affected
+# NVIDIA endpoint models. Backends that do not recognise the extra field
 # silently ignore it (OpenAI-compatible contract).
 #
-# Scoped strictly to Nemotron models: non-Nemotron requests pass through
+# Scoped strictly to known affected models: unrelated requests pass through
 # completely untouched.
 _NEMOTRON_FIX_SCRIPT="/tmp/nemoclaw-nemotron-inference-fix.js"
 emit_sandbox_sourced_file "$_NEMOTRON_FIX_SCRIPT" <<'NEMOTRON_FIX_EOF'
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-// nemotron-inference-fix.js — inject chat_template_kwargs for Nemotron models.
+// nemotron-inference-fix.js — inject chat_template_kwargs for affected models.
 //
 // Problem (NemoClaw#1193, NemoClaw#2051):
 //   Nemotron models sometimes generate tool calls instead of text for simple
@@ -1660,9 +1664,13 @@ emit_sandbox_sourced_file "$_NEMOTRON_FIX_SCRIPT" <<'NEMOTRON_FIX_EOF'
 //   template to always produce non-empty content alongside any tool calls
 //   or thinking blocks.
 //
-//   Scoped strictly to Nemotron models — all other requests pass through
-//   untouched. Backends that do not support chat_template_kwargs silently
-//   ignore the extra field per the OpenAI-compatible API contract.
+//   Also inject `chat_template_kwargs: { thinking: false }` for
+//   deepseek-ai/deepseek-v4-pro, matching NVIDIA Build's tested invocation
+//   shape for the OpenAI-compatible chat-completions endpoint.
+//
+//   Scoped strictly to known affected models — all other requests pass
+//   through untouched. Backends that do not support chat_template_kwargs
+//   silently ignore the extra field per the OpenAI-compatible API contract.
 
 (function () {
   'use strict';
@@ -1671,6 +1679,7 @@ emit_sandbox_sourced_file "$_NEMOTRON_FIX_SCRIPT" <<'NEMOTRON_FIX_EOF'
   var https = require('https');
 
   var NEMOTRON_RE = /nemotron/i;
+  var DEEPSEEK_V4_PRO_RE = /^deepseek-ai\/deepseek-v4-pro$/i;
   var COMPLETIONS_RE = /\/v1\/chat\/completions/;
 
   function wrapModule(mod) {
@@ -1717,11 +1726,16 @@ emit_sandbox_sourced_file "$_NEMOTRON_FIX_SCRIPT" <<'NEMOTRON_FIX_EOF'
         var raw = Buffer.concat(chunks);
         try {
           var body = JSON.parse(raw.toString('utf-8'));
-          if (body && body.model && NEMOTRON_RE.test(body.model)) {
+          if (body && body.model && (NEMOTRON_RE.test(body.model) || DEEPSEEK_V4_PRO_RE.test(body.model))) {
             if (!body.chat_template_kwargs) {
               body.chat_template_kwargs = {};
             }
-            body.chat_template_kwargs.force_nonempty_content = true;
+            if (NEMOTRON_RE.test(body.model)) {
+              body.chat_template_kwargs.force_nonempty_content = true;
+            }
+            if (DEEPSEEK_V4_PRO_RE.test(body.model)) {
+              body.chat_template_kwargs.thinking = false;
+            }
             intercepted = true;
             var modified = Buffer.from(JSON.stringify(body), 'utf-8');
             // Update Content-Length so the proxy/server reads the full body.

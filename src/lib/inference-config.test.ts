@@ -23,8 +23,9 @@ describe("inference selection config", () => {
     expect(CLOUD_MODEL_OPTIONS.map((option: { id: string }) => option.id)).toEqual([
       "nvidia/nemotron-3-super-120b-a12b",
       "z-ai/glm-5.1",
-      "minimaxai/minimax-m2.5",
+      "minimaxai/minimax-m2.7",
       "openai/gpt-oss-120b",
+      "deepseek-ai/deepseek-v4-pro",
     ]);
   });
 

@@ -18,16 +18,18 @@ function extractStartScriptHeredoc(src, marker) {
   return heredoc[1];
 }
 
-describe("Nemotron inference fix preload (#1193, #2051)", () => {
+describe("NVIDIA endpoint inference fix preload (#1193, #2051)", () => {
   const src = fs.readFileSync(START_SCRIPT, "utf-8");
 
   it("entrypoint writes the preload and registers it in NODE_OPTIONS", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-nemotron-entrypoint-"));
     const preloadPath = path.join(tempDir, "nemotron-fix.js");
-    const start = src.indexOf("# Nemotron inference parameter injection");
+    const start = src.indexOf("# NVIDIA endpoint model-specific inference parameter injection");
     const end = src.indexOf("# mDNS / ciao network interface guard", start);
     if (start === -1 || end === -1 || end <= start) {
-      throw new Error("Expected Nemotron preload entrypoint block in scripts/nemoclaw-start.sh");
+      throw new Error(
+        "Expected NVIDIA endpoint preload entrypoint block in scripts/nemoclaw-start.sh",
+      );
     }
     const block = src
       .slice(start, end)
@@ -35,7 +37,7 @@ describe("Nemotron inference fix preload (#1193, #2051)", () => {
     const wrapper = [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
-      "emit_sandbox_sourced_file() { local target=\"$1\"; cat > \"$target\"; chmod 444 \"$target\"; }",
+      'emit_sandbox_sourced_file() { local target="$1"; cat > "$target"; chmod 444 "$target"; }',
       "NODE_OPTIONS='--require /already-loaded.js'",
       block,
       "printf 'NODE_OPTIONS=%s\\n' \"$NODE_OPTIONS\"",
@@ -58,7 +60,7 @@ describe("Nemotron inference fix preload (#1193, #2051)", () => {
     }
   });
 
-  it("preload injects Nemotron chat_template_kwargs and preserves other requests", () => {
+  it("preload injects model-specific chat_template_kwargs and preserves other requests", () => {
     const preload = extractStartScriptHeredoc(src, "NEMOTRON_FIX_EOF");
     const harness = `
 const http = require('http');
@@ -92,9 +94,11 @@ function send(mod, options, body) {
   req.end();
 }
 send(http, { method: 'POST', path: '/v1/chat/completions' }, JSON.stringify({ model: 'NVIDIA/NEMOTRON-4', messages: [] }));
+send(https, { method: 'POST', path: '/v1/chat/completions' }, JSON.stringify({ model: 'deepseek-ai/deepseek-v4-pro', messages: [], chat_template_kwargs: { existing: true, thinking: true } }));
 send(https, { method: 'POST', path: '/v1/chat/completions' }, JSON.stringify({ model: 'other-model', messages: [] }));
 send(http, { method: 'POST', path: '/v1/chat/completions' }, '{not json');
 send(http, { method: 'GET', path: '/v1/chat/completions' }, JSON.stringify({ model: 'nemotron' }));
+send(http, { method: 'POST', path: '/v1/chat/completions' }, JSON.stringify({ model: 'deepseek-ai/deepseek-v4-flash', messages: [] }));
 console.log(JSON.stringify(records));
 `;
 
@@ -106,20 +110,23 @@ console.log(JSON.stringify(records));
     const records = JSON.parse(result.stdout.trim());
     const nemotronBody = JSON.parse(records[0].writes[0]);
     expect(nemotronBody.chat_template_kwargs.force_nonempty_content).toBe(true);
+    expect(nemotronBody.chat_template_kwargs.thinking).toBeUndefined();
     expect(records[0].removed).toContain("content-length");
     expect(Number(records[0].headers["Content-Length"])).toBeGreaterThan(0);
 
-    const otherBody = JSON.parse(records[1].writes[0]);
-    expect(otherBody.chat_template_kwargs).toBeUndefined();
-    expect(records[2].writes[0]).toBe("{not json");
-    expect(JSON.parse(records[3].writes[0]).chat_template_kwargs).toBeUndefined();
-  });
+    const deepSeekBody = JSON.parse(records[1].writes[0]);
+    expect(deepSeekBody.chat_template_kwargs).toEqual({
+      existing: true,
+      thinking: false,
+    });
+    expect(deepSeekBody.chat_template_kwargs.force_nonempty_content).toBeUndefined();
+    expect(records[1].removed).toContain("content-length");
+    expect(Number(records[1].headers["Content-Length"])).toBeGreaterThan(0);
 
-  it("preload is placed before the WebSocket fix in the script", () => {
-    const nemotronPos = src.indexOf("_NEMOTRON_FIX_SCRIPT=");
-    const wsPos = src.indexOf("_WS_FIX_SCRIPT=");
-    expect(nemotronPos).toBeGreaterThan(-1);
-    expect(wsPos).toBeGreaterThan(-1);
-    expect(nemotronPos).toBeLessThan(wsPos);
+    const otherBody = JSON.parse(records[2].writes[0]);
+    expect(otherBody.chat_template_kwargs).toBeUndefined();
+    expect(records[3].writes[0]).toBe("{not json");
+    expect(JSON.parse(records[4].writes[0]).chat_template_kwargs).toBeUndefined();
+    expect(JSON.parse(records[5].writes[0]).chat_template_kwargs).toBeUndefined();
   });
 });

@@ -20,7 +20,7 @@ function dockerRunCommandBetween(startMarker: string, endMarker: string): string
   if (runIndex === -1 || runIndex > end) {
     throw new Error(`Expected RUN instruction after ${startMarker}`);
   }
-  return dockerfile
+  const command = dockerfile
     .slice(runIndex, end)
     .trim()
     .replace(/^RUN\s+/, "")
@@ -29,6 +29,7 @@ function dockerRunCommandBetween(startMarker: string, endMarker: string): string
     .join("\n")
     .replace(/\\\n/g, " ")
     .replace(/\\\s*$/, "");
+  return command;
 }
 
 function runOpenClawUpgradeBlock(currentVersion: string) {

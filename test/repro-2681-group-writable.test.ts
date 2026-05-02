@@ -72,9 +72,22 @@ function withMockedDockerExecFileSync<T>(calls: string[][], run: () => T): T {
   }
 }
 
+function mkdtempOnPosixFs(prefix: string): string {
+  const roots = process.platform === "linux" ? ["/tmp", os.tmpdir()] : [os.tmpdir()];
+  let lastError: unknown = null;
+  for (const root of roots) {
+    try {
+      return fs.mkdtempSync(path.join(root, prefix));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 describe("Issue #2681 — mutable OpenClaw config permissions", () => {
   it("restores group-write and setgid on mutable config trees during root startup", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-2681-perms-"));
+    const tmpDir = mkdtempOnPosixFs("nemoclaw-2681-perms-");
     const configDir = path.join(tmpDir, ".openclaw");
     const nestedDir = path.join(configDir, "agents", "main");
     const configFile = path.join(configDir, "openclaw.json");
@@ -146,7 +159,7 @@ describe("Issue #2681 — mutable OpenClaw config permissions", () => {
   });
 
   it("does not relax a root-owned config tree while shields are up", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-2681-locked-"));
+    const tmpDir = mkdtempOnPosixFs("nemoclaw-2681-locked-");
     const configDir = path.join(tmpDir, ".openclaw");
 
     try {
