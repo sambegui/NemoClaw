@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const START_SCRIPT = path.join(import.meta.dirname, "..", "scripts", "nemoclaw-start.sh");
 
@@ -38,6 +38,38 @@ function normalizeMutableConfigPermsFor(configDir: string): string {
 
 function modeBits(filePath: string): number {
   return fs.statSync(filePath).mode;
+}
+
+function withMockedDockerExecFileSync<T>(calls: string[][], run: () => T): T {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const dockerExecModule = require("../dist/lib/docker/exec.js") as {
+    dockerExecFileSync: (args: readonly string[]) => string;
+  };
+  const originalDockerExecFileSync = dockerExecModule.dockerExecFileSync;
+  const shieldsModulePath = require.resolve("../dist/lib/shields.js");
+  delete require.cache[shieldsModulePath];
+
+  dockerExecModule.dockerExecFileSync = vi.fn((args: readonly string[]) => {
+    const separator = args.indexOf("--");
+    const command = separator >= 0 ? args.slice(separator + 1) : [...args];
+    calls.push(command);
+    if (command[0] === "stat" && command[1] === "-c") {
+      return command.at(-1) === "/sandbox/.openclaw"
+        ? "2770 sandbox:sandbox\n"
+        : "660 sandbox:sandbox\n";
+    }
+    if (command[0] === "lsattr") {
+      return `---------------------- ${command.at(-1)}\n`;
+    }
+    return "";
+  });
+
+  try {
+    return run();
+  } finally {
+    dockerExecModule.dockerExecFileSync = originalDockerExecFileSync;
+    delete require.cache[shieldsModulePath];
+  }
 }
 
 describe("Issue #2681 — mutable OpenClaw config permissions", () => {
@@ -80,50 +112,29 @@ describe("Issue #2681 — mutable OpenClaw config permissions", () => {
   });
 
   it("shields-down restores OpenClaw group-writable file modes and setgid dirs", () => {
-    const probe = spawnSync(
-      process.execPath,
-      [
-        "-e",
-        String.raw`
-const Module = require("node:module");
-const originalLoad = Module._load;
-const calls = [];
-Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === "./docker/exec") {
-    return {
-      dockerExecFileSync(args) {
-        const separator = args.indexOf("--");
-        const command = separator >= 0 ? args.slice(separator + 1) : args;
-        calls.push(command);
-        if (command[0] === "stat" && command[1] === "-c") {
-          return command.at(-1) === "/sandbox/.openclaw"
-            ? "2770 sandbox:sandbox\n"
-            : "660 sandbox:sandbox\n";
-        }
-        if (command[0] === "lsattr") {
-          return "---------------------- " + command.at(-1) + "\n";
-        }
-        return "";
-      },
-    };
-  }
-  return originalLoad.call(this, request, parent, isMain);
-};
-const { unlockAgentConfig } = require("./dist/lib/shields.js");
-unlockAgentConfig("sandbox-pod", {
-  agentName: "openclaw",
-  configPath: "/sandbox/.openclaw/openclaw.json",
-  configDir: "/sandbox/.openclaw",
-  sensitiveFiles: ["/sandbox/.openclaw/.config-hash"],
-});
-process.stdout.write(JSON.stringify(calls));
-`,
-      ],
-      { encoding: "utf-8", timeout: 5000 },
-    );
+    const commands: string[][] = [];
+    withMockedDockerExecFileSync(commands, () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { unlockAgentConfig } = require("../dist/lib/shields.js") as {
+        unlockAgentConfig: (
+          sandboxName: string,
+          target: {
+            agentName?: string;
+            configPath: string;
+            configDir: string;
+            sensitiveFiles?: string[];
+          },
+        ) => void;
+      };
 
-    expect(probe.status).toBe(0);
-    const commands = JSON.parse(probe.stdout) as string[][];
+      unlockAgentConfig("sandbox-pod", {
+        agentName: "openclaw",
+        configPath: "/sandbox/.openclaw/openclaw.json",
+        configDir: "/sandbox/.openclaw",
+        sensitiveFiles: ["/sandbox/.openclaw/.config-hash"],
+      });
+    });
+
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/openclaw.json"]);
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/.config-hash"]);
     expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw"]);
