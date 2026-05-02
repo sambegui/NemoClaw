@@ -120,15 +120,23 @@ function writeRecordingCommand(
   );
 }
 
-function writeSandboxRegistry(home: string, sandboxOverrides: Partial<SandboxEntry> = {}): void {
+function writeSandboxRegistry(
+  home: string,
+  sandboxNameOrOverrides: string | Partial<SandboxEntry> = "alpha",
+  sandboxOverridesArg: Partial<SandboxEntry> = {},
+): void {
+  const sandboxName =
+    typeof sandboxNameOrOverrides === "string" ? sandboxNameOrOverrides : "alpha";
+  const sandboxOverrides =
+    typeof sandboxNameOrOverrides === "string" ? sandboxOverridesArg : sandboxNameOrOverrides;
   const registryDir = path.join(home, ".nemoclaw");
   fs.mkdirSync(registryDir, { recursive: true });
   fs.writeFileSync(
     path.join(registryDir, "sandboxes.json"),
     JSON.stringify({
       sandboxes: {
-        alpha: {
-          name: "alpha",
+        [sandboxName]: {
+          name: sandboxName,
           model: "test-model",
           provider: "nvidia-prod",
           gpuEnabled: false,
@@ -136,7 +144,7 @@ function writeSandboxRegistry(home: string, sandboxOverrides: Partial<SandboxEnt
           ...sandboxOverrides,
         },
       },
-      defaultSandbox: "alpha",
+      defaultSandbox: sandboxName,
     }),
     { mode: 0o600 },
   );
@@ -186,6 +194,56 @@ function createLogsTestSetup(prefix: string, openshellLines: string[] = []) {
         PATH: `${localBin}:${process.env.PATH || ""}`,
         ...env,
       }),
+  };
+}
+
+function createDoctorTestSetup(prefix: string, openshellLines: string[], sandboxName = "alpha") {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const localBin = path.join(home, "bin");
+  const markerFile = path.join(home, "doctor-calls");
+  fs.mkdirSync(localBin, { recursive: true });
+  writeSandboxRegistry(home, sandboxName);
+
+  fs.writeFileSync(
+    path.join(localBin, "openshell"),
+    [
+      "#!/usr/bin/env bash",
+      `marker_file=${JSON.stringify(markerFile)}`,
+      'printf \'%s\\n\' "$*" >> "$marker_file"',
+      ...openshellLines,
+      "exit 0",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(localBin, "docker"),
+    [
+      "#!/usr/bin/env bash",
+      'if [ "$1" = "info" ]; then echo "24.0.0"; exit 0; fi',
+      'if [ "$1" = "inspect" ]; then printf "true\\tnone\\topenshell:test\\n"; exit 0; fi',
+      'if [ "$1" = "port" ]; then echo "0.0.0.0:8080"; exit 0; fi',
+      "exit 0",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(path.join(localBin, "curl"), ["#!/usr/bin/env bash", "exit 7"].join("\n"), {
+    mode: 0o755,
+  });
+
+  return {
+    home,
+    localBin,
+    readCalls: () =>
+      fs.existsSync(markerFile) ? fs.readFileSync(markerFile, "utf8").trim().split(/\n/) : [],
+    runDoctor: (args = `${sandboxName} doctor --json`) =>
+      runWithEnv(
+        args,
+        {
+          HOME: home,
+          PATH: `${localBin}:${process.env.PATH || ""}`,
+        },
+        30000,
+      ),
   };
 }
 
@@ -591,6 +649,7 @@ describe("CLI dispatch", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("Usage: nemoclaw <sandbox> skill install <path>");
     expect(r.out).toContain("Deploy a skill directory");
+    expect(r.out).not.toContain("sandbox:skill:install");
     expect(r.out).not.toContain("--help");
     expect(r.out).not.toContain("No SKILL.md found");
   });
@@ -850,6 +909,144 @@ describe("CLI dispatch", () => {
     expect(r.out).not.toContain("sandbox:gateway-token");
   });
 
+  it("doctor fails a present sandbox that is not Ready", () => {
+    const setup = createDoctorTestSetup("nemoclaw-cli-doctor-not-ready-", [
+      'case "$*" in',
+      '  "status") printf "Server Status\\n\\n  Gateway: nemoclaw\\n  Status: Connected\\n"; exit 0 ;;',
+      '  "gateway info -g nemoclaw") printf "Gateway: nemoclaw\\n"; exit 0 ;;',
+      '  "sandbox list") printf "NAME STATUS\\nalpha Creating\\n"; exit 0 ;;',
+      '  "inference get") printf "Provider: nvidia-prod\\nModel: test-model\\n"; exit 0 ;;',
+      "esac",
+    ]);
+
+    const r = setup.runDoctor();
+
+    expect(r.code).toBe(1);
+    const report = JSON.parse(r.out) as {
+      checks: Array<{ label: string; status: string; detail: string }>;
+    };
+    const liveSandbox = report.checks.find((check) => check.label === "Live sandbox");
+    expect(liveSandbox).toEqual(
+      expect.objectContaining({
+        status: "fail",
+        detail: expect.stringContaining("Creating"),
+      }),
+    );
+  });
+
+  it("doctor does not query sandbox state from a different active gateway", () => {
+    const setup = createDoctorTestSetup("nemoclaw-cli-doctor-wrong-gateway-", [
+      'case "$*" in',
+      '  "status") printf "Server Status\\n\\n  Gateway: other\\n  Status: Connected\\n"; exit 0 ;;',
+      '  "gateway info -g nemoclaw") printf "Gateway: nemoclaw\\n"; exit 0 ;;',
+      '  "gateway select nemoclaw") exit 1 ;;',
+      '  "gateway start --name nemoclaw --port 8080") exit 1 ;;',
+      '  "sandbox list") echo "queried wrong gateway sandbox list" >> "$marker_file"; exit 0 ;;',
+      "esac",
+    ]);
+
+    const r = setup.runDoctor("alpha doctor");
+
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("OpenShell status");
+    expect(r.out).toContain("Gateway: other");
+    expect(setup.readCalls().some((call) => /^sandbox list(\s|$)/.test(call))).toBe(false);
+  });
+
+  it("doctor treats a live non-cloudflared PID as stale", () => {
+    const sandboxName = `doctorpid-${process.pid}`;
+    const setup = createDoctorTestSetup(
+      "nemoclaw-cli-doctor-wrong-cloudflared-pid-",
+      [
+        'case "$*" in',
+        '  "status") printf "Server Status\\n\\n  Gateway: nemoclaw\\n  Status: Connected\\n"; exit 0 ;;',
+        '  "gateway info -g nemoclaw") printf "Gateway: nemoclaw\\n"; exit 0 ;;',
+        `  "sandbox list") printf "NAME STATUS\\n${sandboxName} Ready\\n"; exit 0 ;;`,
+        '  "inference get") printf "Provider: nvidia-prod\\nModel: test-model\\n"; exit 0 ;;',
+        "esac",
+      ],
+      sandboxName,
+    );
+    const serviceDir = path.join("/tmp", `nemoclaw-services-${sandboxName}`);
+    fs.rmSync(serviceDir, { recursive: true, force: true });
+    fs.mkdirSync(serviceDir, { recursive: true });
+    const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+      stdio: "ignore",
+    });
+    const sleeperPid = sleeper.pid;
+    if (typeof sleeperPid !== "number") {
+      throw new Error("expected spawned helper process to have a PID");
+    }
+
+    try {
+      fs.writeFileSync(path.join(serviceDir, "cloudflared.pid"), String(sleeperPid));
+      const r = setup.runDoctor(`${sandboxName} doctor --json`);
+
+      const report = JSON.parse(r.out) as {
+        checks: Array<{ label: string; status: string; detail: string }>;
+      };
+      const cloudflared = report.checks.find((check) => check.label === "cloudflared");
+      expect(cloudflared).toEqual(
+        expect.objectContaining({
+          status: "warn",
+          detail: `stale PID ${sleeperPid}`,
+        }),
+      );
+    } finally {
+      sleeper.kill();
+      fs.rmSync(serviceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("doctor accepts a live cloudflared PID", () => {
+    const sandboxName = `doctorcloudflared-${process.pid}`;
+    const setup = createDoctorTestSetup(
+      "nemoclaw-cli-doctor-cloudflared-pid-",
+      [
+        'case "$*" in',
+        '  "status") printf "Server Status\\n\\n  Gateway: nemoclaw\\n  Status: Connected\\n"; exit 0 ;;',
+        '  "gateway info -g nemoclaw") printf "Gateway: nemoclaw\\n"; exit 0 ;;',
+        `  "sandbox list") printf "NAME STATUS\\n${sandboxName} Ready\\n"; exit 0 ;;`,
+        '  "inference get") printf "Provider: nvidia-prod\\nModel: test-model\\n"; exit 0 ;;',
+        "esac",
+      ],
+      sandboxName,
+    );
+    const serviceDir = path.join("/tmp", `nemoclaw-services-${sandboxName}`);
+    const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cloudflared-shim-"));
+    const cloudflaredBin = path.join(shimDir, "cloudflared");
+    fs.rmSync(serviceDir, { recursive: true, force: true });
+    fs.mkdirSync(serviceDir, { recursive: true });
+    fs.symlinkSync(process.execPath, cloudflaredBin);
+    const sleeper = spawn(cloudflaredBin, ["-e", "setTimeout(() => {}, 30000)"], {
+      stdio: "ignore",
+    });
+    const sleeperPid = sleeper.pid;
+    if (typeof sleeperPid !== "number") {
+      throw new Error("expected spawned helper process to have a PID");
+    }
+
+    try {
+      fs.writeFileSync(path.join(serviceDir, "cloudflared.pid"), String(sleeperPid));
+      const r = setup.runDoctor(`${sandboxName} doctor --json`);
+
+      const report = JSON.parse(r.out) as {
+        checks: Array<{ label: string; status: string; detail: string }>;
+      };
+      const cloudflared = report.checks.find((check) => check.label === "cloudflared");
+      expect(cloudflared).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          detail: `running (PID ${sleeperPid})`,
+        }),
+      );
+    } finally {
+      sleeper.kill();
+      fs.rmSync(serviceDir, { recursive: true, force: true });
+      fs.rmSync(shimDir, { recursive: true, force: true });
+    }
+  });
+
   it("sandbox inspection help keeps public sandbox-scoped usage", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-inspection-help-"));
     writeSandboxRegistry(home);
@@ -858,6 +1055,11 @@ describe("CLI dispatch", () => {
     expect(status.code).toBe(0);
     expect(status.out).toContain("<name> status");
     expect(status.out).not.toContain("sandbox:status");
+
+    const logs = runWithEnv("alpha logs --help", { HOME: home });
+    expect(logs.code).toBe(0);
+    expect(logs.out).toContain("<name> logs [--follow]");
+    expect(logs.out).not.toContain("sandbox:logs");
 
     const policy = runWithEnv("alpha policy-list --help", { HOME: home });
     expect(policy.code).toBe(0);
@@ -873,6 +1075,30 @@ describe("CLI dispatch", () => {
     expect(config.code).toBe(0);
     expect(config.out).toContain("<name> config get");
     expect(config.out).not.toContain("sandbox:config:get");
+  });
+
+  it("snapshot list/create help keeps public sandbox-scoped usage", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-snapshot-help-"));
+    writeSandboxRegistry(home);
+
+    const list = runWithEnv("alpha snapshot list --help", { HOME: home });
+    expect(list.code).toBe(0);
+    expect(list.out).toContain("<name> snapshot list");
+    expect(list.out).not.toContain("sandbox:snapshot:list");
+
+    const create = runWithEnv("alpha snapshot create --help", { HOME: home });
+    expect(create.code).toBe(0);
+    expect(create.out).toContain("<name> snapshot create [--name <name>]");
+    expect(create.out).not.toContain("sandbox:snapshot:create");
+  });
+
+  it("snapshot list dispatches through oclif", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-snapshot-list-"));
+    writeSandboxRegistry(home);
+
+    const r = runWithEnv("alpha snapshot list", { HOME: home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("No snapshots found for 'alpha'.");
   });
 
   it("routes logs to OpenClaw and OpenShell log sources", () => {
