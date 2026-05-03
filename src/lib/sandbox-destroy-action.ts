@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/* v8 ignore start -- exercised through CLI subprocess destroy/rebuild tests. */
-
 import fs from "node:fs";
 
 import { CLI_NAME } from "./branding";
@@ -46,6 +44,7 @@ type RemoveSandboxRegistryEntryDeps = {
 const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
 const DASHBOARD_FORWARD_PORT = String(DASHBOARD_PORT);
 
+/* v8 ignore next -- gateway teardown subprocess orchestration is covered through CLI subprocess tests. */
 function cleanupGatewayAfterLastSandbox(): void {
   const { runOpenshell } = require("./openshell-runtime") as {
     runOpenshell: (args: string[], opts?: Record<string, unknown>) => { status: number | null };
@@ -64,6 +63,7 @@ function cleanupGatewayAfterLastSandbox(): void {
   });
 }
 
+/* v8 ignore next -- OpenShell live-sandbox probing is covered through CLI subprocess tests. */
 function hasNoLiveSandboxes(): boolean {
   const { captureOpenshell } = require("./openshell-runtime") as {
     captureOpenshell: (
@@ -98,6 +98,7 @@ export function getSandboxDeleteOutcome(deleteResult: SpawnLikeResult): {
   };
 }
 
+/* v8 ignore next -- service/provider cleanup is covered through CLI subprocess destroy tests. */
 function cleanupSandboxServices(
   sandboxName: string,
   { stopHostServices = false }: { stopHostServices?: boolean } = {},
@@ -165,6 +166,7 @@ export function removeSandboxRegistryEntry(
   return removeSandbox(sandboxName);
 }
 
+/* v8 ignore next -- destructive sandbox teardown is covered through CLI subprocess tests. */
 export async function destroySandbox(
   sandboxName: string,
   options: string[] | DestroySandboxOptions = {},
