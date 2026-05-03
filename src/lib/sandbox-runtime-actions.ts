@@ -4,7 +4,6 @@
 /* v8 ignore start -- transitional action facade until implementations leave src/nemoclaw.ts. */
 
 import type { SandboxConnectOptions } from "./sandbox-connect-action";
-import { getNemoClawRuntimeBridge } from "./nemoclaw-runtime-bridge";
 
 export async function connectSandbox(
   sandboxName: string,
