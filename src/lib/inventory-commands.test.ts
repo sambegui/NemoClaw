@@ -405,6 +405,34 @@ describe("inventory commands", () => {
     ).toBe(true);
   });
 
+  it("defaults missing overlap reason to the conservative warning", () => {
+    const lines: string[] = [];
+    const backfillAndFindOverlaps = vi
+      .fn()
+      .mockReturnValue([{ channel: "telegram", sandboxes: ["alice", "bob"] }]);
+    showStatusCommand({
+      listSandboxes: () => ({
+        sandboxes: [
+          { name: "alice", model: "m", messagingChannels: ["telegram"] },
+          { name: "bob", model: "m", messagingChannels: ["telegram"] },
+        ],
+        defaultSandbox: "alice",
+      }),
+      getLiveInference: () => null,
+      showServiceStatus: vi.fn(),
+      backfillAndFindOverlaps,
+      log: (message = "") => lines.push(message),
+    });
+
+    expect(
+      lines.some((l) =>
+        l.includes(
+          "'alice' and 'bob' may share a telegram credential; stored credential hashes are incomplete",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("surfaces Hermes gateway log when messaging is degraded", () => {
     const lines: string[] = [];
     const checkMessagingBridgeHealth = vi

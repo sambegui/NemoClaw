@@ -4,6 +4,7 @@
 import crypto from "node:crypto";
 
 export function hashCredential(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return crypto.createHash("sha256").update(String(value).trim()).digest("hex");
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  return crypto.createHash("sha256").update(normalized).digest("hex");
 }

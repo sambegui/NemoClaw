@@ -355,9 +355,9 @@ export function showStatusCommand(deps: ShowStatusCommandDeps): void {
       log("");
       for (const { channel, sandboxes: pair, reason } of overlaps) {
         const detail =
-          reason === "unknown-token"
-            ? `may share a ${channel} credential; stored credential hashes are incomplete`
-            : `share the same ${channel} credential`;
+          reason === "matching-token"
+            ? `share the same ${channel} credential`
+            : `may share a ${channel} credential; stored credential hashes are incomplete`;
         log(
           `  ⚠ '${pair[0]}' and '${pair[1]}' ${detail}. Only one bridge can poll/connect per credential.`,
         );
