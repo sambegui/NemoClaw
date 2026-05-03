@@ -376,6 +376,14 @@ describe("redact", () => {
     expect(output).toBe("https://example.com/?Signature=****&AUTH=****");
   });
 
+  it("masks dashboard URL hash tokens", () => {
+    const { redact } = require(runnerPath);
+    const token = "a".repeat(64);
+    const output = redact(`http://127.0.0.1:18789/#token=${token}`);
+    expect(output).toBe("http://127.0.0.1:18789/#token=aaaa********************");
+    expect(output).not.toContain(token);
+  });
+
   it("leaves non-secret strings untouched", () => {
     const { redact } = require(runnerPath);
     expect(redact("docker run --name my-sandbox")).toBe("docker run --name my-sandbox");
