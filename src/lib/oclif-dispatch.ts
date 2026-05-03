@@ -12,6 +12,7 @@ export type OclifDispatch = {
 export type HelpDispatch = {
   kind: "help";
   usage: string;
+  commandId?: string;
 };
 
 export type UsageErrorDispatch = {
@@ -220,7 +221,7 @@ function resolveFlatSandboxRoute(
   actionArgs: string[],
 ): DispatchResult {
   if (route.helpUsage && hasHelpFlag(actionArgs)) {
-    return { kind: "help", usage: route.helpUsage };
+    return { kind: "help", usage: route.helpUsage, commandId: route.commandId };
   }
   return oclif(route.commandId, [sandboxName, ...actionArgs]);
 }
@@ -249,7 +250,7 @@ function resolveNestedSandboxRoute(
   const subRoute = route.subcommands[subcommand];
   if (subRoute) {
     if (subRoute.helpUsage && hasHelpFlag(subArgs)) {
-      return { kind: "help", usage: subRoute.helpUsage };
+      return { kind: "help", usage: subRoute.helpUsage, commandId: subRoute.commandId };
     }
     return oclif(subRoute.commandId, [sandboxName, ...subArgs]);
   }
