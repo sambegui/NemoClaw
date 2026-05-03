@@ -143,8 +143,23 @@ export function resolveSandboxOclifDispatch(
     case "rebuild":
       if (hasHelpFlag(actionArgs)) return { kind: "help", usage: "rebuild [--yes|-y|--force] [--verbose|-v]" };
       return { kind: "oclif", commandId: "sandbox:rebuild", args: [sandboxName, ...actionArgs] };
-    case "share":
-      return { kind: "oclif", commandId: "share", args: [sandboxName, ...actionArgs] };
+    case "share": {
+      const shareSub = actionArgs[0];
+      const shareArgs = actionArgs.slice(1);
+      if (!shareSub || shareSub === "--help" || shareSub === "-h") {
+        return { kind: "oclif", commandId: "sandbox:share", args: [sandboxName] };
+      }
+      if (shareSub === "mount") {
+        return { kind: "oclif", commandId: "sandbox:share:mount", args: [sandboxName, ...shareArgs] };
+      }
+      if (shareSub === "unmount") {
+        return { kind: "oclif", commandId: "sandbox:share:unmount", args: [sandboxName, ...shareArgs] };
+      }
+      if (shareSub === "status") {
+        return { kind: "oclif", commandId: "sandbox:share:status", args: [sandboxName, ...shareArgs] };
+      }
+      return { kind: "oclif", commandId: "sandbox:share", args: [sandboxName, ...actionArgs] };
+    }
     case "snapshot": {
       const snapshotSub = actionArgs[0];
       const snapshotArgs = actionArgs.slice(1);

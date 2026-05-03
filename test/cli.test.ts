@@ -4602,4 +4602,14 @@ describe("list shows live gateway inference", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).not.toContain("Unknown action");
   });
+
+  it("unknown share subcommands fail before action dispatch", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-share-unknown-"));
+    writeSandboxRegistry(home);
+
+    const r = runWithEnv("alpha share bogus 2>&1", { HOME: home });
+
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Unexpected argument: bogus");
+  });
 });
