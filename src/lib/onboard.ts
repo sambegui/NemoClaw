@@ -4272,7 +4272,9 @@ async function createSandbox(
       try {
         const backup = sandboxState.backupSandboxState(sandboxName);
         if (backup.success) {
-          note(`  ✓ State backed up (${backup.backedUpDirs.length} directories)`);
+          note(
+            `  ✓ State backed up (${backup.backedUpDirs.length} directories, ${backup.backedUpFiles.length} files)`,
+          );
           pendingStateRestore = backup;
         } else {
           console.error("  State backup failed — aborting rebuild to prevent data loss.");
@@ -4895,7 +4897,9 @@ async function createSandbox(
       pendingStateRestore.manifest.backupPath,
     );
     if (restore.success) {
-      note(`  ✓ State restored (${restore.restoredDirs.length} directories)`);
+      note(
+        `  ✓ State restored (${restore.restoredDirs.length} directories, ${restore.restoredFiles.length} files)`,
+      );
     } else {
       console.error(
         `  Warning: partial restore. Manual recovery: ${pendingStateRestore.manifest.backupPath}`,
