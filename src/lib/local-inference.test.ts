@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 // Import from compiled dist/ for correct coverage attribution.
 import {
@@ -48,40 +50,58 @@ describe("local inference helpers", () => {
   });
 
   it("returns the expected validation URL for vllm-local", () => {
-    expect(getLocalProviderValidationBaseUrl("vllm-local")).toBe("http://localhost:8000/v1");
+    expect(getLocalProviderValidationBaseUrl("vllm-local")).toBe("http://127.0.0.1:8000/v1");
   });
 
   it("returns the expected health check command for ollama-local", () => {
-    expect(getLocalProviderHealthEndpoint("ollama-local")).toBe(
-      "http://localhost:11434/api/tags",
-    );
+    expect(getLocalProviderHealthEndpoint("ollama-local")).toBe("http://127.0.0.1:11434/api/tags");
     expect(getLocalProviderLabel("ollama-local")).toBe("Local Ollama");
-    expect(getLocalProviderHealthCheck("ollama-local")).toEqual(
-      ["curl", "-sf", "http://localhost:11434/api/tags"],
-    );
+    expect(getLocalProviderHealthCheck("ollama-local")).toEqual([
+      "curl",
+      "-sf",
+      "http://127.0.0.1:11434/api/tags",
+    ]);
   });
 
   it("returns the expected validation and health check commands for vllm-local", () => {
-    expect(getLocalProviderValidationBaseUrl("ollama-local")).toBe("http://localhost:11434/v1");
-    expect(getLocalProviderHealthEndpoint("vllm-local")).toBe("http://localhost:8000/v1/models");
+    expect(getLocalProviderValidationBaseUrl("ollama-local")).toBe("http://127.0.0.1:11434/v1");
+    expect(getLocalProviderHealthEndpoint("vllm-local")).toBe("http://127.0.0.1:8000/v1/models");
     expect(getLocalProviderLabel("vllm-local")).toBe("Local vLLM");
-    expect(getLocalProviderHealthCheck("vllm-local")).toEqual(
-      ["curl", "-sf", "http://localhost:8000/v1/models"],
-    );
+    expect(getLocalProviderHealthCheck("vllm-local")).toEqual([
+      "curl",
+      "-sf",
+      "http://127.0.0.1:8000/v1/models",
+    ]);
     expect(getLocalProviderContainerReachabilityCheck("vllm-local")).toEqual([
-      "docker", "run", "--rm",
-      "--add-host", "host.openshell.internal:host-gateway",
+      "docker",
+      "run",
+      "--rm",
+      "--add-host",
+      "host.openshell.internal:host-gateway",
       CONTAINER_REACHABILITY_IMAGE,
-      "-sf", "http://host.openshell.internal:8000/v1/models",
+      "--connect-timeout",
+      "5",
+      "--max-time",
+      "10",
+      "-sf",
+      "http://host.openshell.internal:8000/v1/models",
     ]);
   });
 
   it("returns the expected container reachability command for ollama-local (via auth proxy or direct)", () => {
     expect(getLocalProviderContainerReachabilityCheck("ollama-local")).toEqual([
-      "docker", "run", "--rm",
-      "--add-host", "host.openshell.internal:host-gateway",
+      "docker",
+      "run",
+      "--rm",
+      "--add-host",
+      "host.openshell.internal:host-gateway",
       CONTAINER_REACHABILITY_IMAGE,
-      "-sf", `http://host.openshell.internal:${OLLAMA_CONTAINER_PORT}/api/tags`,
+      "--connect-timeout",
+      "5",
+      "--max-time",
+      "10",
+      "-sf",
+      `http://host.openshell.internal:${OLLAMA_CONTAINER_PORT}/api/tags`,
     ]);
   });
 
@@ -96,28 +116,143 @@ describe("local inference helpers", () => {
     expect(callCount).toBe(2);
   });
 
+  it("rejects non-WSL Ollama when the backend and proxy ports collide", () => {
+    const output = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        [
+          "const platform = require('./dist/lib/platform.js');",
+          "platform.isWsl = () => false;",
+          "const localInference = require('./dist/lib/local-inference.js');",
+          "const result = localInference.validateLocalProvider('ollama-local', () => '{\"models\":[]}');",
+          "process.stdout.write(JSON.stringify(result));",
+        ].join(""),
+      ],
+      {
+        cwd: path.resolve(__dirname, "../.."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NEMOCLAW_OLLAMA_PORT: "11435",
+          NEMOCLAW_OLLAMA_PROXY_PORT: "11435",
+        },
+      },
+    );
+
+    const result = JSON.parse(output);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("NEMOCLAW_OLLAMA_PORT");
+    expect(result.message).toContain("NEMOCLAW_OLLAMA_PROXY_PORT");
+    expect(result.message).toContain("11435");
+  });
+
   it("returns a clear error when ollama-local is unavailable", () => {
     const result = validateLocalProvider("ollama-local", () => "");
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/http:\/\/localhost:11434/);
+    expect(result.message).toMatch(/http:\/\/127.0.0.1:11434/);
   });
 
   it("returns a clear error when ollama-local is not reachable from containers", () => {
     let callCount = 0;
     const mockCapture = () => {
       callCount += 1;
-      return callCount === 1 ? '{"models":[]}' : "";
+      // Call 1: host check succeeds
+      if (callCount === 1) return '{"models":[]}';
+      // Calls 2-4: container check fails (3 retries)
+      // Calls 5-6: diagnostic commands fail
+      return "";
     };
-    const result = validateLocalProvider("ollama-local", mockCapture);
+    const noopSleep = () => {};
+    const result = validateLocalProvider("ollama-local", mockCapture, noopSleep);
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(new RegExp(`host\\.openshell\\.internal:${OLLAMA_CONTAINER_PORT}`));
-    expect(result.message).toMatch(/auth proxy/);
+    expect(result.message).toMatch(
+      new RegExp(`host\\.openshell\\.internal:${OLLAMA_CONTAINER_PORT}`),
+    );
+    expect(result.message).toMatch(/Docker container reachability check failed/);
+    expect(result.message).toMatch(/sandbox uses a different network path/);
+    expect(result.message).not.toMatch(/Ensure the Ollama auth proxy is running/);
+    expect(result.diagnostic).toMatch(/Docker command failed/);
+  });
+
+  it("succeeds after container check retry", () => {
+    let callCount = 0;
+    const mockCapture = () => {
+      callCount += 1;
+      // Call 1: host check succeeds
+      if (callCount === 1) return '{"models":[]}';
+      // Call 2: container attempt 1 fails
+      if (callCount === 2) return "";
+      // Call 3: container attempt 2 succeeds
+      return '{"models":[]}';
+    };
+    const sleepCalls: number[] = [];
+    const mockSleep = (s: number) => { sleepCalls.push(s); };
+    const result = validateLocalProvider("ollama-local", mockCapture, mockSleep);
+    expect(result).toEqual({ ok: true });
+    expect(sleepCalls).toEqual([2]);
+  });
+
+  it("includes HTTP diagnostic when retries exhausted and diagnostic commands succeed", () => {
+    let callCount = 0;
+    const mockCapture = () => {
+      callCount += 1;
+      // Call 1: host check succeeds
+      if (callCount === 1) return '{"models":[]}';
+      // Calls 2-4: container check fails (3 retries)
+      if (callCount <= 4) return "";
+      // Call 5: diagnostic HTTP status
+      if (callCount === 5) return "502";
+      // Call 6: diagnostic /etc/hosts
+      return "172.17.0.1\thost.openshell.internal";
+    };
+    const sleepCalls: number[] = [];
+    const mockSleep = (s: number) => { sleepCalls.push(s); };
+    const result = validateLocalProvider("ollama-local", mockCapture, mockSleep);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostic).toMatch(/HTTP 502/);
+    expect(result.diagnostic).toMatch(/host-gateway resolved to/);
+    expect(sleepCalls).toEqual([2, 2]);
+  });
+
+  it("includes docker-failed diagnostic when diagnostic commands also fail", () => {
+    let callCount = 0;
+    const mockCapture = () => {
+      callCount += 1;
+      if (callCount === 1) return '{"models":[]}';
+      return "";
+    };
+    const noopSleep = () => {};
+    const result = validateLocalProvider("ollama-local", mockCapture, noopSleep);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostic).toMatch(/Docker command failed/);
+  });
+
+  it("calls sleepFn between container check retries", () => {
+    let callCount = 0;
+    const mockCapture = () => {
+      callCount += 1;
+      if (callCount === 1) return '{"models":[]}';
+      return "";
+    };
+    const sleepCalls: number[] = [];
+    const mockSleep = (s: number) => { sleepCalls.push(s); };
+    validateLocalProvider("ollama-local", mockCapture, mockSleep);
+    expect(sleepCalls).toEqual([2, 2]);
+  });
+
+  it("does not retry when host check fails", () => {
+    const sleepCalls: number[] = [];
+    const mockSleep = (s: number) => { sleepCalls.push(s); };
+    const result = validateLocalProvider("ollama-local", () => "", mockSleep);
+    expect(result.ok).toBe(false);
+    expect(sleepCalls).toEqual([]);
   });
 
   it("returns a clear error when vllm-local is unavailable", () => {
     const result = validateLocalProvider("vllm-local", () => "");
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/http:\/\/localhost:8000/);
+    expect(result.message).toMatch(/http:\/\/127.0.0.1:8000/);
   });
 
   it("probes local provider health successfully", () => {
@@ -135,8 +270,8 @@ describe("local inference helpers", () => {
     expect(result).toEqual({
       ok: true,
       providerLabel: "Local Ollama",
-      endpoint: "http://localhost:11434/api/tags",
-      detail: "Local Ollama is reachable on http://localhost:11434/api/tags.",
+      endpoint: "http://127.0.0.1:11434/api/tags",
+      detail: "Local Ollama is reachable on http://127.0.0.1:11434/api/tags.",
     });
   });
 
@@ -155,7 +290,7 @@ describe("local inference helpers", () => {
     expect(result?.ok).toBe(false);
     expect(result?.detail).toContain("Local Ollama is selected for inference");
     expect(result?.detail).toContain("Start Ollama and retry");
-    expect(result?.detail).toContain("http://localhost:11434/api/tags");
+    expect(result?.detail).toContain("http://127.0.0.1:11434/api/tags");
   });
 
   it("returns null when provider health probing is not supported", () => {
@@ -166,11 +301,18 @@ describe("local inference helpers", () => {
     let callCount = 0;
     const mockCapture = () => {
       callCount += 1;
-      return callCount === 1 ? '{"data":[]}' : "";
+      // Call 1: host check succeeds
+      if (callCount === 1) return '{"data":[]}';
+      // Calls 2+: container check + diagnostics all fail
+      return "";
     };
-    const result = validateLocalProvider("vllm-local", mockCapture);
+    const noopSleep = () => {};
+    const result = validateLocalProvider("vllm-local", mockCapture, noopSleep);
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/host\.openshell\.internal:8000/);
+    expect(result.message).toMatch(/Docker container reachability check failed/);
+    expect(result.message).toMatch(/sandbox uses a different network path/);
+    expect(result.message).not.toMatch(/Ensure the server is reachable from containers/);
   });
 
   it("treats unknown local providers as already valid", () => {
@@ -258,16 +400,17 @@ describe("local inference helpers", () => {
     expect(
       getBootstrapOllamaModelOptions({ totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB - 1 }),
     ).toEqual(["qwen2.5:7b"]);
-    expect(
-      getBootstrapOllamaModelOptions({ totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB }),
-    ).toEqual(["qwen2.5:7b", DEFAULT_OLLAMA_MODEL]);
+    expect(getBootstrapOllamaModelOptions({ totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB })).toEqual([
+      "qwen2.5:7b",
+      DEFAULT_OLLAMA_MODEL,
+    ]);
     expect(getDefaultOllamaModel({ totalMemoryMB: 16384 }, () => "")).toBe("qwen2.5:7b");
   });
 
   it("builds a background warmup command for ollama models", () => {
     const command = getOllamaWarmupCommand("nemotron-3-nano:30b");
     expect(command).toEqual(expect.arrayContaining(["bash", "-c"]));
-    expect(command[2]).toMatch(/^nohup curl -s http:\/\/localhost:11434\/api\/generate /);
+    expect(command[2]).toMatch(/^nohup curl -s http:\/\/127.0.0.1:11434\/api\/generate /);
     expect(command[2]).toMatch(/"model":"nemotron-3-nano:30b"/);
     expect(command[2]).toMatch(/"keep_alive":"15m"/);
   });
@@ -288,7 +431,7 @@ describe("local inference helpers", () => {
     expect(command).toContain("-sS");
     expect(command).toContain("--max-time");
     expect(command).toContain("120");
-    expect(command).toContain("http://localhost:11434/api/generate");
+    expect(command).toContain("http://127.0.0.1:11434/api/generate");
     const payload = command[command.length - 1];
     expect(payload).toMatch(/"model":"nemotron-3-nano:30b"/);
   });
@@ -300,18 +443,16 @@ describe("local inference helpers", () => {
   });
 
   it("fails ollama model validation when Ollama returns an error payload", () => {
-    const result = validateOllamaModel(
-      "gabegoodhart/minimax-m2.1:latest",
-      () => JSON.stringify({ error: "model requires more system memory" }),
+    const result = validateOllamaModel("gabegoodhart/minimax-m2.1:latest", () =>
+      JSON.stringify({ error: "model requires more system memory" }),
     );
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/requires more system memory/);
   });
 
   it("passes ollama model validation when the probe returns a normal payload", () => {
-    const result = validateOllamaModel(
-      "nemotron-3-nano:30b",
-      () => JSON.stringify({ model: "nemotron-3-nano:30b", response: "hello", done: true }),
+    const result = validateOllamaModel("nemotron-3-nano:30b", () =>
+      JSON.stringify({ model: "nemotron-3-nano:30b", response: "hello", done: true }),
     );
     expect(result).toEqual({ ok: true });
   });

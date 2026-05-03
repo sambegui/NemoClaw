@@ -42,6 +42,17 @@ extensions = [
 
 redirects = {
     "reference/inference-profiles": "../inference/inference-options.html",
+    # Get Started reorganization (April 2026): the Windows pre-setup page
+    # moved out of its earlier locations and is now get-started/
+    # windows-preparation.html. The short-lived platform-setup hub and
+    # tutorials/dgx-spark pages were removed; DGX Spark content now lives
+    # in the NVIDIA Spark playbook (https://build.nvidia.com/spark/nemoclaw).
+    "get-started/windows-setup": "windows-preparation.html",
+    # Manage Sandboxes reorganization (May 2026): operational pages moved
+    # from deployment/ and workspace/ into manage-sandboxes/.
+    "deployment/set-up-telegram-bridge": "../manage-sandboxes/messaging-channels.html",
+    "workspace/workspace-files": "../manage-sandboxes/workspace-files.html",
+    "workspace/backup-restore": "../manage-sandboxes/backup-restore.html",
 }
 
 autodoc_default_options = {
@@ -139,5 +150,9 @@ html_baseurl = "https://docs.nvidia.com/nemoclaw/latest/"
 
 # Keep project.json in sync with the resolved release version so the
 # static copy served alongside the docs always reports the correct version.
+# Write only when the contents change so sphinx-autobuild does not detect
+# a self-induced source change and rebuild in an infinite loop.
 _project_json = Path(__file__).parent / "project.json"
-_project_json.write_text(json.dumps({"name": "nemoclaw", "version": release}) + "\n")
+_project_json_contents = json.dumps({"name": "nemoclaw", "version": release}) + "\n"
+if not _project_json.exists() or _project_json.read_text() != _project_json_contents:
+    _project_json.write_text(_project_json_contents)

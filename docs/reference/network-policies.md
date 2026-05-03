@@ -4,7 +4,7 @@ title:
   nav: "Network Policies"
 description:
   main: "Baseline network policy, filesystem rules, and operator approval flow."
-  agent: "Documents baseline network policy, filesystem rules, and operator approval flow. Use when reviewing default network policies, understanding egress controls, or looking up the approval flow."
+  agent: "Covers the baseline network policy, filesystem rules, and operator approval flow. Use when looking up a specific default endpoint, filesystem path, or the runtime approval sequence NemoClaw applies on blocked requests."
 keywords: ["nemoclaw network policy", "sandbox egress control operator approval"]
 topics: ["generative_ai", "ai_agents"]
 tags: ["openclaw", "openshell", "sandboxing", "network_policy", "security"]
@@ -155,6 +155,12 @@ $ nemoclaw onboard
 ### Dynamic Changes
 
 Apply policy updates to a running sandbox without restarting:
+
+```console
+$ openshell policy update <sandbox-name> --add-endpoint api.example.com:443:read-only:rest:enforce
+```
+
+To replace the live policy with a complete raw policy file, use `openshell policy set`:
 
 ```console
 $ openshell policy set --policy <policy-file> <sandbox-name>
