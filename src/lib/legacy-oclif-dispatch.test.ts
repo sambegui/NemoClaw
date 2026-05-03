@@ -29,6 +29,13 @@ describe("resolveSandboxOclifDispatch", () => {
     });
   });
 
+  it("keeps logs help public with filter flags", () => {
+    expect(resolveSandboxOclifDispatch("alpha", "logs", ["--help"])).toEqual({
+      kind: "help",
+      usage: "logs [--follow] [--tail <lines>|-n <lines>] [--since <duration>]",
+    });
+  });
+
   it("routes policy-add missing-value errors through a raw oclif adapter", () => {
     expect(resolveSandboxOclifDispatch("alpha", "policy-add", ["--from-file"])).toEqual({
       kind: "oclif",
