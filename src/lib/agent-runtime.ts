@@ -238,3 +238,19 @@ export function getAgentDisplayName(agent: AgentDefinition | null): string {
 export function getGatewayCommand(agent: AgentDefinition | null): string {
   return agent?.gateway_command || "openclaw gateway run";
 }
+
+/**
+ * Build a single copy-pasteable command for the user to run when automatic
+ * gateway recovery fails. Unlike the raw gateway command, this keeps the
+ * process alive after disconnect and preserves the agent-specific launch shape.
+ */
+export function buildManualRecoveryCommand(agent: AgentDefinition | null, port: number): string {
+  const binaryPath = agent?.binary_path || "/usr/local/bin/openclaw";
+  const binaryName = binaryPath.split("/").pop() ?? "openclaw";
+  const defaultGatewayCommand = `${binaryName} gateway run`;
+  const gatewayCmd = agent?.gateway_command?.trim() || defaultGatewayCommand;
+  const isHermes = agent?.name === "hermes";
+  const envPrefix = isHermes ? "HERMES_HOME=/sandbox/.hermes " : "";
+  const portFlag = isHermes ? "" : ` --port ${port}`;
+  return `${buildGatewayLogSelection()} ${envPrefix}nohup ${gatewayCmd}${portFlag} >> "$_GATEWAY_LOG" 2>&1 &`;
+}

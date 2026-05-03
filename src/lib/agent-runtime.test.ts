@@ -3,7 +3,11 @@
 
 import { describe, it, expect } from "vitest";
 // Import from compiled dist/ so coverage is attributed correctly.
-import { buildOpenClawRecoveryScript, buildRecoveryScript } from "../../dist/lib/agent-runtime";
+import {
+  buildManualRecoveryCommand,
+  buildOpenClawRecoveryScript,
+  buildRecoveryScript,
+} from "../../dist/lib/agent-runtime";
 import type { AgentDefinition } from "./agent-defs";
 
 function makeAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -287,5 +291,38 @@ describe("buildRecoveryScript", () => {
       expect(script).not.toContain("gosu gateway");
       expect(script).not.toContain("gosu 'gateway'");
     });
+  });
+});
+
+describe("buildManualRecoveryCommand (#2426)", () => {
+  it("backgrounds non-Hermes gateways with nohup and the requested port", () => {
+    const cmd = buildManualRecoveryCommand(minimalAgent, 19000);
+    expect(cmd).toContain("nohup test-agent gateway run --port 19000");
+    expect(cmd).toContain('>> "$_GATEWAY_LOG" 2>&1 &');
+  });
+
+  it("selects a writable gateway log before launching", () => {
+    const cmd = buildManualRecoveryCommand(minimalAgent, 19000);
+    expect(cmd).toContain("_GATEWAY_LOG=/tmp/gateway.log");
+    expect(cmd).toContain("_GATEWAY_LOG=/tmp/gateway-recovery.log");
+    expect(cmd).not.toContain(">/tmp/gateway.log 2>&1");
+  });
+
+  it("omits --port for Hermes and uses the current Hermes home", () => {
+    const cmd = buildManualRecoveryCommand(hermesAgent, 8642);
+    expect(cmd).toContain("HERMES_HOME=/sandbox/.hermes nohup hermes gateway run");
+    expect(cmd).not.toContain("--port 8642");
+    expect(cmd).not.toContain("/sandbox/.hermes-data");
+  });
+
+  it("derives the default gateway command from binary_path when gateway_command is blank", () => {
+    const agent = makeAgent({ gateway_command: "   " });
+    const cmd = buildManualRecoveryCommand(agent, 19000);
+    expect(cmd).toContain("nohup test-agent gateway run --port 19000");
+  });
+
+  it("falls back to openclaw gateway run for a null agent", () => {
+    const cmd = buildManualRecoveryCommand(null, 18789);
+    expect(cmd).toContain("nohup openclaw gateway run --port 18789");
   });
 });
