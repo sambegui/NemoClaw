@@ -736,11 +736,11 @@ Logs:        nemoclaw my-gpt-claw logs --follow
 <p>The onboard wizard starts a background port forward to the sandbox dashboard, then prints the dashboard URL in the install summary.
 The default host port is <code class="docutils literal notranslate"><span class="pre">18789</span></code>.
 If that port is already taken, NemoClaw uses the next free dashboard port, such as <code class="docutils literal notranslate"><span class="pre">18790</span></code>, and prints that port in the final URL.
-The gateway token is redacted from logs; retrieve it explicitly when the browser asks for authentication.</p>
+The gateway token is redacted from displayed output; retrieve it explicitly when the browser asks for authentication.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>──────────────────────────────────────────────────
 OpenClaw UI (auth token redacted from displayed URLs)
 Port 18790 must be forwarded before opening these URLs.
-Dashboard: http://127.0.0.1:18790/#token=&lt;redacted&gt;
+Dashboard: http://127.0.0.1:18790/
 Token:       nemoclaw my-gpt-claw gateway-token --quiet
              append  #token=&lt;token&gt; locally if the browser asks for auth.
 ──────────────────────────────────────────────────
