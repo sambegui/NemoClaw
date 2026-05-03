@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/* v8 ignore start -- oclif runtime bridge covered through CLI integration tests. */
+
 import { Config as OclifConfig } from "@oclif/core";
 
 import { CLI_NAME } from "./branding";
@@ -25,7 +27,7 @@ function isOclifParseError(error: unknown): boolean {
     error && typeof error === "object"
       ? (error as { constructor?: { name?: string } }).constructor?.name
       : "";
-  return name === "NonExistentFlagsError" || name === "UnexpectedArgsError";
+  return name === "NonExistentFlagsError" || name === "UnexpectedArgsError" || name === "CLIError";
 }
 
 function formatOclifError(error: unknown): string {
