@@ -138,6 +138,21 @@ function gatewayLaunchCommand(command: string, runAsUser?: string): string {
   return `${logSelection} if [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1 && id ${shellQuote(runAsUser)} >/dev/null 2>&1; then nohup gosu ${shellQuote(runAsUser)} ${command} >> "$_GATEWAY_LOG" 2>&1 & else ${userLaunch} fi;`;
 }
 
+function hermesGatewayEnvPrefix(): string {
+  const decodeProxy = "http://127.0.0.1:3129";
+  return [
+    "HERMES_HOME=/sandbox/.hermes",
+    `HTTPS_PROXY=${decodeProxy}`,
+    `HTTP_PROXY=${decodeProxy}`,
+    `https_proxy=${decodeProxy}`,
+    `http_proxy=${decodeProxy}`,
+  ].join(" ");
+}
+
+function hermesDecodeProxyRecoveryCommand(): string {
+  return 'if ! command -v ss >/dev/null 2>&1 || ! ss -tln 2>/dev/null | grep -q "127.0.0.1:3129"; then nohup python3 /usr/local/bin/nemoclaw-decode-proxy >/dev/null 2>&1 & for _i in 1 2 3 4 5 6 7 8 9 10; do ! command -v ss >/dev/null 2>&1 || ss -tln 2>/dev/null | grep -q "127.0.0.1:3129" && break; sleep 0.5; done; fi;';
+}
+
 /**
  * Build the OpenClaw recovery shell script used by the default sandbox.
  */
@@ -195,9 +210,12 @@ export function buildRecoveryScript(agent: AgentDefinition | null, port: number)
   // that's about to crash on a missing guard. (#2478)
   const isHermes = agent.name === "hermes";
   const hermesHome = isHermes ? "export HERMES_HOME=/sandbox/.hermes; " : "";
+  const hermesLaunchEnv = isHermes ? `env ${hermesGatewayEnvPrefix()} ` : "";
   const launchCommand = usesValidatedBinary
-    ? gatewayLaunchCommand(`"$AGENT_BIN" gateway run${isHermes ? "" : ` --port ${port}`}`)
-    : gatewayLaunchCommand(`${configuredGatewayCommand}${isHermes ? "" : ` --port ${port}`}`);
+    ? gatewayLaunchCommand(`${hermesLaunchEnv}"$AGENT_BIN" gateway run${isHermes ? "" : ` --port ${port}`}`)
+    : gatewayLaunchCommand(
+        `${hermesLaunchEnv}${configuredGatewayCommand}${isHermes ? "" : ` --port ${port}`}`,
+      );
 
   // Source /tmp/nemoclaw-proxy-env.sh immediately before launching. That file
   // is the single source of truth for NODE_OPTIONS preload guards (safety-net,
@@ -219,6 +237,7 @@ export function buildRecoveryScript(agent: AgentDefinition | null, port: number)
     'if [ "$_PE_MISSING" = "0" ]; then case "${NODE_OPTIONS:-}" in *nemoclaw-sandbox-safety-net*) _SN_MISSING=0 ;; *) _SN_MISSING=1 ;; esac; case "${NODE_OPTIONS:-}" in *nemoclaw-ciao-network-guard*) _CIAO_MISSING=0 ;; *) _CIAO_MISSING=1 ;; esac; if [ "$_SN_MISSING" = "0" ] && [ "$_CIAO_MISSING" = "0" ]; then _GUARDS_MISSING=0; else _GUARDS_MISSING=1; fi; else _GUARDS_MISSING=0; fi;',
     '[ "$_PE_MISSING" = "1" ] && { _W="[gateway-recovery] WARNING: /tmp/nemoclaw-proxy-env.sh missing - gateway launching without library guards (#2478)"; echo "$_W" >&2; echo "$_W" >> "$_GATEWAY_LOG"; };',
     '[ "$_PE_MISSING" = "0" ] && [ "$_GUARDS_MISSING" = "1" ] && { _E="[gateway-recovery] ERROR: /tmp/nemoclaw-proxy-env.sh present but NODE_OPTIONS missing safety-net preload or ciao preload - refusing unguarded gateway relaunch (#2478)"; echo "$_E" >&2; echo "$_E" >> "$_GATEWAY_LOG"; exit 1; };',
+    isHermes ? hermesDecodeProxyRecoveryCommand() : "",
     launchCommand,
     "GPID=$!; sleep 2;",
     'if kill -0 "$GPID" 2>/dev/null; then echo "GATEWAY_PID=$GPID"; else echo GATEWAY_FAILED; tail -5 "$_GATEWAY_LOG" 2>/dev/null; fi',
@@ -246,11 +265,11 @@ export function getGatewayCommand(agent: AgentDefinition | null): string {
  */
 export function buildManualRecoveryCommand(agent: AgentDefinition | null, port: number): string {
   const binaryPath = agent?.binary_path || "/usr/local/bin/openclaw";
-  const binaryName = binaryPath.split("/").pop() ?? "openclaw";
-  const defaultGatewayCommand = `${binaryName} gateway run`;
+  const defaultGatewayCommand = `${shellQuote(binaryPath)} gateway run`;
   const gatewayCmd = agent?.gateway_command?.trim() || defaultGatewayCommand;
   const isHermes = agent?.name === "hermes";
-  const envPrefix = isHermes ? "HERMES_HOME=/sandbox/.hermes " : "";
+  const envPrefix = isHermes ? `${hermesGatewayEnvPrefix()} ` : "";
   const portFlag = isHermes ? "" : ` --port ${port}`;
-  return `${buildGatewayLogSelection()} ${envPrefix}nohup ${gatewayCmd}${portFlag} >> "$_GATEWAY_LOG" 2>&1 &`;
+  const decodeProxySetup = isHermes ? `${hermesDecodeProxyRecoveryCommand()} ` : "";
+  return `${buildGatewayLogSelection()} ${decodeProxySetup}${envPrefix}nohup ${gatewayCmd}${portFlag} >> "$_GATEWAY_LOG" 2>&1 &`;
 }

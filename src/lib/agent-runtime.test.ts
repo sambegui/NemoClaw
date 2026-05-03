@@ -94,6 +94,9 @@ describe("buildRecoveryScript", () => {
   it("omits --port for Hermes so config.yaml controls the internal listen port (#2426)", () => {
     const script = buildRecoveryScript(hermesAgent, 8642);
     expect(script).toContain("export HERMES_HOME=/sandbox/.hermes");
+    expect(script).toContain("HERMES_HOME=/sandbox/.hermes");
+    expect(script).toContain("HTTPS_PROXY=http://127.0.0.1:3129");
+    expect(script).toContain("nemoclaw-decode-proxy");
     expect(script).toContain('"$AGENT_BIN" gateway run');
     expect(script).not.toContain('"$AGENT_BIN" gateway run --port 8642');
     expect(script).not.toContain("hermes gateway run --port 8642");
@@ -125,7 +128,8 @@ describe("buildRecoveryScript", () => {
       gateway_command: "hermes gateway run --profile recovery",
     });
     const script = buildRecoveryScript(agent, 8642);
-    expect(script).toContain("nohup hermes gateway run --profile recovery");
+    expect(script).toContain("nohup env HERMES_HOME=/sandbox/.hermes");
+    expect(script).toContain("hermes gateway run --profile recovery");
     expect(script).not.toContain("hermes gateway run --profile recovery --port 8642");
   });
 
@@ -310,7 +314,10 @@ describe("buildManualRecoveryCommand (#2426)", () => {
 
   it("omits --port for Hermes and uses the current Hermes home", () => {
     const cmd = buildManualRecoveryCommand(hermesAgent, 8642);
-    expect(cmd).toContain("HERMES_HOME=/sandbox/.hermes nohup hermes gateway run");
+    expect(cmd).toContain("HERMES_HOME=/sandbox/.hermes");
+    expect(cmd).toContain("HTTPS_PROXY=http://127.0.0.1:3129");
+    expect(cmd).toContain("nemoclaw-decode-proxy");
+    expect(cmd).toContain("nohup hermes gateway run");
     expect(cmd).not.toContain("--port 8642");
     expect(cmd).not.toContain("/sandbox/.hermes-data");
   });
@@ -318,11 +325,11 @@ describe("buildManualRecoveryCommand (#2426)", () => {
   it("derives the default gateway command from binary_path when gateway_command is blank", () => {
     const agent = makeAgent({ gateway_command: "   " });
     const cmd = buildManualRecoveryCommand(agent, 19000);
-    expect(cmd).toContain("nohup test-agent gateway run --port 19000");
+    expect(cmd).toContain("nohup '/usr/local/bin/test-agent' gateway run --port 19000");
   });
 
   it("falls back to openclaw gateway run for a null agent", () => {
     const cmd = buildManualRecoveryCommand(null, 18789);
-    expect(cmd).toContain("nohup openclaw gateway run --port 18789");
+    expect(cmd).toContain("nohup '/usr/local/bin/openclaw' gateway run --port 18789");
   });
 });
