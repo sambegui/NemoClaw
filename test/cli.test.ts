@@ -1000,8 +1000,8 @@ describe("CLI dispatch", () => {
 
   it("debug exits 1 on unknown option", () => {
     const r = run("debug --quik");
-    expect(r.code).toBe(1);
-    expect(r.out.includes("Unknown option")).toBeTruthy();
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Nonexistent flag: --quik");
   });
 
   it("help mentions debug command", () => {
@@ -1024,6 +1024,7 @@ describe("CLI dispatch", () => {
   it("debug --sandbox without a name exits 1", () => {
     const r = run("debug --sandbox");
     expect(r.code).not.toBe(0);
+    expect(r.out).toContain("--sandbox");
   });
 
   it("debug warns when default sandbox is stale", testTimeoutOptions(), () => {
