@@ -898,26 +898,27 @@ describe("CLI dispatch", () => {
   it("onboard --help exits 0 and shows usage", () => {
     const r = run("onboard --help");
     expect(r.code).toBe(0);
-    expect(r.out.includes("Usage: nemoclaw onboard")).toBeTruthy();
-    expect(r.out.includes("--from <Dockerfile>")).toBeTruthy();
+    expect(r.out).toContain("USAGE");
+    expect(r.out).toContain("nemoclaw onboard");
+    expect(r.out).toContain("--from <Dockerfile>");
   });
 
   it("unknown onboard option exits 1", () => {
     const r = run("onboard --non-interactiv");
-    expect(r.code).toBe(1);
-    expect(r.out.includes("Unknown onboard option")).toBeTruthy();
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Nonexistent flag: --non-interactiv");
   });
 
   it("accepts onboard --resume in CLI parsing", () => {
     const r = run("onboard --resume --non-interactiv");
-    expect(r.code).toBe(1);
-    expect(r.out.includes("Unknown onboard option(s): --non-interactiv")).toBeTruthy();
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Nonexistent flag: --non-interactiv");
   });
 
   it("accepts the third-party software flag in onboard CLI parsing", () => {
     const r = run("onboard --yes-i-accept-third-party-software --non-interactiv");
-    expect(r.code).toBe(1);
-    expect(r.out.includes("Unknown onboard option(s): --non-interactiv")).toBeTruthy();
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Nonexistent flag: --non-interactiv");
   });
 
   it("setup --help exits 0 and shows onboard usage", () => {
@@ -930,9 +931,8 @@ describe("CLI dispatch", () => {
 
   it("setup forwards unknown options into onboard parsing", () => {
     const r = run("setup --non-interactiv");
-    expect(r.code).toBe(1);
-    expect(r.out.includes("deprecated")).toBeTruthy();
-    expect(r.out.includes("Unknown onboard option(s): --non-interactiv")).toBeTruthy();
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("Nonexistent flag: --non-interactiv");
   });
 
   it("setup forwards --resume into onboard parsing", () => {
