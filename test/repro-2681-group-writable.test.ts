@@ -53,6 +53,15 @@ function withMockedDockerExecFileSync<T>(calls: string[][], run: () => T): T {
     const separator = args.indexOf("--");
     const command = separator >= 0 ? args.slice(separator + 1) : [...args];
     calls.push(command);
+    if (
+      command[0] === "sh" &&
+      command[1] === "-c" &&
+      typeof command[2] === "string" &&
+      command[2].includes('state_path="$1"')
+    ) {
+      const statePath = command[4] || "";
+      return `${statePath.replace("/sandbox/.openclaw/", "/sandbox/.openclaw-data/")}\n`;
+    }
     if (command[0] === "stat" && command[1] === "-c") {
       return command.at(-1) === "/sandbox/.openclaw"
         ? "2770 sandbox:sandbox\n"
@@ -156,9 +165,14 @@ describe("Issue #2681 — mutable OpenClaw config permissions", () => {
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/openclaw.json"]);
     expect(commands).toContainEqual(["chmod", "660", "/sandbox/.openclaw/.config-hash"]);
     expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw"]);
-    expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw/workspace"]);
-    expect(commands).toContainEqual(["chmod", "-R", "g+rwX,o-rwx", "/sandbox/.openclaw/workspace"]);
-    expect(commands.find((command) => command[0] === "sh" && command[1] === "-c")).toEqual(
+    expect(commands).toContainEqual(["chmod", "2770", "/sandbox/.openclaw-data/workspace"]);
+    expect(commands).toContainEqual(["chmod", "-R", "g+rwX,o-rwx", "/sandbox/.openclaw-data/workspace"]);
+    expect(
+      commands.find(
+        (command) =>
+          command[0] === "sh" && command[1] === "-c" && command.includes("sandbox:sandbox"),
+      ),
+    ).toEqual(
       expect.arrayContaining(["/sandbox/.openclaw", "sandbox:sandbox", "g+rwX,o-rwx", "2770"]),
     );
   });

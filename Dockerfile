@@ -327,8 +327,8 @@ USER sandbox
 #   Non-root mode: $XDG_RUNTIME_DIR/nemoclaw/gateway-token (sandbox:sandbox 0400)
 # See: scripts/nemoclaw-start.sh generate_gateway_token()
 #
-# Config is mutable by default (group-writable sandbox:sandbox). Immutability
-# is opt-in via `shields up` (DAC 444 root:root + chattr +i).
+# Config is generated while the build still runs as sandbox, then the final
+# image locks it root-owned/read-only with writable state behind symlinks.
 # Build args (NEMOCLAW_MODEL, CHAT_UI_URL) customize per deployment.
 #
 # Temporary workaround for NemoClaw#1738: the OpenClaw Discord extension's
@@ -351,12 +351,13 @@ RUN python3 /usr/local/lib/nemoclaw/generate-openclaw-config.py
 # it in a later layer would not reduce the OCI image imported by k3s.
 RUN (openclaw doctor --fix > /dev/null 2>&1 || true) \
     && (openclaw plugins install /opt/nemoclaw > /dev/null 2>&1 || true) \
-    && if [ -d /sandbox/.openclaw/plugin-runtime-deps ]; then \
-        find /sandbox/.openclaw/plugin-runtime-deps -type f \( \
+    && deps_dir="$(readlink -f /sandbox/.openclaw/plugin-runtime-deps 2>/dev/null || printf '%s' /sandbox/.openclaw/plugin-runtime-deps)" \
+    && if [ -d "$deps_dir" ]; then \
+        find "$deps_dir" -type f \( \
             -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o \
             -name '*.map' -o -name '*.tsbuildinfo' \
         \) -delete; \
-        find /sandbox/.openclaw/plugin-runtime-deps -type d \( \
+        find "$deps_dir" -type d \( \
             -name __tests__ -o -name test -o -name tests -o -name docs -o \
             -name examples \
         \) -prune -exec rm -rf {} +; \
@@ -373,98 +374,50 @@ cfg.setdefault('gateway', {}).setdefault('auth', {})['token'] = ''; \
 json.dump(cfg, open(path, 'w'), indent=2); \
 os.chmod(path, 0o600)"
 
-# Flatten stale published base images that still contain the old
-# .openclaw-data symlink bridge. OpenShell starts the sandbox as the sandbox
-# user, so runtime migration cannot rely on root privileges inside the pod.
-# Doing this in the image build guarantees new PR images have only the unified
-# .openclaw layout even when sandbox-base:latest has not been rebuilt yet.
+# Rebuild the .openclaw-data symlink bridge even when sandbox-base:latest has
+# not been rebuilt yet. /sandbox/.openclaw contains protected config files and
+# symlinks only; writable OpenClaw state lives under /sandbox/.openclaw-data.
+# Keeping the repair in the image build means the sandbox user cannot replace
+# symlinks at runtime.
 # hadolint ignore=DL3002
 USER root
 # hadolint ignore=DL4006
 RUN set -eu; \
     config_dir=/sandbox/.openclaw; \
     data_dir=/sandbox/.openclaw-data; \
-    mkdir -p "$config_dir"; \
-    if [ -L "$data_dir" ]; then \
-        echo "ERROR: refusing legacy layout cleanup because $data_dir is a symlink" >&2; \
+    if [ -L "$config_dir" ] || [ -L "$data_dir" ]; then \
+        echo "ERROR: refusing .openclaw layout repair because config/data path is a symlink" >&2; \
         exit 1; \
     fi; \
-    if [ -d "$data_dir" ]; then \
-        for entry in "$data_dir"/*; do \
-            [ -e "$entry" ] || [ -L "$entry" ] || continue; \
-            if [ -L "$entry" ]; then \
-                echo "ERROR: refusing legacy layout cleanup because $entry is a symlink" >&2; \
-                exit 1; \
+    mkdir -p "$config_dir" "$data_dir"; \
+    for name in agents extensions workspace skills hooks identity devices canvas cron memory logs credentials flows sandbox telegram media completions plugin-runtime-deps; do \
+        data_path="$data_dir/$name"; \
+        link_path="$config_dir/$name"; \
+        mkdir -p "$data_path"; \
+        if [ -L "$link_path" ]; then \
+            rm -f "$link_path"; \
+        elif [ -e "$link_path" ]; then \
+            if [ -d "$link_path" ]; then \
+                cp -a "$link_path"/. "$data_path"/ 2>/dev/null || true; \
             fi; \
-            name="$(basename "$entry")"; \
-            target="$config_dir/$name"; \
-            if [ -L "$target" ]; then \
-                rm -f "$target"; \
-            fi; \
-            if [ -d "$entry" ]; then \
-                mkdir -p "$target"; \
-                cp -a "$entry"/. "$target"/; \
-            elif [ ! -e "$target" ]; then \
-                cp -a "$entry" "$target"; \
-            fi; \
-        done; \
-        data_real="$(readlink -f "$data_dir" 2>/dev/null || printf '%s' "$data_dir")"; \
-        while :; do \
-            replaced_marker="$(mktemp)"; \
-            rm -f "$replaced_marker"; \
-            find "$config_dir" -type l -print | while IFS= read -r link; do \
-                raw_target="$(readlink "$link" 2>/dev/null || true)"; \
-                resolved_target="$(readlink -f "$link" 2>/dev/null || true)"; \
-                legacy_target=0; \
-                case "$raw_target" in "$data_real"/* | "$data_dir"/*) legacy_target=1 ;; esac; \
-                case "$resolved_target" in "$data_real"/* | "$data_dir"/*) legacy_target=1 ;; esac; \
-                if [ "$legacy_target" -eq 1 ]; then \
-                    copy_target="$resolved_target"; \
-                    if [ -z "$copy_target" ] || { [ ! -e "$copy_target" ] && [ ! -L "$copy_target" ]; }; then \
-                        copy_target="$raw_target"; \
-                    fi; \
-                    if [ -d "$copy_target" ] && [ ! -L "$copy_target" ]; then \
-                            rm -f "$link"; \
-                            mkdir -p "$link"; \
-                            cp -a "$copy_target"/. "$link"/; \
-                    elif [ -e "$copy_target" ] || [ -L "$copy_target" ]; then \
-                            rm -f "$link"; \
-                            cp -a "$copy_target" "$link"; \
-                    else \
-                        echo "ERROR: legacy symlink target missing: $link -> ${raw_target:-$resolved_target}" >&2; \
-                        exit 1; \
-                    fi; \
-                    : > "$replaced_marker"; \
-                fi; \
-            done; \
-            if [ ! -e "$replaced_marker" ]; then \
-                rm -f "$replaced_marker"; \
-                break; \
-            fi; \
-            rm -f "$replaced_marker"; \
-        done; \
-        rm -rf "$data_dir"; \
-    fi; \
-    mkdir -p "$config_dir/agents/main/agent" \
-        "$config_dir/extensions" \
-        "$config_dir/workspace" \
-        "$config_dir/skills" \
-        "$config_dir/hooks" \
-        "$config_dir/identity" \
-        "$config_dir/devices" \
-        "$config_dir/canvas" \
-        "$config_dir/cron" \
-        "$config_dir/memory" \
-        "$config_dir/logs" \
-        "$config_dir/credentials" \
-        "$config_dir/flows" \
-        "$config_dir/sandbox" \
-        "$config_dir/telegram" \
-        "$config_dir/media" \
-        "$config_dir/plugin-runtime-deps"; \
-    touch "$config_dir/update-check.json" "$config_dir/exec-approvals.json"; \
-    if [ -e "$data_dir" ] || [ -L "$data_dir" ]; then \
-        echo "ERROR: legacy data dir still exists after cleanup: $data_dir" >&2; \
+            rm -rf "$link_path"; \
+        fi; \
+        ln -s "$data_path" "$link_path"; \
+    done; \
+    for name in update-check.json exec-approvals.json; do \
+        data_path="$data_dir/$name"; \
+        link_path="$config_dir/$name"; \
+        touch "$data_path"; \
+        if [ -L "$link_path" ]; then \
+            rm -f "$link_path"; \
+        elif [ -e "$link_path" ]; then \
+            cp -a "$link_path" "$data_path" 2>/dev/null || true; \
+            rm -f "$link_path"; \
+        fi; \
+        ln -s "$data_path" "$link_path"; \
+    done; \
+    if [ -L "$data_dir" ]; then \
+        echo "ERROR: refusing legacy layout cleanup because $data_dir is a symlink" >&2; \
         exit 1; \
     fi; \
     data_real="$(readlink -f "$data_dir" 2>/dev/null || printf '%s' "$data_dir")"; \
@@ -473,17 +426,23 @@ RUN set -eu; \
         resolved_target="$(readlink -f "$link" 2>/dev/null || true)"; \
         case "$raw_target" in \
             "$data_real"/* | "$data_dir"/*) \
-                echo "ERROR: legacy symlink remains after cleanup: $link -> $raw_target" >&2; \
-                exit 1; \
                 ;; \
+            *) \
+                echo "ERROR: .openclaw symlink points outside data dir: $link -> $raw_target" >&2; \
+                exit 1 ;; \
         esac; \
         case "$resolved_target" in \
             "$data_real"/* | "$data_dir"/*) \
-                echo "ERROR: legacy symlink remains after cleanup: $link -> $resolved_target" >&2; \
-                exit 1; \
                 ;; \
+            *) \
+                echo "ERROR: .openclaw symlink resolves outside data dir: $link -> $resolved_target" >&2; \
+                exit 1 ;; \
         esac; \
     done; \
+    chown -R sandbox:sandbox "$data_dir"; \
+    chmod -R g+rwX,o-rwx "$data_dir"; \
+    find "$data_dir" -type d -exec chmod g+s {} +; \
+    chmod 2770 "$data_dir"; \
     rm -rf /root/.npm /sandbox/.npm
 
 # Stale-base fallback for the gateway-in-sandbox-group setup (#2681).
@@ -497,22 +456,17 @@ RUN if id gateway >/dev/null 2>&1 && id sandbox >/dev/null 2>&1; then \
         fi; \
     fi
 
-# Keep the image readable to the root entrypoint after capabilities are
-# dropped. OpenShell starts the runtime as the sandbox user; the entrypoint
-# and onboard flow normalize the mutable-default group-writable permissions.
-# Shields-up applies 444 root:root + chattr +i on top.
-#
-# `chmod g+w` + setgid (chmod g+s on dirs) on the mutable config tree means
-# both `sandbox` and `gateway` (now a member of the sandbox group) can write
-# to OpenClaw config/state in default mode. New files created in setgid
-# directories inherit group=sandbox regardless of which UID created them,
-# so OpenClaw's mutateConfigFile path (control-UI toggles) writes succeed
-# without needing an EACCES-swallow patch (#2681 supersedes #2693).
-RUN chown -R sandbox:sandbox /sandbox/.openclaw \
-    && chmod -R g+rwX,o-rwx /sandbox/.openclaw \
-    && find /sandbox/.openclaw -type d -exec chmod g+s {} + \
-    && chmod 2770 /sandbox/.openclaw \
-    && chmod 660 /sandbox/.openclaw/openclaw.json
+# Lock the config directory while leaving the symlink targets writable. The
+# sandbox user can write state through /sandbox/.openclaw/* symlinks, but cannot
+# replace the symlinks or edit protected config files.
+RUN chown root:root /sandbox/.openclaw \
+    && chmod 755 /sandbox/.openclaw \
+    && chown root:root /sandbox/.openclaw/openclaw.json \
+    && chmod 444 /sandbox/.openclaw/openclaw.json \
+    && chown -R sandbox:sandbox /sandbox/.openclaw-data \
+    && chmod -R g+rwX,o-rwx /sandbox/.openclaw-data \
+    && find /sandbox/.openclaw-data -type d -exec chmod g+s {} + \
+    && chmod 2770 /sandbox/.openclaw-data
 
 # System-wide proxy hooks for shells where ~/.bashrc / ~/.profile aren't
 # sourced (e.g. `bash -ic` / `bash -lc` invoked under a different user or
@@ -544,8 +498,8 @@ RUN if ! grep -q "/tmp/nemoclaw-proxy-env.sh" /etc/profile.d/nemoclaw-proxy.sh 2
 
 # Pin config hash at build time so the entrypoint can verify integrity.
 RUN sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
-    && chmod 660 /sandbox/.openclaw/.config-hash \
-    && chown sandbox:sandbox /sandbox/.openclaw/.config-hash
+    && chmod 444 /sandbox/.openclaw/.config-hash \
+    && chown root:root /sandbox/.openclaw/.config-hash
 
 # DAC-protect .nemoclaw directory: /sandbox/.nemoclaw is Landlock read_write
 # (for plugin state/config), but the parent and blueprints are immutable at
@@ -567,7 +521,10 @@ RUN chown root:root /sandbox/.nemoclaw \
     && touch /sandbox/.nemoclaw/config.json \
     && chown sandbox:sandbox /sandbox/.nemoclaw/config.json
 
-# Entrypoint runs as root to start the gateway as the gateway user,
-# then drops to sandbox for agent commands. See nemoclaw-start.sh.
+# Entrypoint runs as root with the sandbox group so it can still traverse
+# sandbox:sandbox 2770 state dirs after CAP_DAC_OVERRIDE is dropped, then drops
+# to sandbox for agent commands. See nemoclaw-start.sh.
+# hadolint ignore=DL3002
+USER root:sandbox
 ENTRYPOINT ["/usr/local/bin/nemoclaw-start"]
 CMD ["/bin/bash"]

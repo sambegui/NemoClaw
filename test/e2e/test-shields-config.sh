@@ -6,7 +6,7 @@
 # config get against a live sandbox:
 #
 #   Phase 1: Install NemoClaw
-#   Phase 2: Verify config is writable (mutable default)
+#   Phase 2: Verify default config/symlink lock
 #   Phase 3: shields up — verify config becomes immutable
 #   Phase 4: config get — read-only inspection
 #   Phase 5: shields status — shows UP
@@ -112,6 +112,7 @@ if command -v openshell >/dev/null 2>&1; then
 fi
 rm -f "$HOME/.nemoclaw/onboard.lock" 2>/dev/null || true
 rm -f "$AUDIT_FILE" 2>/dev/null || true
+rm -f "$HOME/.nemoclaw/state/shields-${SANDBOX_NAME}.json" 2>/dev/null || true
 
 info "Running install.sh..."
 cd "$REPO_ROOT" || exit 1
@@ -152,61 +153,61 @@ command -v openshell >/dev/null 2>&1 || {
 pass "NemoClaw installed (sandbox: $SANDBOX_NAME)"
 
 # ══════════════════════════════════════════════════════════════════
-# Phase 2: Config is writable (mutable default)
+# Phase 2: Config and symlink root are locked by default
 # ══════════════════════════════════════════════════════════════════
-section "Phase 2: Config is writable (mutable default)"
+section "Phase 2: Config and symlink root are locked by default"
 
-# Verify file permissions — OpenClaw mutable default is group-writable so the
-# gateway UID can write through the shared sandbox group.
+# Verify file permissions. Writable state lives under .openclaw-data; the
+# .openclaw root and config trust anchors start locked.
 PERMS=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "${CONFIG_PATH}" 2>/dev/null || true)
 info "Config perms (default): ${PERMS}"
 
-if [ "$(echo "$PERMS" | awk '{print $1}')" = "660" ]; then
-  pass "Config file mode is 660 (mutable default)"
+if [ "$(echo "$PERMS" | awk '{print $1}')" = "444" ]; then
+  pass "Config file mode is 444 by default"
 else
-  fail "Config file should start as mode 660: ${PERMS}"
+  fail "Config file should start as mode 444: ${PERMS}"
 fi
 
-if [ "$(echo "$PERMS" | awk '{print $2}')" = "sandbox:sandbox" ]; then
-  pass "Config file owned by sandbox:sandbox (mutable default)"
+if [ "$(echo "$PERMS" | awk '{print $2}')" = "root:root" ]; then
+  pass "Config file owned by root:root by default"
 else
-  fail "Config file should be owned by sandbox:sandbox: ${PERMS}"
+  fail "Config file should be owned by root:root: ${PERMS}"
 fi
 
 DIR_PERMS=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- \
   stat -c '%a %U:%G' "$(dirname "${CONFIG_PATH}")" 2>/dev/null || true)
 info "Config dir perms (default): ${DIR_PERMS}"
 
-if [ "$(echo "$DIR_PERMS" | awk '{print $1}')" = "2770" ]; then
-  pass "Config directory mode is 2770 (mutable default)"
+if [ "$(echo "$DIR_PERMS" | awk '{print $1}')" = "755" ]; then
+  pass "Config directory mode is 755 by default"
 else
-  fail "Config directory should be mode 2770: ${DIR_PERMS}"
+  fail "Config directory should be mode 755: ${DIR_PERMS}"
 fi
 
-if [ "$(echo "$DIR_PERMS" | awk '{print $2}')" = "sandbox:sandbox" ]; then
-  pass "Config directory owned by sandbox:sandbox (mutable default)"
+if [ "$(echo "$DIR_PERMS" | awk '{print $2}')" = "root:root" ]; then
+  pass "Config directory owned by root:root by default"
 else
-  fail "Config directory should be owned by sandbox:sandbox: ${DIR_PERMS}"
+  fail "Config directory should be owned by root:root: ${DIR_PERMS}"
 fi
 
 STATUS_DEFAULT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
 echo "$STATUS_DEFAULT"
-if echo "$STATUS_DEFAULT" | grep -q "Shields: NOT CONFIGURED"; then
-  pass "Fresh sandbox status reports default mutable state"
+if echo "$STATUS_DEFAULT" | grep -q "Shields: UP"; then
+  pass "Fresh sandbox status reports default locked state"
 else
-  fail "Fresh sandbox status should report NOT CONFIGURED mutable default: ${STATUS_DEFAULT}"
+  fail "Fresh sandbox status should report UP by default: ${STATUS_DEFAULT}"
 fi
 
 # OpenShell rejects command arguments containing newlines, so keep the probe
 # as a single shell argument.
 # shellcheck disable=SC2016  # expanded inside the sandbox by sh -c
-LAYOUT_PROBE='bad=0; if [ -e /sandbox/.openclaw-data ] || [ -L /sandbox/.openclaw-data ]; then echo "legacy data dir exists: /sandbox/.openclaw-data"; bad=1; fi; for entry in /sandbox/.openclaw/*; do [ -L "$entry" ] || continue; target="$(readlink -f "$entry" 2>/dev/null || readlink "$entry" 2>/dev/null || true)"; case "$target" in /sandbox/.openclaw-data/*) echo "legacy symlink remains: $entry -> $target"; bad=1 ;; esac; done; exit "$bad"'
+LAYOUT_PROBE='bad=0; [ -d /sandbox/.openclaw-data ] || { echo "state data dir missing"; bad=1; }; for name in agents extensions workspace skills hooks identity devices canvas cron; do entry="/sandbox/.openclaw/$name"; [ -L "$entry" ] || { echo "missing symlink: $entry"; bad=1; continue; }; target="$(readlink -f "$entry" 2>/dev/null || readlink "$entry" 2>/dev/null || true)"; case "$target" in /sandbox/.openclaw-data/$name) ;; *) echo "bad symlink: $entry -> $target"; bad=1 ;; esac; done; exit "$bad"'
 LAYOUT_CHECK=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- sh -c "$LAYOUT_PROBE" 2>&1)
 if [ -z "$LAYOUT_CHECK" ]; then
-  pass "Unified .openclaw layout has no .openclaw-data mirror or symlink bridge"
+  pass ".openclaw symlinks resolve into .openclaw-data"
 else
-  fail "Legacy .openclaw-data layout should not exist: ${LAYOUT_CHECK}"
+  fail ".openclaw symlink layout is invalid: ${LAYOUT_CHECK}"
 fi
 
 # ══════════════════════════════════════════════════════════════════

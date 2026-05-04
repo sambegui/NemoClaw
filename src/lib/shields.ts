@@ -3,9 +3,9 @@
 //
 // Host-side shields management: down, up, status.
 //
-// Config starts mutable (the default state). Shields provide opt-in
-// lockdown: `shields up` locks config + applies a restrictive network
-// policy, `shields down` returns to the default (mutable) state.
+// Config starts locked by the sandbox image. Shields provide a host-controlled
+// temporary unlock: `shields down` unlocks config + applies a permissive
+// policy, `shields up` restores the locked state.
 // Time-bounded shields-down has automatic restore via a detached timer.
 // The sandbox cannot lower or raise its own shields — all mutations are
 // host-initiated (security invariant).
@@ -81,9 +81,9 @@ function stateFilePath(sandboxName: string): string {
 }
 
 // Three-state shields model:
-//   "mutable_default" — fresh sandbox, shields never configured (the default)
-//   "locked"          — shields up has been run and verified
-//   "temporarily_unlocked" — shields down after a prior shields up
+//   "locked"          — default image state or shields up has been verified
+//   "temporarily_unlocked" — shields down after a prior locked state
+//   "mutable_default" — legacy state from short-lived mutable-default builds
 type ShieldsMode = "mutable_default" | "locked" | "temporarily_unlocked";
 
 interface ShieldsState {
@@ -99,17 +99,16 @@ interface ShieldsState {
 /**
  * Derive the effective shields mode from persisted state.
  *
- * NC-2227-02: A fresh sandbox with no state file must report as
- * "mutable_default", NOT as "locked". Only report locked after
- * shields up has actually been run (shieldsDown === false AND
- * the state file exists with an updatedAt timestamp).
+ * The sandbox image now starts with locked config. A missing state file is
+ * therefore locked, not mutable. Only an explicit shields-down state reports
+ * as temporarily unlocked.
  */
 function deriveShieldsMode(state: ShieldsState, hasStateFile: boolean): ShieldsMode {
-  if (!hasStateFile) return "mutable_default";
+  if (!hasStateFile) return "locked";
   if (state.shieldsDown === true) return "temporarily_unlocked";
   if (state.shieldsDown === false) return "locked";
-  // State file exists but shieldsDown is undefined — treat as mutable default
-  return "mutable_default";
+  // State file exists but shieldsDown is undefined — fail closed.
+  return "locked";
 }
 
 function loadShieldsState(sandboxName: string): ShieldsState & { _hasStateFile: boolean } {
@@ -270,7 +269,9 @@ function applyStateDirLockMode(sandboxName: string, configDir: string, owner: st
   const dirMode = isLocking ? "755" : "2770";
 
   for (const dirName of HIGH_RISK_STATE_DIRS) {
-    const dirPath = `${configDir}/${dirName}`;
+    const linkPath = `${configDir}/${dirName}`;
+    const dirPath = resolveTrustedStateDirPath(sandboxName, configDir, linkPath);
+    if (!dirPath) continue;
     try {
       kubectlExec(sandboxName, ["chown", "-R", owner, dirPath]);
     } catch {
@@ -309,12 +310,21 @@ owner="$2"
 recursive_mode="$3"
 dir_mode="$4"
 clear_setgid="$5"
+data_dir="$config_dir-data"
+[ ! -d "$data_dir" ] || data_real="$(readlink -f "$data_dir" 2>/dev/null || printf "%s" "$data_dir")"
 for dir in "$config_dir"/workspace-*; do
   [ -d "$dir" ] || continue
-  chown -R "$owner" "$dir" 2>/dev/null || true
-  chmod "$dir_mode" "$dir" 2>/dev/null || true
-  [ "$clear_setgid" = "1" ] && chmod g-s "$dir" 2>/dev/null || true
-  chmod -R "$recursive_mode" "$dir" 2>/dev/null || true
+  if [ -d "$data_dir" ]; then
+    dir_real="$(readlink -f "$dir" 2>/dev/null || true)"
+    case "$dir_real" in "$data_real"/*|"$data_dir"/*) ;; *) continue ;; esac
+  else
+    [ ! -L "$dir" ] || continue
+    dir_real="$dir"
+  fi
+  chown -R "$owner" "$dir_real" 2>/dev/null || true
+  chmod "$dir_mode" "$dir_real" 2>/dev/null || true
+  [ "$clear_setgid" = "1" ] && chmod g-s "$dir_real" 2>/dev/null || true
+  chmod -R "$recursive_mode" "$dir_real" 2>/dev/null || true
 done
 `,
       "sh",
@@ -333,10 +343,26 @@ function legacyDataDirFor(configDir: string): string {
   return `${configDir}-data`;
 }
 
+function resolveTrustedStateDirPath(
+  sandboxName: string,
+  configDir: string,
+  statePath: string,
+): string | null {
+  const dataDir = legacyDataDirFor(configDir);
+  const script =
+    'set -u; state_path="$1"; data_dir="$2"; if [ -d "$data_dir" ]; then data_real="$(readlink -f "$data_dir" 2>/dev/null || printf "%s" "$data_dir")"; target="$(readlink -f "$state_path" 2>/dev/null || true)"; [ -n "$target" ] || exit 1; case "$target" in "$data_real"/*|"$data_dir"/*) printf "%s" "$target";; *) exit 1;; esac; else [ -e "$state_path" ] && [ ! -L "$state_path" ] || exit 1; printf "%s" "$state_path"; fi';
+  try {
+    const resolved = kubectlExecCapture(sandboxName, ["sh", "-c", script, "sh", statePath, dataDir]);
+    return resolved || null;
+  } catch {
+    return null;
+  }
+}
+
 function assertNoLegacyStateLayout(sandboxName: string, configDir: string): void {
   const dataDir = legacyDataDirFor(configDir);
   const script =
-    'set -u; config_dir="$1"; data_dir="$2"; data_real="$(readlink -f "$data_dir" 2>/dev/null || printf "%s" "$data_dir")"; if [ -e "$data_dir" ] || [ -L "$data_dir" ]; then echo "legacy data dir exists: $data_dir"; exit 1; fi; for entry in "$config_dir"/*; do [ -L "$entry" ] || continue; target="$(readlink -f "$entry" 2>/dev/null || readlink "$entry" 2>/dev/null || true)"; case "$target" in "$data_real"/*|"$data_dir"/*) echo "legacy symlink remains: $entry -> $target"; exit 1;; esac; done';
+    'set -u; config_dir="$1"; data_dir="$2"; data_real="$(readlink -f "$data_dir" 2>/dev/null || printf "%s" "$data_dir")"; if [ ! -d "$data_dir" ] || [ -L "$data_dir" ]; then echo "state data dir missing or unsafe: $data_dir"; exit 1; fi; for entry in "$config_dir"/*; do [ -L "$entry" ] || continue; target="$(readlink -f "$entry" 2>/dev/null || readlink "$entry" 2>/dev/null || true)"; case "$target" in "$data_real"/*|"$data_dir"/*) ;; *) echo "unsafe symlink target: $entry -> $target"; exit 1;; esac; done';
   try {
     kubectlExecCapture(sandboxName, ["sh", "-c", script, "sh", configDir, dataDir]);
   } catch (err) {
@@ -346,7 +372,7 @@ function assertNoLegacyStateLayout(sandboxName: string, configDir: string): void
       .filter(Boolean)
       .join("\n");
     const message = captured || (err instanceof Error ? err.message : String(err));
-    throw new Error(`legacy state layout still present: ${message}`);
+    throw new Error(`state layout is unsafe: ${message}`);
   }
 }
 
@@ -579,11 +605,13 @@ function lockAgentConfig(
     }
   }
 
-  try {
-    assertNoLegacyStateLayout(sandboxName, target.configDir);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    issues.push(msg);
+  if ((target.agentName || "openclaw") === "openclaw") {
+    try {
+      assertNoLegacyStateLayout(sandboxName, target.configDir);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      issues.push(msg);
+    }
   }
 
   if (issues.length > 0) {
@@ -592,10 +620,10 @@ function lockAgentConfig(
 }
 
 // ---------------------------------------------------------------------------
-// shields down — return to default (mutable) state
+// shields down — temporarily unlock config
 //
-// Unlocks config + applies permissive network policy. This is the default
-// operating mode; shields-down undoes a previous shields-up lockdown.
+// Unlocks config + applies permissive network policy. This is an explicit
+// operator action; the image default remains locked.
 // ---------------------------------------------------------------------------
 
 interface ShieldsDownOpts {
@@ -774,15 +802,14 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     `  Config unlocked for ${sandboxName} (auto-lockdown in: ${mins}m${secs ? ` ${secs}s` : ""})`,
   );
   console.log("");
-  console.log("  Sandbox is in default (mutable) state.");
-  console.log(`  Run \`nemoclaw ${sandboxName} shields up\` to opt into lockdown.`);
+  console.log("  Sandbox is temporarily unlocked.");
+  console.log(`  Run \`nemoclaw ${sandboxName} shields up\` to restore lockdown.`);
 }
 
 // ---------------------------------------------------------------------------
-// shields up — opt into lockdown
+// shields up — restore lockdown
 //
-// Locks config + applies restrictive network policy. This is an opt-in
-// hardening step that restricts the sandbox beyond its default state.
+// Locks config + applies restrictive network policy.
 // ---------------------------------------------------------------------------
 
 function shieldsUp(sandboxName: string): void {
@@ -790,7 +817,8 @@ function shieldsUp(sandboxName: string): void {
 
   const state = loadShieldsState(sandboxName);
   // shieldsDown === false means explicitly locked by a previous shields-up.
-  // undefined (no state file) means fresh sandbox — mutable default, allow shields-up.
+  // undefined (no state file) means fresh sandbox — already locked by image,
+  // but allow shields-up to verify and persist the host-side state.
   if (state.shieldsDown === false) {
     console.log("  Lockdown is already active.");
     return;
@@ -878,9 +906,8 @@ function shieldsStatus(sandboxName: string): void {
 
   switch (mode) {
     case "mutable_default":
-      // NC-2227-02: Fresh sandbox with no shields history — do NOT claim locked
-      console.log("  Shields: NOT CONFIGURED (default mutable state)");
-      console.log("  Config is mutable. Run `nemoclaw <sandbox> shields up` to opt into lockdown.");
+      console.log("  Shields: LEGACY MUTABLE STATE");
+      console.log("  Config is mutable. Run `nemoclaw <sandbox> shields up` to restore lockdown.");
       return;
 
     case "locked":
@@ -919,9 +946,8 @@ function shieldsStatus(sandboxName: string): void {
 
 /**
  * Returns true if shields are currently down (temporarily unlocked).
- * NC-2227-02: Fresh sandboxes (no state file, mutable_default) return
- * true since the config IS mutable. Only returns false when shields
- * have been explicitly locked via `shields up`.
+ * Fresh sandboxes have no state file and are locked by the image, so they
+ * return false. Only an explicit shields-down state returns true.
  */
 function isShieldsDown(sandboxName: string): boolean {
   const state = loadShieldsState(sandboxName);

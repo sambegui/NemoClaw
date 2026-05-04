@@ -200,24 +200,14 @@ OPENCLAW="$(command -v openclaw)" # Resolve once, use absolute path everywhere
 _SANDBOX_HOME="/sandbox"          # Home dir for the sandbox user (useradd -d /sandbox in Dockerfile.base)
 
 # ── Config integrity check (delegates to shared library) ────────
-# verify_config_integrity_if_locked is provided by sandbox-init.sh. OpenClaw
-# mutable-default startup skips strict hash enforcement until shields-up locks
-# .config-hash into a root-owned read-only trust anchor.
+# verify_config_integrity_if_locked is provided by sandbox-init.sh. The image
+# pins .config-hash root-owned/read-only, so normal startup enforces the hash;
+# legacy or explicitly unlocked mutable configs are treated as non-trust anchors.
 
-# ── Mutable-default permission normalize (#2681) ─────────────────
-# OpenClaw's control-UI toggles (Enable Dreaming, account toggles, etc.)
-# write through mutateConfigFile to /sandbox/.openclaw/openclaw.json.
-# In root mode the gateway runs as the gateway UID; the file is owned
-# sandbox:sandbox. Without group write, every toggle EACCESs.
-#
-# Make the mutable-default tree group-readable/writable + setgid so both
-# `gateway` (now a member of the sandbox group via Dockerfile.base
-# usermod -aG) and `sandbox` can write. Setgid means new files
-# inherit group=sandbox regardless of which UID created them, so the
-# agent keeps read access and shields-up locking still works the same.
-#
-# Idempotent. Skips when shields are UP (config dir owned by root) so
-# the lock is not weakened.
+# ── Mutable config permission normalize (#2681 compatibility) ─────
+# Older sandboxes may still have the temporary mutable-default layout. Keep this
+# compatibility helper for those images, but never weaken the protected split
+# layout: root-owned /sandbox/.openclaw is the immutable config/symlink root.
 normalize_mutable_config_perms() {
   local config_dir="/sandbox/.openclaw"
   [ -d "$config_dir" ] || return 0
@@ -1172,7 +1162,7 @@ print_dashboard_urls() {
 }
 
 start_persistent_gateway_log_mirror() {
-  local log_dir="/sandbox/.openclaw/logs"
+  local log_dir="/sandbox/.openclaw-data/logs"
   local log_file="${log_dir}/gateway-persistent.log"
 
   if [ -L "$log_dir" ]; then
@@ -2467,8 +2457,8 @@ migrate_legacy_layout() {
 }
 # ── Main ─────────────────────────────────────────────────────────
 
-# Migrate legacy symlink layout before anything else reads .openclaw
-migrate_legacy_layout "/sandbox/.openclaw" "/sandbox/.openclaw-data" "openclaw" || exit 1
+# Validate the image-provisioned split layout before anything reads .openclaw.
+validate_config_symlinks /sandbox/.openclaw /sandbox/.openclaw-data || exit 1
 
 echo 'Setting up NemoClaw...' >&2
 # Best-effort: .env may not exist.
@@ -2578,8 +2568,9 @@ fi
 
 # ── Root path (full privilege separation via gosu) ─────────────
 
-# Verify locked config integrity before starting anything. Mutable-default
-# config is intentionally writable and is not a trust anchor until shields-up.
+# Verify locked config integrity before starting anything. Root-owned
+# .config-hash is the trust anchor; legacy or explicitly unlocked mutable
+# configs are treated as non-trust anchors by the shared verifier.
 verify_config_integrity_if_locked /sandbox/.openclaw
 normalize_mutable_config_perms
 apply_model_override
@@ -2624,24 +2615,29 @@ chmod 600 /tmp/auto-pair.log
 #
 # OpenClaw can be configured with multiple named agents (agents.defaults.workspace
 # + agents.list[*].workspace in openclaw.json), each producing its own
-# `/sandbox/.openclaw/workspace-<name>/` directory. In the mutable-by-default
-# layout these live directly under `.openclaw/` (no symlink indirection).
-# Ensure they exist and are sandbox-writable.
+# `/sandbox/.openclaw/workspace-<name>/` path. Keep those as symlinks too:
+# the protected .openclaw root holds only config files and links, while the
+# writable backing directories live in .openclaw-data.
 #
 # Ref: https://github.com/NVIDIA/NemoClaw/issues/1260
 provision_agent_workspaces() {
+  local data_dir="/sandbox/.openclaw-data"
   local config_dir="/sandbox/.openclaw"
   local names=""
   local d name config_names
 
-  # Discover existing workspace-* dirs.
+  # Discover existing workspace-* dirs in either location.
+  if [ -d "$data_dir" ]; then
+    for d in "$data_dir"/workspace-*; do
+      [ -d "$d" ] || continue
+      name="$(basename "$d")"
+      names="${names} ${name}"
+    done
+  fi
   if [ -d "$config_dir" ]; then
     for d in "$config_dir"/workspace-*; do
       [ -e "$d" ] || [ -L "$d" ] || continue
-      if [ -L "$d" ]; then
-        echo "[SECURITY] refusing symlinked workspace dir: $d" >&2
-        continue
-      fi
+      [ -L "$d" ] && continue
       [ -d "$d" ] || continue
       name="$(basename "$d")"
       names="${names} ${name}"
@@ -2687,18 +2683,32 @@ NODE
     fi
   fi
 
+  local seen=""
   for name in $names; do
-    local ws_path="$config_dir/$name"
-    if [ -L "$ws_path" ]; then
-      echo "[SECURITY] refusing to provision symlinked workspace path: $ws_path" >&2
+    case " $seen " in *" $name "*) continue ;; esac
+    seen="${seen} ${name}"
+
+    local data_path="$data_dir/$name"
+    local link_path="$config_dir/$name"
+
+    mkdir -p "$data_path"
+    chown_tree_no_symlink_follow sandbox:sandbox "$data_path"
+
+    if [ -L "$link_path" ]; then
       continue
     fi
-    mkdir -p "$ws_path"
-    chown_tree_no_symlink_follow sandbox:sandbox "$ws_path"
-    echo "[setup] provisioned multi-agent workspace: $name" >&2
+    if [ -e "$link_path" ]; then
+      cp -a "$link_path"/. "$data_path"/ 2>/dev/null || true
+      rm -rf "$link_path"
+    fi
+    ln -s "$data_path" "$link_path"
+    echo "[setup] provisioned multi-agent workspace: $name -> $data_path" >&2
   done
 }
 provision_agent_workspaces
+
+validate_config_symlinks /sandbox/.openclaw /sandbox/.openclaw-data || exit 1
+harden_config_symlinks /sandbox/.openclaw openclaw
 
 # Defence-in-depth: verify /tmp file permissions before launching services.
 # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh

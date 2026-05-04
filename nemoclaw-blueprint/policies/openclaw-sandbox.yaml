@@ -16,10 +16,10 @@
 version: 1
 
 filesystem_policy:
-  # Home directory writable (matches Hermes). Agents can create dotfiles,
-  # caches, etc. natively. Immutability is opt-in via `shields up` (DAC +
-  # chattr only — Landlock can't be toggled at runtime).
-  include_workdir: true
+  # SECURITY: keep WORKDIR (/sandbox) read-only and declare writable state
+  # paths explicitly. Otherwise OpenShell would add /sandbox to read_write and
+  # the agent could replace protected .openclaw symlinks/config.
+  include_workdir: false
   read_only:
     - /usr
     - /lib
@@ -28,10 +28,12 @@ filesystem_policy:
     - /app
     - /etc
     - /var/log
+    - /sandbox
+    - /sandbox/.openclaw            # Protected config and symlink roots.
   read_write:
     - /tmp
     - /dev/null
-    - /sandbox/.openclaw            # Agent config (lockable via shields up)
+    - /sandbox/.openclaw-data       # Writable OpenClaw state targets.
     - /sandbox/.nemoclaw            # Plugin state and config (state.ts, config.ts).
                                     # Blueprints are root-owned; sticky bit (1755)
                                     # on parent prevents rename/delete (#1607).

@@ -262,16 +262,16 @@ describe("shields — unit logic", () => {
   // E2E test (test/e2e/test-shields-config.sh) against a live sandbox.
 
   // -------------------------------------------------------------------
-  // NC-2227-02: Three-state shields model
+  // Three-state shields model
   // -------------------------------------------------------------------
-  describe("NC-2227-02: three-state shields model", () => {
-    it("deriveShieldsMode encodes the fresh, locked, unlocked, and legacy-state cases", async () => {
+  describe("three-state shields model", () => {
+    it("deriveShieldsMode treats fresh and malformed state as locked", async () => {
       const { deriveShieldsMode } = await import("../dist/lib/shields.js");
 
-      expect(deriveShieldsMode({}, false)).toBe("mutable_default");
+      expect(deriveShieldsMode({}, false)).toBe("locked");
       expect(deriveShieldsMode({ shieldsDown: true }, true)).toBe("temporarily_unlocked");
       expect(deriveShieldsMode({ shieldsDown: false }, true)).toBe("locked");
-      expect(deriveShieldsMode({}, true)).toBe("mutable_default");
+      expect(deriveShieldsMode({}, true)).toBe("locked");
     });
   });
 });
@@ -416,12 +416,14 @@ describe("NC-2227-05: shields.ts locks state directories", () => {
     expect(fnStart).not.toBe(-1);
     const fnBody = src.slice(fnStart);
     expect(src).toContain("function applyStateDirLockMode");
+    expect(src).toContain("function resolveTrustedStateDirPath");
     expect(src).toContain("workspace-*");
     expect(fnBody).toContain("applyStateDirLockMode");
     expect(fnBody).toContain('["chmod", "g-s", target.configDir]');
     expect(src).toContain('["chmod", "g-s", dirPath]');
+    expect(src).toContain('case "$dir_real" in "$data_real"/*|"$data_dir"/*)');
     expect(src).toContain("Best effort; do not skip recursive write stripping.");
-    expect(src).toContain('[ "$clear_setgid" = "1" ] && chmod g-s "$dir"');
+    expect(src).toContain('[ "$clear_setgid" = "1" ] && chmod g-s "$dir_real"');
     expect(fnBody).toContain("chown");
     expect(fnBody).toContain("g-s");
     expect(fnBody).toContain("root:root");
@@ -475,14 +477,14 @@ describe("NC-2227-05: shields.ts locks state directories", () => {
     expect(killTimer).toBeGreaterThan(stateGuard);
   });
 
-  it("lockAgentConfig fails if legacy .openclaw-data artifacts remain", () => {
+  it("lockAgentConfig validates the split .openclaw-data layout", () => {
     const src = getSourceCode();
     const fnStart = src.indexOf("function lockAgentConfig");
     expect(fnStart).not.toBe(-1);
     const fnBody = src.slice(fnStart);
     expect(src).toContain("function assertNoLegacyStateLayout");
-    expect(src).toContain("legacy data dir exists");
-    expect(src).toContain("legacy symlink remains");
+    expect(src).toContain("state data dir missing or unsafe");
+    expect(src).toContain("unsafe symlink target");
     expect(fnBody).toContain("assertNoLegacyStateLayout");
   });
 });

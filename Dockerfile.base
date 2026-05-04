@@ -97,31 +97,40 @@ RUN groupadd -r gateway && useradd -r -g gateway -d /sandbox -s /usr/sbin/nologi
     && mkdir -p /sandbox/.nemoclaw \
     && chown -R sandbox:sandbox /sandbox
 
-# Create .openclaw with all state subdirs directly (mutable by default).
-# No separate .openclaw-data or symlink bridge — the production Dockerfile
-# layers config on top and sets final permissions.
+# Split .openclaw into config dir + writable state dir. The production
+# Dockerfile locks .openclaw root-owned/read-only after openclaw.json is
+# generated; writable OpenClaw state lives in .openclaw-data and is reached
+# through symlinks.
 # Ref: https://github.com/NVIDIA/NemoClaw/issues/514
-RUN mkdir -p /sandbox/.openclaw/agents/main/agent \
-        /sandbox/.openclaw/extensions \
-        /sandbox/.openclaw/workspace \
-        /sandbox/.openclaw/skills \
-        /sandbox/.openclaw/hooks \
-        /sandbox/.openclaw/identity \
-        /sandbox/.openclaw/devices \
-        /sandbox/.openclaw/canvas \
-        /sandbox/.openclaw/cron \
-        /sandbox/.openclaw/memory \
-        /sandbox/.openclaw/logs \
-        /sandbox/.openclaw/credentials \
-        /sandbox/.openclaw/flows \
-        /sandbox/.openclaw/sandbox \
-        /sandbox/.openclaw/telegram \
-        /sandbox/.openclaw/plugin-runtime-deps \
-    && touch /sandbox/.openclaw/update-check.json \
-    && touch /sandbox/.openclaw/exec-approvals.json \
-    && chown -R sandbox:sandbox /sandbox/.openclaw \
-    && chmod -R g+w /sandbox/.openclaw \
-    && find /sandbox/.openclaw -type d -exec chmod g+s {} +
+RUN mkdir -p /sandbox/.openclaw-data/agents/main/agent \
+        /sandbox/.openclaw-data/extensions \
+        /sandbox/.openclaw-data/workspace \
+        /sandbox/.openclaw-data/skills \
+        /sandbox/.openclaw-data/hooks \
+        /sandbox/.openclaw-data/identity \
+        /sandbox/.openclaw-data/devices \
+        /sandbox/.openclaw-data/canvas \
+        /sandbox/.openclaw-data/cron \
+        /sandbox/.openclaw-data/memory \
+        /sandbox/.openclaw-data/logs \
+        /sandbox/.openclaw-data/credentials \
+        /sandbox/.openclaw-data/flows \
+        /sandbox/.openclaw-data/sandbox \
+        /sandbox/.openclaw-data/telegram \
+        /sandbox/.openclaw-data/media \
+        /sandbox/.openclaw-data/completions \
+        /sandbox/.openclaw-data/plugin-runtime-deps \
+    && mkdir -p /sandbox/.openclaw \
+    && for entry in agents extensions workspace skills hooks identity devices canvas cron memory logs credentials flows sandbox telegram media completions plugin-runtime-deps; do \
+        ln -s "/sandbox/.openclaw-data/${entry}" "/sandbox/.openclaw/${entry}"; \
+    done \
+    && touch /sandbox/.openclaw-data/update-check.json \
+    && ln -s /sandbox/.openclaw-data/update-check.json /sandbox/.openclaw/update-check.json \
+    && touch /sandbox/.openclaw-data/exec-approvals.json \
+    && ln -s /sandbox/.openclaw-data/exec-approvals.json /sandbox/.openclaw/exec-approvals.json \
+    && chown -R sandbox:sandbox /sandbox/.openclaw /sandbox/.openclaw-data \
+    && chmod -R g+rwX,o-rwx /sandbox/.openclaw-data \
+    && find /sandbox/.openclaw-data -type d -exec chmod g+s {} +
 
 # Pre-create shell init files for the sandbox user.
 # Runtime proxy config is written by the entrypoint to /tmp/nemoclaw-proxy-env.sh

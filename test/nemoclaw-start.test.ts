@@ -567,7 +567,7 @@ describe("nemoclaw-start persistent gateway log hardening", () => {
 
   function persistentLogFunction(root: string, gatewayLog: string): string {
     return extractShellFunctionFromSource(src, "start_persistent_gateway_log_mirror")
-      .replaceAll("/sandbox/.openclaw/logs", path.join(root, "logs"))
+      .replaceAll("/sandbox/.openclaw-data/logs", path.join(root, "logs"))
       .replaceAll("/tmp/gateway.log", gatewayLog);
   }
 
@@ -1310,9 +1310,12 @@ describe("NC-2227-01: legacy migration behavior", () => {
   it("provisions only canonical workspace paths from OpenClaw config", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-workspaces-"));
     const configDir = path.join(tmpDir, ".openclaw");
+    const dataDir = path.join(tmpDir, ".openclaw-data");
     const script = path.join(tmpDir, "provision.sh");
     fs.mkdirSync(configDir, { recursive: true });
+    fs.mkdirSync(dataDir, { recursive: true });
     fs.mkdirSync(path.join(configDir, "workspace-existing"));
+    fs.writeFileSync(path.join(configDir, "workspace-existing", "note.txt"), "existing");
     fs.symlinkSync(tmpDir, path.join(configDir, "workspace-linked"));
     fs.writeFileSync(
       path.join(configDir, "openclaw.json"),
@@ -1331,10 +1334,9 @@ describe("NC-2227-01: legacy migration behavior", () => {
       "#!/usr/bin/env bash",
       "set -euo pipefail",
       extractShellFunctionFromSource(src, "chown_tree_no_symlink_follow"),
-      extractShellFunctionFromSource(src, "provision_agent_workspaces").replaceAll(
-        "/sandbox/.openclaw",
-        configDir,
-      ),
+      extractShellFunctionFromSource(src, "provision_agent_workspaces")
+        .replaceAll("/sandbox/.openclaw-data", dataDir)
+        .replaceAll("/sandbox/.openclaw", configDir),
       "provision_agent_workspaces",
     ].join("\n");
     fs.writeFileSync(script, body, { mode: 0o700 });
@@ -1348,10 +1350,17 @@ describe("NC-2227-01: legacy migration behavior", () => {
         "workspace-alpha",
         "workspace-beta",
       ]) {
-        expect(fs.statSync(path.join(configDir, name)).isDirectory()).toBe(true);
+        expect(fs.lstatSync(path.join(configDir, name)).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync(path.join(configDir, name))).toBe(
+          fs.realpathSync(path.join(dataDir, name)),
+        );
+        expect(fs.statSync(path.join(dataDir, name)).isDirectory()).toBe(true);
       }
+      expect(fs.readFileSync(path.join(dataDir, "workspace-existing", "note.txt"), "utf-8")).toBe(
+        "existing",
+      );
       expect(fs.existsSync(path.join(configDir, "workspace-.."))).toBe(false);
-      expect(result.stderr).toContain("refusing symlinked workspace dir");
+      expect(result.stderr).not.toContain("workspace-linked");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1535,6 +1544,8 @@ describe("Telegram diagnostics (#2766)", () => {
         'harden_auth_profiles() { :; }',
         'chown() { :; }',
         'chown_tree_no_symlink_follow() { :; }',
+        'validate_config_symlinks() { :; }',
+        'harden_config_symlinks() { :; }',
         'start_persistent_gateway_log_mirror() { :; }',
         'gosu() { shift; "$@"; }',
         'validate_tmp_permissions() { printf "VALIDATE:%s\\n" "$*"; }',

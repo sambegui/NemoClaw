@@ -95,8 +95,8 @@ function runLoggedDockerShell(command: string, tmp: string, functionDefs: string
   return { result, calls };
 }
 
-describe("sandbox provisioning: unified .openclaw layout (#2227)", () => {
-  it("provisions unified mutable .openclaw layout and trusted rc shims", () => {
+describe("sandbox provisioning: protected .openclaw symlink layout (#2789, #2792)", () => {
+  it("provisions writable .openclaw-data targets behind .openclaw symlinks and trusted rc shims", () => {
     const dockerfile = fs.readFileSync(DOCKERFILE_BASE, "utf-8");
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-base-layout-"));
     const sandboxRoot = path.join(tmp, "sandbox");
@@ -106,21 +106,37 @@ describe("sandbox provisioning: unified .openclaw layout (#2227)", () => {
       const layout = runDockerShell(
         dockerRunCommandBetween(
           dockerfile,
-          "# Create .openclaw with all state subdirs directly",
+          "# Split .openclaw into config dir + writable state dir.",
           "# Pre-create shell init files",
         ),
         sandboxRoot,
       );
       expect(layout.result.status).toBe(0);
       const openclawDir = path.join(sandboxRoot, ".openclaw");
+      const dataDir = path.join(sandboxRoot, ".openclaw-data");
       expect(fs.statSync(openclawDir).isDirectory()).toBe(true);
+      expect(fs.statSync(dataDir).isDirectory()).toBe(true);
+      for (const entry of [
+        "agents",
+        "extensions",
+        "workspace",
+        "skills",
+        "hooks",
+        "identity",
+        "devices",
+        "canvas",
+        "cron",
+      ]) {
+        const linkPath = path.join(openclawDir, entry);
+        expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync(linkPath)).toBe(fs.realpathSync(path.join(dataDir, entry)));
+      }
+      expect(fs.lstatSync(path.join(openclawDir, "exec-approvals.json")).isSymbolicLink()).toBe(
+        true,
+      );
       expect(fs.statSync(path.join(openclawDir, "exec-approvals.json")).isFile()).toBe(true);
       expect(fs.statSync(path.join(openclawDir, "update-check.json")).isFile()).toBe(true);
-      expect(fs.existsSync(path.join(sandboxRoot, ".openclaw-data"))).toBe(false);
-      expect(fs.lstatSync(path.join(openclawDir, "exec-approvals.json")).isSymbolicLink()).toBe(
-        false,
-      );
-      expect(layout.calls).toContain(`chown -R sandbox:sandbox ${openclawDir}`);
+      expect(layout.calls).toContain(`chown -R sandbox:sandbox ${openclawDir} ${dataDir}`);
 
       const rc = runDockerShell(
         dockerRunCommandBetween(
@@ -174,6 +190,56 @@ describe("sandbox provisioning: unified .openclaw layout (#2227)", () => {
       expect(bashrcContent.split(runtimeEnvShim).length - 1).toBe(1);
       expect(bashrcContent).toContain("# existing bashrc");
       expect((fs.statSync(bashrc).mode & 0o777).toString(8)).toBe("444");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs stale unified layouts back to protected symlinks in the final image", () => {
+    const dockerfile = fs.readFileSync(DOCKERFILE, "utf-8");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-final-layout-"));
+    const sandboxRoot = path.join(tmp, "sandbox");
+    const openclawDir = path.join(sandboxRoot, ".openclaw");
+    const dataDir = path.join(sandboxRoot, ".openclaw-data");
+
+    try {
+      fs.mkdirSync(path.join(openclawDir, "workspace"), { recursive: true });
+      fs.writeFileSync(path.join(openclawDir, "workspace", "note.txt"), "preserved");
+      fs.writeFileSync(path.join(openclawDir, "update-check.json"), "{}\n");
+      const command = dockerRunCommandBetween(
+        dockerfile,
+        "# Rebuild the .openclaw-data symlink bridge",
+        "# Stale-base fallback",
+      )
+        .replaceAll("/root/.npm", path.join(tmp, "root-npm"))
+        .replaceAll("/sandbox/.npm", path.join(sandboxRoot, ".npm"));
+
+      const { result } = runDockerShell(command, sandboxRoot);
+      expect(result.status).toBe(0);
+      for (const entry of [
+        "agents",
+        "extensions",
+        "workspace",
+        "skills",
+        "hooks",
+        "identity",
+        "devices",
+        "canvas",
+        "cron",
+      ]) {
+        const linkPath = path.join(openclawDir, entry);
+        expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync(linkPath)).toBe(fs.realpathSync(path.join(dataDir, entry)));
+      }
+      expect(fs.readFileSync(path.join(dataDir, "workspace", "note.txt"), "utf-8")).toBe(
+        "preserved",
+      );
+      expect(fs.lstatSync(path.join(openclawDir, "update-check.json")).isSymbolicLink()).toBe(
+        true,
+      );
+      expect(fs.realpathSync(path.join(openclawDir, "update-check.json"))).toBe(
+        fs.realpathSync(path.join(dataDir, "update-check.json")),
+      );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -435,7 +501,7 @@ describe("sandbox provisioning: gateway auth token externalization (#2378)", () 
     const command = dockerRunCommandBetween(
       dockerfile,
       "# SECURITY: Clear any gateway auth token",
-      "# Flatten stale published base images",
+      "# Rebuild the .openclaw-data symlink bridge",
     ).replace('python3 -c " ', 'python3 -c "');
     const scriptPath = path.join(tmp, "run.sh");
     try {
