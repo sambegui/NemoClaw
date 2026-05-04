@@ -6114,21 +6114,16 @@ async function setupNim(
               { ignoreError: true },
             );
             cleanupTempDir(tmpDropIn, "nemoclaw-ollama-override");
-            sleep(2);
+            // Retry the probe for a few seconds before giving up — systemd's
+            // daemon may still be binding the port; a single probe could falsely
+            // conclude it's down and spawn a duplicate `ollama serve`.
+            for (let i = 0; i < 10; i++) {
+              if (findReachableOllamaHost()) break;
+              sleep(1);
+            }
           }
           // Fall back to manual start if systemd path failed or isn't present.
-          // Retry the probe for a few seconds before giving up — systemd's
-          // daemon may still be binding the port; a single probe could falsely
-          // conclude it's down and spawn a duplicate `ollama serve`.
-          let daemonUp = false;
-          for (let i = 0; i < 10; i++) {
-            if (findReachableOllamaHost()) {
-              daemonUp = true;
-              break;
-            }
-            sleep(1);
-          }
-          if (!daemonUp) {
+          if (!findReachableOllamaHost()) {
             console.log("  Starting Ollama...");
             const ollamaEnv = isWsl() ? "" : `OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} `;
             runShell(`${ollamaEnv}ollama serve > /dev/null 2>&1 &`, { ignoreError: true });
