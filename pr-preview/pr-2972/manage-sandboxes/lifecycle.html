@@ -630,8 +630,8 @@ Refer to <a class="reference internal" href="../reference/commands.html#nemoclaw
 </pre></div>
 </div>
 <p>Refer to <a class="reference internal" href="../reference/commands.html#nemoclaw-name-policy-add"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-add</span></code></span></a> for usage details and flags.</p>
-<p>Presets added this way are preserved across non-interactive re-onboards in the default <code class="docutils literal notranslate"><span class="pre">suggested</span></code> policy mode.
-To make a re-onboard authoritative — replacing the applied set with an exact list and removing anything else — set <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_MODE=custom</span></code> with <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_PRESETS</span></code>.
+<p>Non-interactive re-onboards in the default <code class="docutils literal notranslate"><span class="pre">suggested</span></code> policy mode preserve presets added this way.
+To make a re-onboard authoritative, set <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_MODE=custom</span></code> and provide <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_PRESETS</span></code> with the exact list to apply; onboarding removes anything else.
 See <a class="reference internal" href="../reference/commands.html#nemoclaw-onboard"><span class="std std-ref"><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_MODE</span></code></span></a> for the full table.</p>
 </section>
 </section>

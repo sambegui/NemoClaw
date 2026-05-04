@@ -600,8 +600,10 @@ For details on tiers and the presets each includes, see <a class="reference inte
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_MODE</span></code> controls how non-interactive onboarding reconciles the tier-derived suggestions against the sandbox’s currently-applied presets.
-The default is <code class="docutils literal notranslate"><span class="pre">suggested</span></code>, which is <em>additive</em>: tier defaults are applied and any presets you previously added with <a class="reference internal" href="#nemoclaw-name-policy-add"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-add</span></code></a> are preserved across re-onboards.
-Use <code class="docutils literal notranslate"><span class="pre">custom</span></code> with <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_PRESETS</span></code> when you want the explicit list to be authoritative — presets not in the list are removed.
+The default is <code class="docutils literal notranslate"><span class="pre">suggested</span></code>, which is <em>additive</em>.
+Onboarding applies tier defaults and preserves any presets you previously added with <a class="reference internal" href="#nemoclaw-name-policy-add"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-add</span></code></a> across re-onboards.
+Use <code class="docutils literal notranslate"><span class="pre">custom</span></code> with <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_POLICY_PRESETS</span></code> when you want the explicit list to be authoritative.
+Onboarding removes any preset that is not in the list.
 <code class="docutils literal notranslate"><span class="pre">skip</span></code> leaves the applied set untouched and does not apply tier defaults.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
