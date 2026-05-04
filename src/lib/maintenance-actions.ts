@@ -9,7 +9,13 @@ import {
   normalizeGarbageCollectImagesOptions,
 } from "./lifecycle-options";
 import { dockerListImagesFormat, dockerRmi } from "./docker";
-import { findOrphanedSandboxImages, parseSandboxImageRows } from "./maintenance-image-helpers";
+import {
+  findOrphanedSandboxImages,
+  formatSandboxImageRow,
+  hasOrphanedSandboxImages,
+  hasSandboxImages,
+  parseSandboxImageRows,
+} from "./maintenance-image-helpers";
 import { captureOpenshell } from "./openshell-runtime";
 import * as registry from "./registry";
 import { parseLiveSandboxNames } from "./runtime-recovery";
@@ -85,7 +91,7 @@ export async function garbageCollectImages(
 
   const allImages = parseSandboxImageRows(imagesOutput);
 
-  if (allImages.length === 0) {
+  if (!hasSandboxImages(allImages)) {
     console.log("  No sandbox images found on the host.");
     return;
   }
@@ -93,14 +99,14 @@ export async function garbageCollectImages(
   const { sandboxes } = registry.listSandboxes();
   const orphans = findOrphanedSandboxImages(allImages, sandboxes);
 
-  if (orphans.length === 0) {
+  if (!hasOrphanedSandboxImages(orphans)) {
     console.log(`  All ${allImages.length} sandbox image(s) are in use. Nothing to clean up.`);
     return;
   }
 
   console.log(`  Found ${orphans.length} orphaned sandbox image(s):\n`);
   for (const img of orphans) {
-    console.log(`    ${img.tag}  ${D}(${img.size})${R}`);
+    console.log(`    ${formatSandboxImageRow(img, { dim: D, reset: R })}`);
   }
   console.log("");
 

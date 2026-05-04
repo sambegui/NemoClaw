@@ -37,3 +37,18 @@ export function findOrphanedSandboxImages(
   }
   return orphans;
 }
+
+export function hasSandboxImages(images: readonly SandboxImageRow[]): boolean {
+  return images.length > 0;
+}
+
+export function hasOrphanedSandboxImages(images: readonly SandboxImageRow[]): boolean {
+  return images.length > 0;
+}
+
+export function formatSandboxImageRow(
+  image: SandboxImageRow,
+  style: { dim?: string; reset?: string } = {},
+): string {
+  return `${image.tag}  ${style.dim ?? ""}(${image.size})${style.reset ?? ""}`;
+}
