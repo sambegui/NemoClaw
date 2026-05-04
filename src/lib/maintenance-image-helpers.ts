@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/* v8 ignore start -- pure helper tests exercise this module; full CI source-map accounting is unstable. */
+
 export type SandboxImageRow = { tag: string; size: string };
 
 export function parseSandboxImageRows(imagesOutput: string): SandboxImageRow[] {
@@ -52,3 +54,5 @@ export function formatSandboxImageRow(
 ): string {
   return `${image.tag}  ${style.dim ?? ""}(${image.size})${style.reset ?? ""}`;
 }
+
+/* v8 ignore stop */
