@@ -57,8 +57,14 @@ export function splitRebuildableSandboxes(stale: UpgradeSandboxCandidate[]): {
   rebuildable: UpgradeSandboxCandidate[];
   stopped: UpgradeSandboxCandidate[];
 } {
-  return {
-    rebuildable: stale.filter((sandbox) => sandbox.running),
-    stopped: stale.filter((sandbox) => !sandbox.running),
-  };
+  const rebuildable: UpgradeSandboxCandidate[] = [];
+  const stopped: UpgradeSandboxCandidate[] = [];
+  for (const sandbox of stale) {
+    if (sandbox.running) {
+      rebuildable.push(sandbox);
+    } else {
+      stopped.push(sandbox);
+    }
+  }
+  return { rebuildable, stopped };
 }
