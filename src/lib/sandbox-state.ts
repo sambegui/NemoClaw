@@ -144,27 +144,26 @@ function isStateFileSpec(value: unknown): value is StateFileSpec {
 }
 
 function isInstanceBackup(value: unknown): value is InstanceBackup {
+  if (!isRecord(value) || !isStateDirArray(value.stateDirs)) return false;
   return (
-    isRecord(value) &&
     typeof value.instanceId === "string" &&
     typeof value.agentType === "string" &&
     typeof value.dataDir === "string" &&
-    isStringArray(value.stateDirs) &&
-    isStringArray(value.backedUpDirs)
+    isBackedUpDirArray(value.backedUpDirs, value.stateDirs)
   );
 }
 
 function isRebuildManifest(value: unknown): value is RebuildManifest {
+  if (!isRecord(value) || !isStateDirArray(value.stateDirs)) return false;
   return (
-    isRecord(value) &&
     typeof value.version === "number" &&
     typeof value.sandboxName === "string" &&
     typeof value.timestamp === "string" &&
     typeof value.agentType === "string" &&
     (value.agentVersion === null || typeof value.agentVersion === "string") &&
     (value.expectedVersion === null || typeof value.expectedVersion === "string") &&
-    isStringArray(value.stateDirs) &&
-    (value.backedUpDirs === undefined || isStringArray(value.backedUpDirs)) &&
+    (value.backedUpDirs === undefined ||
+      isBackedUpDirArray(value.backedUpDirs, value.stateDirs)) &&
     (typeof value.dir === "string" || typeof value.writableDir === "string") &&
     typeof value.backupPath === "string" &&
     (value.stateFiles === undefined ||
@@ -582,6 +581,31 @@ function normalizeStateFilePath(filePath: string): string | null {
   const normalized = path.posix.normalize(filePath.replace(/\\/g, "/"));
   if (normalized === "." || normalized.startsWith("../") || normalized === "..") return null;
   return normalized;
+}
+
+function isSafeStateDirPath(dirPath: string): boolean {
+  if (!dirPath || dirPath.includes("\0") || path.isAbsolute(dirPath)) return false;
+  const normalized = path.posix.normalize(dirPath.replace(/\\/g, "/"));
+  return normalized === dirPath && normalized !== "." && normalized !== ".." && !normalized.startsWith("../");
+}
+
+function isStateDirArray(value: unknown): value is string[] {
+  return isStringArray(value) && value.every(isSafeStateDirPath);
+}
+
+function isBackedUpDirArray(value: unknown, stateDirs: string[]): value is string[] {
+  const stateDirSet = new Set(stateDirs);
+  return isStringArray(value) && value.every((dirName) => isSafeStateDirPath(dirName) && stateDirSet.has(dirName));
+}
+
+function existingBackupDirs(backupPath: string, dirNames: string[]): string[] {
+  const existing: string[] = [];
+  for (const dirName of dirNames) {
+    if (existsSync(path.join(backupPath, dirName))) {
+      existing.push(dirName);
+    }
+  }
+  return existing;
 }
 
 function normalizeStateFileSpec(spec: AgentStateFile | StateFileSpec): StateFileSpec | null {
@@ -1026,8 +1050,16 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
           // SECURITY: Validate tar entries, extract safely, audit symlinks
           const extractResult = safeTarExtract(result.stdout, backupPath);
           if (extractResult.success) {
+            const extractedDirs = new Set(existingBackupDirs(backupPath, existingDirs));
             if (result.status === 0) {
-              backedUpDirs.push(...existingDirs);
+              for (const d of existingDirs) {
+                if (extractedDirs.has(d)) {
+                  backedUpDirs.push(d);
+                } else {
+                  _log(`Dir ${d} missing from clean tar extraction — marking failed`);
+                  failedDirs.push(d);
+                }
+              }
             } else {
               const tarFailedDirs = failedDirsFromTarStderr(
                 result.stderr?.toString() || "",
@@ -1042,6 +1074,9 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
                 for (const d of existingDirs) {
                   if (tarFailedDirs.has(d)) {
                     _log(`Dir ${d} had tar read errors — marking failed`);
+                    failedDirs.push(d);
+                  } else if (!extractedDirs.has(d)) {
+                    _log(`Dir ${d} missing from partial tar extraction — marking failed`);
                     failedDirs.push(d);
                   } else {
                     backedUpDirs.push(d);
@@ -1146,7 +1181,7 @@ export function restoreSandboxState(sandboxName: string, backupPath: string): Re
   // Older manifests do not have backedUpDirs, so keep restoring stateDirs for
   // backward compatibility.
   const restorableStateDirs = manifest.backedUpDirs ?? manifest.stateDirs;
-  const localDirs = restorableStateDirs.filter((d) => existsSync(path.join(backupPath, d)));
+  const localDirs = existingBackupDirs(backupPath, restorableStateDirs);
   const stateFiles = normalizeStateFileSpecs(manifest.stateFiles ?? []);
   const localFiles = stateFiles.filter((f) => existsSync(path.join(backupPath, f.path)));
   _log(
