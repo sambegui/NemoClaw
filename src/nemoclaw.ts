@@ -78,6 +78,7 @@ const { parseSandboxPhase } = require("./lib/gateway-state");
 const {
   getActiveSandboxSessions,
   createSystemDeps: createSessionDeps,
+  parseForwardList,
 } = require("./lib/sandbox-session-state");
 
 const {
@@ -384,14 +385,19 @@ function waitForRecoveredSandboxGateway(sandboxName: string): boolean {
 /**
  * Re-establish the dashboard port forward to the sandbox.
  * Uses the agent's forward port when a non-OpenClaw agent is active.
+ * Returns true when `forward start` succeeded and a follow-up probe
+ * confirms the new entry is running, false otherwise.
  */
-function ensureSandboxPortForward(sandboxName: string): void {
+function ensureSandboxPortForward(sandboxName: string): boolean {
   const agent = agentRuntime.getSessionAgent(sandboxName);
   const port = agent ? String(agent.forwardPort) : DASHBOARD_FORWARD_PORT;
   runOpenshell(["forward", "stop", port], { ignoreError: true });
-  runOpenshell(["forward", "start", "--background", port, sandboxName], {
-    ignoreError: true,
-  });
+  const startResult = runOpenshell(
+    ["forward", "start", "--background", port, sandboxName],
+    { ignoreError: true },
+  );
+  if (startResult.status !== 0) return false;
+  return isSandboxForwardHealthy(sandboxName) === true;
 }
 
 /**
@@ -413,14 +419,15 @@ function isSandboxForwardHealthy(sandboxName: string): boolean | null {
     timeout: OPENSHELL_PROBE_TIMEOUT_MS,
   });
   if (!result || isCommandTimeout(result) || result.status !== 0) return null;
-  for (const line of (result.output ?? "").split("\n")) {
-    const cols = line.trim().split(/\s+/);
-    // openshell forward list columns: SANDBOX BIND PORT PID STATUS
-    if (cols[2] !== port) continue;
-    if (cols[0] !== sandboxName) return false;
-    return (cols[4] ?? "").toLowerCase() === "running";
-  }
-  return false;
+  const entries = parseForwardList(result.output) as Array<{
+    sandboxName: string;
+    port: string;
+    status: string;
+  }>;
+  const match = entries.find((entry) => entry.port === port);
+  if (!match) return false;
+  if (match.sandboxName !== sandboxName) return false;
+  return match.status === "running";
 }
 
 /**
@@ -452,11 +459,18 @@ function checkAndRecoverSandboxProcesses(
         );
         console.log("  Re-establishing...");
       }
-      ensureSandboxPortForward(sandboxName);
+      const forwardRecovered = ensureSandboxPortForward(sandboxName);
       if (!quiet) {
-        console.log(`  ${G}✓${R} Dashboard port forward re-established.`);
+        if (forwardRecovered) {
+          console.log(`  ${G}✓${R} Dashboard port forward re-established.`);
+        } else {
+          console.error("  Failed to re-establish the dashboard port forward.");
+          console.error(
+            `  Run \`openshell forward start --background <port> ${sandboxName}\` manually.`,
+          );
+        }
       }
-      return { checked: true, wasRunning: true, recovered: false, forwardRecovered: true };
+      return { checked: true, wasRunning: true, recovered: false, forwardRecovered };
     }
     return { checked: true, wasRunning: true, recovered: false, forwardRecovered: false };
   }
@@ -481,14 +495,23 @@ function checkAndRecoverSandboxProcesses(
       }
       return { checked: true, wasRunning: false, recovered: false, forwardRecovered: false };
     }
-    ensureSandboxPortForward(sandboxName);
+    const forwardRecovered = ensureSandboxPortForward(sandboxName);
     if (!quiet) {
       console.log(
         `  ${G}✓${R} ${agentRuntime.getAgentDisplayName(_recoveryAgent)} gateway restarted inside sandbox.`,
       );
-      console.log(`  ${G}✓${R} Dashboard port forward re-established.`);
+      if (forwardRecovered) {
+        console.log(`  ${G}✓${R} Dashboard port forward re-established.`);
+      } else {
+        console.error("  Failed to re-establish the dashboard port forward.");
+        console.error(
+          `  Run \`openshell forward start --background <port> ${sandboxName}\` manually.`,
+        );
+      }
     }
-  } else if (!quiet) {
+    return { checked: true, wasRunning: false, recovered, forwardRecovered };
+  }
+  if (!quiet) {
     console.error(
       `  Could not restart ${agentRuntime.getAgentDisplayName(_recoveryAgent)} gateway automatically.`,
     );
@@ -496,7 +519,7 @@ function checkAndRecoverSandboxProcesses(
     console.error(`    ${agentRuntime.getGatewayCommand(_recoveryAgent)}`);
   }
 
-  return { checked: true, wasRunning: false, recovered, forwardRecovered: recovered };
+  return { checked: true, wasRunning: false, recovered, forwardRecovered: false };
 }
 
 exports.runtimeBridge = {

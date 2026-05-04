@@ -144,13 +144,15 @@ Refer to [Switch Inference Providers](../inference/switch-inference-providers.md
 
 ### Restart the Gateway and Port Forward
 
-If `nemoclaw <name> status` reports the sandbox is alive but the gateway is not running, run the recover command instead of opening a shell:
+If `nemoclaw <name> status` reports the sandbox is alive but the gateway is not running, run the recover command instead of opening a shell.
 
 ```console
 $ nemoclaw <sandbox-name> recover
 ```
 
-The command restarts the in-sandbox gateway and re-establishes the dashboard port-forward in one step. It is idempotent and safe to script. Refer to [`nemoclaw <name> recover`](../reference/commands.md#nemoclaw-name-recover) for details.
+The command restarts the in-sandbox gateway and re-establishes the dashboard port-forward in one step.
+It is idempotent and safe to script.
+Refer to [`nemoclaw <name> recover`](../reference/commands.md#nemoclaw-name-recover) for details.
 
 ### Reset a Stored Credential
 
