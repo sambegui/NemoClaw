@@ -1,9 +1,10 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Commands
+# CLI Commands Reference
 
 The `nemoclaw` CLI is the primary interface for managing NemoClaw sandboxes.
 It is installed automatically by the installer (`curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash`).
+For guidance on when to use `nemoclaw` versus the underlying `openshell` CLI, see CLI Selection Guide (use the `nemoclaw-user-reference` skill).
 
 ## `/nemoclaw` Slash Command
 
@@ -127,6 +128,10 @@ NemoClaw bakes those values into the sandbox image as Discord guild workspace co
 If you leave the Discord User ID blank, the guild config omits the user allowlist and any member of the configured server can message the bot.
 Guild responses remain mention-gated by default unless you opt into all-message replies.
 
+If you enable Telegram during onboarding, the wizard can also prompt for whether group chats should reply only to `@mentions` or to all group messages.
+Set `TELEGRAM_REQUIRE_MENTION=1` for non-interactive onboarding when you want mention-only group replies.
+Pairing and `TELEGRAM_ALLOWED_IDS` still govern direct messages.
+
 If you run onboarding again with the same sandbox name and choose a different inference provider or model, NemoClaw detects the drift and recreates the sandbox so the running OpenClaw UI matches your selection.
 In interactive mode, the wizard asks for confirmation before delete and recreate.
 In non-interactive mode, NemoClaw recreates automatically when the stored selection is readable and differs; if NemoClaw cannot read the stored selection, NemoClaw reuses by default.
@@ -240,6 +245,19 @@ You no longer need to re-run `nemoclaw onboard` after a reboot in this case.
 $ nemoclaw my-assistant connect
 ```
 
+### `nemoclaw <name> recover`
+
+Restart the in-sandbox gateway and re-establish the host-side dashboard port-forward without opening an SSH session.
+Use this after a sandbox pod restart, a sandbox crash, or whenever `nemoclaw <name> status` reports the gateway is not running but the sandbox is alive.
+
+`recover` runs the same recovery the `connect` command performs as a side effect, but without dropping into a shell, so it is safe to call from scripts and automation.
+It is idempotent.
+If the gateway is already running, the command exits zero with a probe message and makes no changes.
+
+```console
+$ nemoclaw my-assistant recover
+```
+
 ### `nemoclaw <name> status`
 
 Show sandbox status, health, and inference configuration.
@@ -268,6 +286,19 @@ The command also tails `/tmp/gateway.log` inside the default sandbox and flags T
 
 ```console
 $ nemoclaw my-assistant status
+```
+
+### `nemoclaw <name> doctor`
+
+Run a focused health check for one sandbox and the host services it depends on.
+The command checks the local CLI build, Docker daemon, OpenShell CLI, NemoClaw gateway container, gateway port mapping, live sandbox state, inference route, provider reachability, messaging channel conflicts, Ollama reachability, and the cloudflared tunnel state.
+
+Warnings do not make the command fail.
+Failed checks exit non-zero so scripts can use `doctor` as a readiness gate.
+Use `--json` for machine-readable output.
+
+```console
+$ nemoclaw my-assistant doctor [--json]
 ```
 
 ### `nemoclaw <name> logs`
@@ -306,8 +337,8 @@ This removes the sandbox from the registry.
 For Ollama-backed sandboxes, `destroy` also asks Ollama to unload currently loaded models and clears stale auth proxy state on a best-effort basis.
 
 > **Warning:** This command permanently deletes the sandbox **and its persistent volume**.
-> All workspace files (use the `nemoclaw-user-workspace` skill) (SOUL.md, USER.md, IDENTITY.md, AGENTS.md, MEMORY.md, and daily memory notes) are lost.
-> Back up your workspace first with `nemoclaw <name> snapshot create` or see Backup and Restore (use the `nemoclaw-user-workspace` skill).
+> All workspace files (use the `nemoclaw-user-manage-sandboxes` skill) (SOUL.md, USER.md, IDENTITY.md, AGENTS.md, MEMORY.md, and daily memory notes) are lost.
+> Back up your workspace first with `nemoclaw <name> snapshot create` or see Backup and Restore (use the `nemoclaw-user-manage-sandboxes` skill).
 > If you want to upgrade the sandbox while preserving state, use `nemoclaw <name> rebuild` instead.
 
 If another terminal has an active SSH session to the sandbox, `destroy` prints an active-session warning and requires a second confirmation before it proceeds.
@@ -679,7 +710,8 @@ $ nemoclaw tunnel start
 
 ### `nemoclaw tunnel stop`
 
-Stop host auxiliary services started by `nemoclaw tunnel start` (for example cloudflared). This does not affect messaging channels running inside the sandbox; use `nemoclaw <name> channels stop <channel>` to pause a specific bridge without destroying the sandbox.
+Stop host auxiliary services that `nemoclaw tunnel start` started (for example cloudflared). NemoClaw also tries to stop the OpenClaw gateway inside the selected or default sandbox, which stops in-sandbox messaging channel polling for that sandbox.
+Use `nemoclaw <name> channels stop <channel>` when you only want to pause one bridge without stopping the gateway.
 
 ```console
 $ nemoclaw tunnel stop
