@@ -187,8 +187,8 @@ $ nemoclaw <sandbox-name> policy-add
 
 Refer to [`nemoclaw <name> policy-add`](../reference/commands.md#nemoclaw-name-policy-add) for usage details and flags.
 
-Presets added this way are preserved across non-interactive re-onboards in the default `suggested` policy mode.
-To make a re-onboard authoritative — replacing the applied set with an exact list and removing anything else — set `NEMOCLAW_POLICY_MODE=custom` with `NEMOCLAW_POLICY_PRESETS`.
+Non-interactive re-onboards in the default `suggested` policy mode preserve presets added this way.
+To make a re-onboard authoritative, set `NEMOCLAW_POLICY_MODE=custom` and provide `NEMOCLAW_POLICY_PRESETS` with the exact list to apply; onboarding removes anything else.
 See [`NEMOCLAW_POLICY_MODE`](../reference/commands.md#nemoclaw-onboard) for the full table.
 
 ## Update to the Latest Version

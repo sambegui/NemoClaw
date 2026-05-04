@@ -104,8 +104,10 @@ $ NEMOCLAW_POLICY_TIER=restricted nemoclaw onboard --non-interactive --yes-i-acc
 ```
 
 `NEMOCLAW_POLICY_MODE` controls how non-interactive onboarding reconciles the tier-derived suggestions against the sandbox's currently-applied presets.
-The default is `suggested`, which is *additive*: tier defaults are applied and any presets you previously added with [`nemoclaw <name> policy-add`](#nemoclaw-name-policy-add) are preserved across re-onboards.
-Use `custom` with `NEMOCLAW_POLICY_PRESETS` when you want the explicit list to be authoritative — presets not in the list are removed.
+The default is `suggested`, which is *additive*.
+Onboarding applies tier defaults and preserves any presets you previously added with [`nemoclaw <name> policy-add`](#nemoclaw-name-policy-add) across re-onboards.
+Use `custom` with `NEMOCLAW_POLICY_PRESETS` when you want the explicit list to be authoritative.
+Onboarding removes any preset that is not in the list.
 `skip` leaves the applied set untouched and does not apply tier defaults.
 
 | Value | Behaviour |
