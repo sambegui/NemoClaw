@@ -11,9 +11,9 @@ The four classes the LLM assigns to each candidate issue, with worked examples.
 
 ## ADJACENT_FIX
 
-The PR's changes likely *also* resolve this issue, even though the PR doesn't claim to.
+The PR's changes resolve this issue OR open a clear follow-on path on the same code the PR just touched.
 
-**Example:**
+### Example A — incidental closure (direct evidence)
 
 PR description: "fix EACCES when shields-down user writes config"
 PR diff: adds `chmod g+w` to `.openclaw` directory at startup
@@ -21,20 +21,36 @@ Candidate issue #2810: "Telegram preset writes fail intermittently after sandbox
 Issue body cites: "EPERM on `.openclaw/credentials/telegram.json`"
 
 **Classification:** ADJACENT_FIX, high confidence
-**Evidence cited:** PR diff `Dockerfile.base:97` (chmod g+w on .openclaw); issue body line 14 ("EPERM on .openclaw/credentials/telegram.json"). Same root cause (sandbox permissions), same fix.
+**Evidence cited (direct):** PR diff `Dockerfile.base:97` (chmod g+w on .openclaw); issue body line 14 ("EPERM on .openclaw/credentials/telegram.json"). Same root cause, same fix.
+
+### Example B — follow-on hardening on PR-introduced code
+
+PR #2696 introduced `scripts/rcf_patch.py` with regex-based property matching.
+Candidate issue #2875: "Harden rcf_patch.py against property-order drift" — issue says PR #2696 is "a real improvement... one follow-on hardening gap: the regex still assumes `snapshot` before `nextConfig`."
+
+**Classification:** ADJACENT_FIX, high confidence (boosted by reverse-link)
+**Evidence cited (follow-on):** PR introduced `scripts/rcf_patch.py`; issue requests hardening the same file's regex against a specific drift case. The PR's code is the subject of the issue's hardening request, not a separate concern.
 
 ## CONTRADICTING
 
-The PR's approach makes this issue's desired behavior impossible.
+The PR's approach makes this issue's desired behavior impossible, OR the PR's scope is incomplete and the issue reports the leftover gap.
 
-**Example:**
+### Example A — direct contradiction
 
 PR description: "remove silent EACCES swallow from Patch 4b"
 PR diff: deletes try/catch around `mutateConfigFile`
 Candidate issue #4187: "Allow opt-in error suppression for sandbox config writes during shutdown"
 
 **Classification:** CONTRADICTING, medium confidence
-**Evidence cited:** PR diff removes `try { ... } catch { /* swallow */ }` at `Dockerfile:142`; issue body line 8 explicitly requests "opt-in suppression for shutdown-time write failures." PR strictly rejects what issue requests.
+**Evidence cited (direct):** PR diff removes `try { ... } catch { /* swallow */ }` at `Dockerfile:142`; issue body line 8 explicitly requests "opt-in suppression for shutdown-time write failures." PR strictly rejects what issue requests.
+
+### Example B — partial-fix gap (evidence by omission)
+
+PR #2700 changed 5 env-var validations from `return 1` to `return 0` in `scripts/nemoclaw-start.sh`.
+Candidate issue #2762: "PR #2700 changed validations... However... NEMOCLAW_CONTEXT_WINDOW and NEMOCLAW_MAX_TOKENS with invalid values still cause the container to exit with code 1."
+
+**Classification:** CONTRADICTING, high confidence (boosted by reverse-link)
+**Evidence cited (by-omission):** Bug class — env-var validation hard-exits under `set -euo pipefail`. PR fixed instances `NEMOCLAW_MODEL_OVERRIDE`, `NEMOCLAW_INFERENCE_API_OVERRIDE`, `NEMOCLAW_REASONING`, `NEMOCLAW_CORS_ORIGIN`, plus one more. Instances PR did NOT touch: `NEMOCLAW_CONTEXT_WINDOW`, `NEMOCLAW_MAX_TOKENS`. Issue reports same hard-exit class on those exact untouched instances. The PR's incomplete scope is the contradiction with the issue's expectation of a class-level fix.
 
 ## SAME_ISSUE_DIFF
 

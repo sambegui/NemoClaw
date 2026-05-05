@@ -34,24 +34,44 @@ PR's primary linked issue: #{primary_issue}
 
 Classify the relationship:
 
-- ADJACENT_FIX: PR's changes likely also resolve this issue
-- CONTRADICTING: PR's approach makes this issue's desired behavior impossible
+- ADJACENT_FIX: PR's changes resolve this issue OR open a clear follow-on path
+  on the same code the PR just touched
+- CONTRADICTING: PR's approach makes this issue's desired behavior impossible,
+  OR the PR's scope is incomplete and the issue reports the leftover gap
 - SAME_ISSUE_DIFF: same root bug as #{primary_issue} (dedupe filter)
 - UNRELATED: no meaningful relationship
 
-For ADJACENT_FIX or CONTRADICTING, REQUIRED:
-- Cite specific PR diff line(s) (file:line)
-- Cite specific issue symptom(s) (issue line or quote)
-- Confidence: high / medium / low
+For ADJACENT_FIX or CONTRADICTING, REQUIRED — cite ONE of these evidence shapes:
 
-If you cannot cite specific evidence, answer UNRELATED.
+  (a) DIRECT: cite specific PR diff line(s) (file:line) AND specific issue
+      symptom(s) that map to those lines
+
+  (b) BY-OMISSION (partial-fix detection): cite the PR's diff *scope* — what
+      class of bug it addressed — AND the issue's symptom showing the same
+      class but a different instance the PR did NOT touch. Required: name the
+      bug class, name the instances PR fixed, name the instances issue
+      reports as still broken.
+
+  (c) FOLLOW-ON: cite the symbol/file the PR introduced or modified AND the
+      issue's request to harden the same symbol/file (e.g., "PR introduced
+      rcf_patch.py; issue requests rcf_patch.py be hardened against X").
+
+Confidence: high / medium / low
+
+If you cannot cite specific evidence under any of (a), (b), (c), answer UNRELATED.
 ```
 
 ## Evidence requirement (anti-hallucination)
 
-The LLM must cite a specific PR diff line and a specific issue symptom for any ADJACENT_FIX or CONTRADICTING verdict. Without citations, the answer must be UNRELATED.
+For any ADJACENT_FIX or CONTRADICTING verdict, the LLM must cite evidence under one of three shapes:
 
-This rule is the single most important defense against hallucinated matches. Without it, token-overlap noise dominates.
+- **Direct**: specific PR diff line + specific issue symptom that map to each other
+- **By-omission**: PR's diff *scope* (the bug class it addressed) + issue symptom showing the same class but a different instance the PR did NOT touch (catches partial-fix patterns)
+- **Follow-on**: the symbol/file the PR introduced + the issue's request to harden the same symbol/file (catches "PR introduced X, now harden X" follow-up patterns)
+
+Without one of these citations, the answer must be UNRELATED.
+
+This rule is the single most important defense against hallucinated matches. The three shapes give the LLM legitimate paths to flag genuine relationships without lowering the bar to vague "they touch the same area" matches.
 
 ## Confidence levels
 
