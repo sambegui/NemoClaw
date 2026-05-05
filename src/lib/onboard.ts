@@ -8925,7 +8925,10 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       if (!sandboxName) {
         sandboxName = await promptValidatedSandboxName(agent);
       }
-      const buildEstimateNote = formatSandboxBuildEstimateNote(assessHost());
+      const buildEstimateNote =
+        process.env.NEMOCLAW_IGNORE_RUNTIME_RESOURCES === "1"
+          ? null
+          : formatSandboxBuildEstimateNote(assessHost());
       console.log(
         formatOnboardConfigSummary({
           provider,

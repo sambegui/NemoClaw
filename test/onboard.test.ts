@@ -145,6 +145,7 @@ function isOnboardTestInternals(
     typeof value.normalizeSandboxAgentName === "function" &&
     typeof value.agentSupportsWebSearch === "function" &&
     typeof value.configureWebSearch === "function" &&
+    typeof value.formatSandboxBuildEstimateNote === "function" &&
     typeof value.shouldRunCompatibleEndpointSandboxSmoke === "function" &&
     typeof value.writeSandboxConfigSyncFile === "function"
   );
@@ -7128,7 +7129,8 @@ const { createSandbox } = require(${onboardPath});
       dockerCpus: 12,
       dockerMemTotalBytes: 32 * 1024 ** 3,
     });
-    assert.ok(note != null && note.includes("3"), "tight range starts at 3 minutes");
+    assert.ok(note != null, "returns a note");
+    assert.match(note ?? "", /\b3[–-]\d+\s+minutes\b/, "tight range starts at 3 minutes");
   });
 
   it("formatSandboxBuildEstimateNote returns null when no runtime resource signal is available (#2514)", () => {

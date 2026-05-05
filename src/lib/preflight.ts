@@ -541,7 +541,7 @@ export function planHostRemediation(assessment: HostAssessment): RemediationActi
     const isDockerDesktop = assessment.runtime === "docker-desktop";
     const reason =
       `Container runtime is under-provisioned (detected ${detectedStr}; recommended ${recommendedStr}). ` +
-      "Sandbox build will be slow and may deadlock on default Colima settings.";
+      "Sandbox build will be slow and may stall when runtime resources are too low.";
     const commands: string[] = [];
     if (isColima) {
       commands.push(
