@@ -430,7 +430,7 @@ fi
 
 section "Phase 6: Discord placeholder egress"
 
-dc_api=$(sandbox_exec 'node -e "
+dc_api=$(sandbox_exec 'NODE_NO_WARNINGS=1 node -e "
 const fs = require(\"fs\");
 const https = require(\"https\");
 const env = fs.readFileSync(\"/sandbox/.hermes/.env\", \"utf8\");
@@ -460,14 +460,16 @@ req.end();
 
 info "Discord users/@me response: ${dc_api:0:300}"
 dc_status=$(echo "$dc_api" | python3 -c 'import json,sys
+lines = [line.strip() for line in sys.stdin if line.strip().startswith("{")]
 try:
-    print(json.load(sys.stdin).get("statusCode", ""))
+    print(json.loads(lines[-1]).get("statusCode", "") if lines else "")
 except Exception:
     print("")
 ' 2>/dev/null || true)
 dc_error=$(echo "$dc_api" | python3 -c 'import json,sys
+lines = [line.strip() for line in sys.stdin if line.strip().startswith("{")]
 try:
-    print(json.load(sys.stdin).get("error", ""))
+    print(json.loads(lines[-1]).get("error", "") if lines else "")
 except Exception:
     print("")
 ' 2>/dev/null || true)
