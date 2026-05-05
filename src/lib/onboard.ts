@@ -6034,14 +6034,12 @@ async function setupNim(
         if (!checkOllamaPortsOrWarn()) continue selectionLoop;
         if (!ollamaRunning) {
           console.log("  Starting Ollama...");
-          // On WSL2, binding to 0.0.0.0 creates a dual-stack socket that Docker
-          // cannot reach via host-gateway. The default 127.0.0.1 binding works
-          // because WSL2 relays IPv4-only sockets to the Windows host.
+          // Keep raw Ollama loopback-only. Non-WSL containers reach it through
+          // the authenticated proxy on OLLAMA_PROXY_PORT.
           // Shell required: backgrounding (&), env var prefix, output redirection.
-          const ollamaEnv = isWsl() ? "" : `OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} `;
+          const ollamaEnv = isWsl() ? "" : `OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} `;
           runShell(`${ollamaEnv}ollama serve > /dev/null 2>&1 &`, { ignoreError: true });
           sleep(2);
-          if (!isWsl()) printOllamaExposureWarning();
         }
         if (isWsl()) {
           // WSL2 doesn't need the proxy — Docker can reach the host directly.
@@ -6160,7 +6158,7 @@ async function setupNim(
           // brew install doesn't auto-start a service; launch directly.
           // Shell required: backgrounding (&), env var prefix, output redirection.
           console.log("  Starting Ollama...");
-          runShell(`OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {
+          runShell(`OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {
             ignoreError: true,
           });
           sleep(2);
@@ -6182,14 +6180,15 @@ async function setupNim(
             ],
             { ignoreError: true },
           ).trim();
-          // Linux native + systemd: override OLLAMA_HOST=0.0.0.0 via a drop-in
+          // Linux native + systemd: force a loopback-only OLLAMA_HOST drop-in
           // and let systemd own the daemon (avoids racing the installer's
-          // daemon with our own `ollama serve`). WSL keeps the default
-          // 127.0.0.1 binding (wslrelay forwards it). No-systemd / daemon
-          // failed to start: manual launch with the right binding.
+          // daemon with our own `ollama serve`). This also repairs older
+          // NemoClaw-created overrides that exposed raw Ollama on all interfaces.
+          // WSL keeps Ollama's default binding. No-systemd / daemon failed to
+          // start: manual launch with the loopback binding.
           if (!isWsl() && hasOllamaSystemdUnit) {
-            console.log("  Configuring Ollama systemd override...");
-            const dropInBody = `[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT}"\n`;
+            console.log("  Configuring Ollama systemd loopback override...");
+            const dropInBody = `[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT}"\n`;
             const tmpDropIn = secureTempFile("nemoclaw-ollama-override", ".conf");
             fs.writeFileSync(tmpDropIn, dropInBody, { mode: 0o644 });
             runShell(
@@ -6208,7 +6207,7 @@ async function setupNim(
           // Fall back to manual start if systemd path failed or isn't present.
           if (!findReachableOllamaHost()) {
             console.log("  Starting Ollama...");
-            const ollamaEnv = isWsl() ? "" : `OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} `;
+            const ollamaEnv = isWsl() ? "" : `OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} `;
             runShell(`${ollamaEnv}ollama serve > /dev/null 2>&1 &`, { ignoreError: true });
             sleep(2);
           }
@@ -6217,7 +6216,6 @@ async function setupNim(
           // WSL2 doesn't need the proxy — Docker reaches the host directly.
           console.log(`  ✓ Using Ollama on localhost:${OLLAMA_PORT}`);
         } else {
-          printOllamaExposureWarning();
           if (!startOllamaAuthProxy()) {
             process.exit(1);
           }
