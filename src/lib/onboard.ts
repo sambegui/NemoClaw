@@ -6191,11 +6191,16 @@ async function setupNim(
             const dropInBody = `[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT}"\n`;
             const tmpDropIn = secureTempFile("nemoclaw-ollama-override", ".conf");
             fs.writeFileSync(tmpDropIn, dropInBody, { mode: 0o644 });
-            runShell(
+            const overrideResult = runShell(
               `sudo install -D -m 0644 ${shellQuote(tmpDropIn)} ${shellQuote("/etc/systemd/system/ollama.service.d/override.conf")} && sudo systemctl daemon-reload && sudo systemctl restart ollama`,
               { ignoreError: true },
             );
             cleanupTempDir(tmpDropIn, "nemoclaw-ollama-override");
+            if (overrideResult.error || overrideResult.status !== 0) {
+              console.error("  Failed to apply Ollama systemd loopback override.");
+              console.error("  Refusing to continue with a potentially non-loopback Ollama bind.");
+              process.exit(1);
+            }
             // Retry the probe for a few seconds before giving up — systemd's
             // daemon may still be binding the port; a single probe could falsely
             // conclude it's down and spawn a duplicate `ollama serve`.
