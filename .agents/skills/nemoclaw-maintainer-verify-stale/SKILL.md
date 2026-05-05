@@ -144,13 +144,12 @@ CPU default keeps cost low. Only escalate to GPU when the reproducer needs one.
 
 ## Step 6: Extract the Reproducer
 
-Try in order, stop at the first that works:
+Extract whatever's available from the issue body. The decision about *whether the reproducer is good enough* lives in Step 8 (validate-on-baseline), not here.
 
-1. **Verbatim extraction:** the first fenced code block in the issue body that contains a `nemoclaw` invocation. No confidence penalty.
-2. **LLM synthesis:** if no fenced block matches, synthesize a shell script from the narrative bug report. Apply a **−30 confidence penalty** later.
-3. **Give up:** if neither produces a runnable script, mark the issue `verify-inconclusive`, post a short comment explaining why, and move on. Do not provision a Brev box.
+1. **Verbatim:** the first fenced code block (triple-backtick or `<pre>`) containing a `nemoclaw` invocation. Save to `./reproducer.sh`. No confidence penalty (yet).
+2. **No verbatim block found:** leave `./reproducer.sh` absent. Step 8b will synthesize from the issue body on demand and apply the **−30 synth penalty** at that point.
 
-Save the chosen script to `./reproducer.sh`. Both verbatim and synthesized scripts will be quoted in the final comment as evidence.
+The "give up immediately" path is gone. Synthesis happens at validation time so it has the baseline transcript to react to, not just the issue body in isolation. The give-up decision now lands in Step 8c when synth fails to produce a script that actually exposes the bug.
 
 ---
 
@@ -210,28 +209,74 @@ fi
 trap '[ "$PROVISIONED_NEW" = "1" ] && brev delete "$INSTANCE_NAME" --yes || true' EXIT
 ```
 
-Wallclock cap per verification: **15 minutes** including reuse-check, install, and reproduction. If a provisioned box isn't ready in time, abort and treat as an infra failure (Step 11).
+Wallclock cap per verification: **25 minutes** to accommodate two installs (reported version baseline + latest). If a provisioned box isn't ready in time, abort and treat as an infra failure (Step 11).
 
 ---
 
-## Step 8: Reset, Install Latest, Run the Reproducer
+## Step 8: Validate on Baseline, Verify on Latest
 
-Even on a reused box, reset NemoClaw state before installing — hermeticity matters more than the few seconds saved.
+Two-pass design.
+
+- **Baseline pass (8a–8c):** install the **reported version**, run the reproducer, confirm it actually exposes the bug as described. This is the gate that proves the script is real.
+- **Latest pass (8d):** install **latest**, run the validated reproducer. This is what the confidence score is built on.
+
+Without the baseline gate, a clean run on latest is ambiguous: maybe the bug really got fixed, maybe the script was never capable of triggering it. The baseline disambiguates.
+
+### Step 8a: Install reported version
 
 ```bash
-# Reset prior NemoClaw state on the box (safe no-op on a fresh box).
-brev exec "$INSTANCE_NAME" "rm -rf ~/.nemoclaw 2>/dev/null; sudo rm -f /usr/local/bin/nemoclaw 2>/dev/null; true"
+RESET="rm -rf ~/.nemoclaw 2>/dev/null; sudo rm -f /usr/local/bin/nemoclaw 2>/dev/null; true"
 
-# Install latest NemoClaw.
+brev exec "$INSTANCE_NAME" "$RESET"
+
+# Install reported version. URL pattern may need adjustment per release line.
+brev exec "$INSTANCE_NAME" "curl -fsSL https://nemoclaw.nvidia.com/install.sh | bash -s -- --version $REPORTED_VERSION" \
+  || BASELINE_INSTALL_FAILED=1
+brev exec "$INSTANCE_NAME" "nemoclaw --version"
+```
+
+If install fails (old releases rot — installer URLs, deps, OS images all drift over time), set `BASELINE_INSTALL_FAILED=1` and **skip 8b/8c**, going straight to 8d. Note "baseline-install-skipped" in the final comment. Step 9's scoring rule handles the degraded mode.
+
+### Step 8b: Run reproducer on baseline, compare to issue symptom
+
+If `./reproducer.sh` exists (verbatim from Step 6), run it. Otherwise synth on demand from the issue body (apply −30 penalty now, locked in for the rest of the run).
+
+```bash
+brev copy ./reproducer.sh "$INSTANCE_NAME":~/reproducer.sh
+brev exec "$INSTANCE_NAME" "bash ~/reproducer.sh" 2>&1 | tee ./baseline-transcript.log
+```
+
+LLM compares `baseline-transcript.log` against the issue's "Actual result" / error description.
+
+- **Match** (script produced the bug as described): reproducer validated. Proceed to 8d.
+- **No match** (silent pass, or wrong/unrelated error): script has gaps. Proceed to 8c.
+
+### Step 8c: Synth-repro and retry on baseline
+
+LLM rewrites `./reproducer.sh` using the full issue context (description, environment, symptoms) **plus the baseline transcript** so it can react to what actually happened. Apply **−30 confidence penalty** (or keep it if 8b already applied it for the missing-verbatim case).
+
+```bash
+brev copy ./reproducer.sh "$INSTANCE_NAME":~/reproducer.sh
+brev exec "$INSTANCE_NAME" "bash ~/reproducer.sh" 2>&1 | tee ./baseline-transcript-2.log
+```
+
+- **Match:** validated (with −30 baked in). Proceed to 8d.
+- **Still no match:** mark `verify-inconclusive`. Post a comment that includes both reproducer attempts and both baseline transcripts with the message "couldn't establish a working reproducer for this bug on `$REPORTED_VERSION`." **Skip 8d** — there's nothing to verify on latest.
+
+### Step 8d: Install latest, run validated reproducer
+
+```bash
+brev exec "$INSTANCE_NAME" "$RESET"
 brev exec "$INSTANCE_NAME" "curl -fsSL https://nemoclaw.nvidia.com/install.sh | bash"
 brev exec "$INSTANCE_NAME" "nemoclaw --version"
 
-# Copy and run the extracted reproducer; capture full transcript.
 brev copy ./reproducer.sh "$INSTANCE_NAME":~/reproducer.sh
-brev exec "$INSTANCE_NAME" @reproducer-runner.sh 2>&1 | tee ./transcript.log
+brev exec "$INSTANCE_NAME" "bash ~/reproducer.sh" 2>&1 | tee ./latest-transcript.log
 ```
 
-If the install itself fails (e.g. installer regression — see #3058 for a current example), this is an **infra failure** — see Step 11. Do not score or label the issue.
+If the install of **latest** fails (e.g. installer regression — see #3058 for a current example), this is an infra failure — see Step 11. Do not score or label the issue.
+
+If install succeeds, `latest-transcript.log` is the input to Step 9 scoring.
 
 For interactive debugging when something looks off:
 
@@ -247,13 +292,15 @@ Start at 0. Apply each rule that fires.
 
 | Signal | Delta |
 |---|---|
-| Reproducer ran cleanly on latest, exit 0, expected output observed | +50 |
+| Reproducer ran cleanly on **latest** (8d), exit 0, no bug symptom observed | +50 |
 | Commits between reported version and `$LATEST` touch the implicated component (`git log v<reported>..$LATEST -- <path>`) | +25 |
 | A merged PR mentions this issue number or its symptom | +25 |
-| Reproducer was LLM-synthesized, not extracted verbatim | −30 |
-| Any partial error, warning, or flaky behavior in the repro run | −50 |
+| Reproducer was LLM-synthesized at any point (Step 8b synth or Step 8c retry) | −30 |
+| Any partial error, warning, or flaky behavior in the latest run (8d) | −50 |
 
 Total is clamped to `[0, 100]`.
+
+**Baseline-validation gating.** The +50 weight assumes the reproducer was *validated* — i.e., it produced the bug symptom on baseline (Step 8b/8c match). If `BASELINE_INSTALL_FAILED=1` (Step 8a fall-through, baseline pass skipped), the +50 still applies but **cap the total at 84** unless commits-touched-area or merged-PR-mention also fires. Without baseline AND without corroborating evidence, the cleanest landing is the 60–84 band where the reporter is asked to confirm — we don't have enough on our own to claim ≥85.
 
 **Action:**
 
@@ -323,7 +370,9 @@ gh issue edit "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --add-label "fixed-on-lates
 
 ## Step 11: Infra Failure Handling
 
-If reuse-check, provisioning, install, or the test harness itself fails (not the reproducer):
+Two different failure types, two different responses.
+
+**Latest-install failure** (Step 8d) or reuse-check / provisioning / harness errors: hard infra failure.
 
 - Print the error.
 - Apply **no label** — infra failures must not pollute the verification record.
@@ -331,6 +380,14 @@ If reuse-check, provisioning, install, or the test harness itself fails (not the
 - Continue to the next candidate in batch mode.
 
 The next weekly run retries naturally.
+
+**Baseline-install failure** (Step 8a, reported version won't install on a modern image): not a hard failure — degraded mode.
+
+- Set `BASELINE_INSTALL_FAILED=1`, skip 8b/8c, jump to 8d.
+- Step 9 applies the score cap (max 84) unless corroborating evidence fires.
+- Note "baseline-install-skipped" in the final comment so a reviewer knows the verification ran without the script-validation gate.
+
+This degradation is expected — old releases rot. We still want to extract whatever signal we can from the latest run plus PR/commit evidence, just at a more conservative confidence ceiling.
 
 ---
 
