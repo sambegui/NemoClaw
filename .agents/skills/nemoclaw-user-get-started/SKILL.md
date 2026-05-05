@@ -1,6 +1,6 @@
 ---
 name: "nemoclaw-user-get-started"
-description: "Installs NemoClaw, launches a sandbox, and runs the first agent prompt. Use when onboarding, installing, or launching a NemoClaw sandbox for the first time. Trigger keywords - nemoclaw quickstart, install nemoclaw openclaw sandbox, nemohermes quickstart, hermes agent nemoclaw, run hermes openshell sandbox, nemoclaw prerequisites, nemoclaw supported platforms, nemoclaw hardware software, nemoclaw windows wsl2 setup, nemoclaw install windows docker desktop."
+description: "Installs NemoClaw, launches a sandbox, and runs the first agent prompt. Use when onboarding, installing, or launching a NemoClaw sandbox for the first time. Trigger keywords - nemoclaw quickstart, install nemoclaw openclaw sandbox, nemohermes quickstart, hermes agent nemoclaw, run hermes openshell sandbox, nemoclaw brev web ui, nemoclaw getting started, brev quickstart, nvidia nemotron agent, nemoclaw prerequisites, nemoclaw supported platforms, nemoclaw hardware software, nemoclaw windows wsl2 setup, nemoclaw install windows docker desktop."
 ---
 
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
@@ -197,7 +197,7 @@ For example, if you picked an OpenAI-compatible endpoint, the summary looks like
   Web search:    disabled
   Messaging:     none
   Sandbox name:  my-gpt-claw
-  Note:          Sandbox build takes ~6 minutes on this host.
+  Note:          Sandbox build typically takes 5–15 minutes on this host.
   ──────────────────────────────────────────────────
   Web search and messaging channels will be prompted next.
   Apply this configuration? [Y/n]:
@@ -288,6 +288,7 @@ openclaw agent --agent main --local -m "hello" --session-id test
 ## References
 
 - **Load [references/quickstart-hermes.md](references/quickstart-hermes.md)** when users ask for Hermes setup, NemoHermes onboarding, or running Hermes inside OpenShell. Installs NemoClaw, selects the Hermes agent, and launches a sandboxed Hermes API endpoint.
+- **Load [references/brev-web-ui-quickstart.md](references/brev-web-ui-quickstart.md)** when a user wants to try NemoClaw without installing the CLI, or asks how to get started on Brev. Guides users through deploying NemoClaw using the Brev web UI.
 - **Load [references/prerequisites.md](references/prerequisites.md)** when verifying prerequisites before installation. Lists the hardware, software, and container runtime requirements for running NemoClaw.
 - **Load [references/windows-preparation.md](references/windows-preparation.md)** when preparing a Windows machine for NemoClaw, enabling WSL 2, configuring Docker Desktop for Windows, or troubleshooting a Windows-specific install error. Covers Windows-only preparation steps required before the Quickstart.
 
