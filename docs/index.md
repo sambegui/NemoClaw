@@ -345,6 +345,7 @@ Integration Policy Examples <network-policy/integration-policy-examples>
 :hidden:
 
 Deploy to a Remote GPU Instance <deployment/deploy-to-remote-gpu>
+Brev Web UI <deployment/brev-web-ui>
 Install OpenClaw Plugins <deployment/install-openclaw-plugins>
 Sandbox Hardening <deployment/sandbox-hardening>
 ```

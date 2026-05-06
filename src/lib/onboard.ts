@@ -137,6 +137,7 @@ const {
   setupWindowsOllamaWith0000Binding,
   switchToWindowsOllamaHost,
 } = require("./onboard-windows-ollama");
+const { detectVllmProfile, installVllm } = require("./onboard-vllm");
 const inferenceConfig: typeof import("./inference-config") = require("./inference-config");
 const {
   DEFAULT_CLOUD_MODEL,
@@ -305,26 +306,26 @@ const sandboxCreateStream: typeof import("./sandbox-create-stream") = require(".
 const validationRecovery: typeof import("./validation-recovery") = require("./validation-recovery");
 const webSearch: typeof import("./web-search") = require("./web-search");
 
-import { listChannels } from "./sandbox-channels";
 import type { AgentDefinition } from "./agent-defs";
+import type { CurlProbeResult } from "./http-probe";
 import type { GatewayInference, ProviderSelectionConfig } from "./inference-config";
 import type { GpuInfo, ValidationResult } from "./local-inference";
-import type { ContainerRuntime } from "./platform";
-import type { SandboxEntry } from "./registry";
 import type { Session, SessionUpdates } from "./onboard-session";
-import type { CurlProbeResult } from "./http-probe";
-import type { ProbeRecovery } from "./validation-recovery";
-import type { SandboxCreateFailure, ValidationClassification } from "./validation";
-import type { TierDefinition, TierPreset } from "./tiers";
-import type { StreamSandboxCreateResult } from "./sandbox-create-stream";
-import type { WebSearchConfig } from "./web-search";
 import type {
   ModelCatalogFetchResult,
   ModelValidationResult,
   ProbeResult,
   ValidationFailureLike,
 } from "./onboard-types";
+import type { ContainerRuntime } from "./platform";
+import type { SandboxEntry } from "./registry";
+import { listChannels } from "./sandbox-channels";
+import type { StreamSandboxCreateResult } from "./sandbox-create-stream";
 import type { BackupResult } from "./sandbox-state";
+import type { TierDefinition, TierPreset } from "./tiers";
+import type { SandboxCreateFailure, ValidationClassification } from "./validation";
+import type { ProbeRecovery } from "./validation-recovery";
+import type { WebSearchConfig } from "./web-search";
 
 /**
  * Create a temp file inside a directory with a cryptographically random name.
@@ -402,9 +403,9 @@ const BRAVE_SEARCH_HELP_URL = "https://brave.com/search/api/";
 // Re-export shared JSON types under the names used throughout this module.
 // See src/lib/json-types.ts for the canonical definitions.
 import type {
+  JsonObject as LooseObject,
   JsonScalar as LooseScalar,
   JsonValue as LooseValue,
-  JsonObject as LooseObject,
 } from "./json-types";
 
 type OnboardOptions = {
@@ -1240,6 +1241,29 @@ function upsertMessagingProviders(tokenDefs: MessagingTokenDef[]) {
 }
 function providerExistsInGateway(name: string) {
   return onboardProviders.providerExistsInGateway(name, runOpenshell);
+}
+
+function getMessagingChannelForEnvKey(envKey: string): string | null {
+  if (envKey === "DISCORD_BOT_TOKEN") return "discord";
+  if (envKey === "SLACK_BOT_TOKEN") return "slack";
+  if (envKey === "TELEGRAM_BOT_TOKEN") return "telegram";
+  return null;
+}
+
+function getKnownMessagingChannels(channels: string[] | null | undefined): string[] {
+  if (!Array.isArray(channels)) return [];
+  const known = new Set(MESSAGING_CHANNELS.map((channel) => channel.name));
+  return [...new Set(channels.filter((channel) => known.has(channel)))];
+}
+
+function getRecordedMessagingChannelsForResume(
+  resume: boolean,
+  session: Session | null,
+): string[] | null {
+  if (!resume || !isNonInteractive() || !Array.isArray(session?.messagingChannels)) {
+    return null;
+  }
+  return getKnownMessagingChannels(session.messagingChannels);
 }
 
 /**
@@ -4197,7 +4221,26 @@ async function createSandbox(
       token: getCredential(webSearch.BRAVE_API_KEY_ENV),
     });
   }
+  const previousProviderCredentialHashes =
+    registry.getSandbox(sandboxName)?.providerCredentialHashes ?? {};
   const hasMessagingTokens = messagingTokenDefs.some(({ token }) => !!token);
+  const reusableMessagingProviders: string[] = [];
+  const reusableMessagingChannels: string[] = [];
+  const reusableMessagingEnvKeys = new Set<string>();
+  if (enabledChannels != null) {
+    for (const { name, envKey, token } of messagingTokenDefs) {
+      if (token) continue;
+      const channel =
+        envKey === "SLACK_APP_TOKEN" ? "slack" : getMessagingChannelForEnvKey(envKey);
+      if (!channel || !enabledChannels.includes(channel)) continue;
+      if (!providerExistsInGateway(name)) continue;
+      reusableMessagingProviders.push(name);
+      reusableMessagingEnvKeys.add(envKey);
+      if (!reusableMessagingChannels.includes(channel)) {
+        reusableMessagingChannels.push(channel);
+      }
+    }
+  }
 
   // Reconcile local registry state with the live OpenShell gateway state.
   const liveExists = pruneStaleSandboxEntry(sandboxName);
@@ -4569,20 +4612,20 @@ async function createSandbox(
     messagingTokenDefs.map(({ envKey, token }) => [envKey, token]),
   );
   const activeMessagingChannels = [
-    ...new Set(
-      messagingTokenDefs
+    ...new Set([
+      ...messagingTokenDefs
         .filter(({ token }) => !!token)
         .flatMap(({ envKey }) => {
-          if (envKey === "DISCORD_BOT_TOKEN") return ["discord"];
-          if (envKey === "SLACK_BOT_TOKEN") return ["slack"];
+          const channel = getMessagingChannelForEnvKey(envKey);
+          if (channel) return [channel];
           // SLACK_APP_TOKEN alone does not enable slack; bot token is required.
           if (envKey === "SLACK_APP_TOKEN") {
             return tokensByEnvKey["SLACK_BOT_TOKEN"] ? ["slack"] : [];
           }
-          if (envKey === "TELEGRAM_BOT_TOKEN") return ["telegram"];
           return [];
         }),
-      ),
+      ...reusableMessagingChannels,
+    ]),
   ];
   const initialSandboxPolicy = prepareInitialSandboxCreatePolicy(
     basePolicyPath,
@@ -4610,7 +4653,9 @@ async function createSandbox(
   // the provider/placeholder system instead of raw env vars. The L7 proxy
   // rewrites Authorization headers (Bearer/Bot) and URL-path segments
   // (/bot{TOKEN}/) with real secrets at egress (OpenShell >= 0.0.20).
-  const messagingProviders = upsertMessagingProviders(messagingTokenDefs);
+  const messagingProviders = [
+    ...new Set([...upsertMessagingProviders(messagingTokenDefs), ...reusableMessagingProviders]),
+  ];
   for (const p of messagingProviders) {
     createArgs.push("--provider", p);
   }
@@ -4624,7 +4669,6 @@ async function createSandbox(
   for (const ch of MESSAGING_CHANNELS) {
     if (
       enabledTokenEnvKeys.has(ch.envKey) &&
-      ch.allowIdsMode === "dm" &&
       ch.userIdEnvKey &&
       process.env[ch.userIdEnvKey]
     ) {
@@ -4946,6 +4990,12 @@ async function createSandbox(
     const hash = token ? hashCredential(token) : null;
     if (hash) {
       providerCredentialHashes[envKey] = hash;
+    }
+  }
+  for (const envKey of reusableMessagingEnvKeys) {
+    const previousHash = previousProviderCredentialHashes[envKey];
+    if (typeof previousHash === "string" && previousHash) {
+      providerCredentialHashes[envKey] = previousHash;
     }
   }
   // openshell tags images with seconds; buildId is ms. Parse actual tag from output. Fixes #2672.
@@ -5304,6 +5354,15 @@ async function setupNim(
     ["curl", "-sf", ...localProbeCurlArgs, `http://127.0.0.1:${VLLM_PORT}/v1/models`],
     { ignoreError: true },
   );
+  // Pick a vLLM install recipe for this host. Profiles live in onboard-vllm.ts;
+  // null means "no supported platform" (vLLM stays behind EXPERIMENTAL).
+  const vllmProfile = detectVllmProfile(gpu);
+  // If the profile's image is already cached, the install path is really a
+  // "start" — docker pull is a no-op and the container can come up in seconds.
+  const hasVllmImage = !!(
+    vllmProfile &&
+    docker.dockerCapture(["images", "-q", vllmProfile.image], { ignoreError: true }).trim()
+  );
   // Probed even when WSL has its own Ollama: users may prefer the Windows
   // instance for GPU access and a unified model cache.
   let hasWindowsOllama = false;
@@ -5401,7 +5460,25 @@ async function setupNim(
   if (EXPERIMENTAL && gpu && gpu.nimCapable) {
     options.push({ key: "nim-local", label: "Local NVIDIA NIM [experimental]" });
   }
-  if (EXPERIMENTAL && vllmRunning) {
+  // vLLM: profiles in onboard-vllm.ts surface as menu entries only when
+  // the user explicitly opts in via NEMOCLAW_PROVIDER, or when
+  // NEMOCLAW_EXPERIMENTAL=1 is set.
+  // Read NEMOCLAW_PROVIDER directly so interactive runs with an explicit
+  // env-var opt-in surface the menu entry too — requestedProvider is null
+  // outside non-interactive mode.
+  const explicitProvider = (process.env.NEMOCLAW_PROVIDER || "").trim().toLowerCase();
+  const userChoseVllm = explicitProvider === "vllm" || explicitProvider === "install-vllm";
+  if (vllmProfile && (userChoseVllm || EXPERIMENTAL)) {
+    if (vllmRunning) {
+      options.push({
+        key: "vllm",
+        label: `Local vLLM (localhost:${VLLM_PORT}) — running (suggested)`,
+      });
+    } else {
+      const verb = hasVllmImage ? "Start" : "Install";
+      options.push({ key: "install-vllm", label: `${verb} vLLM (${vllmProfile.name})` });
+    }
+  } else if (EXPERIMENTAL && vllmRunning) {
     options.push({
       key: "vllm",
       label: "Local vLLM [experimental] — running",
@@ -5530,10 +5607,15 @@ async function setupNim(
         }
         selected = options.find((o) => o.key === providerKey);
         if (!selected) {
-          // install-ollama is valid even when Ollama is already installed —
-          // fall back to the existing ollama option silently
+          // Action keys fall back to the equivalent running-provider key
+          // when the menu only emits the running entry (the install would
+          // have been a no-op anyway).
           if (providerKey === "install-ollama") {
             selected = options.find((o) => o.key === "ollama");
+          } else if (providerKey === "install-vllm") {
+            selected = options.find((o) => o.key === "vllm");
+          } else if (providerKey === "vllm") {
+            selected = options.find((o) => o.key === "install-vllm");
           } else if (providerKey === "ollama") {
             selected = options.find((o) => o.key === "install-ollama");
           }
@@ -6243,7 +6325,27 @@ async function setupNim(
           preferredInferenceApi = "openai-completions";
         }
         break;
-      } else if (selected.key === "vllm") {
+      } else if (selected.key === "install-vllm") {
+        if (!vllmProfile) {
+          console.error("  No vLLM install profile available for this host.");
+          if (isNonInteractive()) process.exit(1);
+          continue selectionLoop;
+        }
+        const result = await installVllm(vllmProfile, {
+          hasImage: hasVllmImage,
+          nonInteractive: isNonInteractive(),
+          promptFn: prompt,
+        });
+        if (!result.ok) {
+          if (isNonInteractive()) process.exit(1);
+          continue selectionLoop;
+        }
+        // Fall through to the same provider/model setup as the running-vLLM
+        // branch. Mutate selected.key so the existing "vllm" branch picks up.
+        selected = { key: "vllm", label: `Local vLLM (localhost:${VLLM_PORT}) — running` };
+        // intentional fall-through to the next branch
+      }
+      if (selected.key === "vllm") {
         console.log(`  ✓ Using existing vLLM on localhost:${VLLM_PORT}`);
         provider = "vllm-local";
         // See NIM branch above — internal credential env, no user API key.
@@ -9064,7 +9166,17 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         nextWebSearchConfig = await configureWebSearch(null, agent, webSearchSupportProbePath);
       }
       startRecordedStep("sandbox", { provider, model });
-      selectedMessagingChannels = await setupMessagingChannels();
+      const recordedMessagingChannels = getRecordedMessagingChannelsForResume(resume, session);
+      if (recordedMessagingChannels) {
+        selectedMessagingChannels = recordedMessagingChannels;
+        if (selectedMessagingChannels.length > 0) {
+          note(
+            `  [resume] Reusing messaging channel configuration: ${selectedMessagingChannels.join(", ")}`,
+          );
+        }
+      } else {
+        selectedMessagingChannels = await setupMessagingChannels();
+      }
       onboardSession.updateSession((current: Session) => {
         current.messagingChannels = selectedMessagingChannels;
         return current;

@@ -43,6 +43,13 @@ NemoClaw creates a fresh OpenClaw instance inside the sandbox during the onboard
 curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash
 ```
 
+The piped installer prompts through your terminal. In headless scripts or CI,
+pass explicit acceptance to the `bash` side of the pipe:
+
+```console
+$ curl -fsSL https://www.nvidia.com/nemoclaw.sh | NEMOCLAW_NON_INTERACTIVE=1 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 bash
+```
+
 If you use nvm or fnm to manage Node.js, the installer might not update your current shell's PATH.
 If `nemoclaw` is not found after install, run `source ~/.bashrc` (or `source ~/.zshrc` for zsh) or open a new terminal.
 
@@ -205,7 +212,7 @@ For setup details, including GPU recommendations and starter model choices, refe
 These options appear when `NEMOCLAW_EXPERIMENTAL=1` is set and the prerequisites are met.
 
 - **Local NVIDIA NIM** requires a NIM-capable GPU. NemoClaw pulls and manages a NIM container.
-- **Local vLLM** requires a vLLM server already running on `localhost:8000`. NemoClaw auto-detects the loaded model.
+- **Local vLLM** uses a vLLM server already running on `localhost:8000`, or installs and starts a managed vLLM container on supported DGX Spark, DGX Station, and Linux NVIDIA GPU hosts. NemoClaw auto-detects the loaded model.
 
 For setup, refer to [Use a Local Inference Server](../inference/use-local-inference.md).
 :::
