@@ -2905,6 +2905,67 @@ function destroyGateway() {
   dockerRemoveVolumesByPrefix(`openshell-cluster-${GATEWAY_NAME}`, { ignoreError: true });
 }
 
+type FinalGatewayStartFailureOptions = {
+  retries: number;
+  collectDiagnostics?: () => string | null | undefined;
+  cleanupGateway?: () => void;
+  exitProcess?: (code: number) => never;
+  printError?: (message?: string) => void;
+};
+
+function handleFinalGatewayStartFailure({
+  retries,
+  collectDiagnostics = () =>
+    runCaptureOpenshell(["doctor", "logs", "--name", GATEWAY_NAME], {
+      ignoreError: true,
+      timeout: 10_000,
+    }),
+  cleanupGateway = destroyGateway,
+  exitProcess = (code) => process.exit(code),
+  printError = (message = "") => console.error(message),
+}: FinalGatewayStartFailureOptions): never {
+  printError(`  Gateway failed to start after ${retries + 1} attempts.`);
+  printError("  Gateway state preserved until diagnostics are collected.");
+  printError("");
+
+  try {
+    const logs = redact(collectDiagnostics() || "");
+    if (logs) {
+      printError("  Gateway logs:");
+      for (const line of String(logs)
+        .split("\n")
+        .map((l) => l.replace(/\r/g, "").replace(ANSI_RE, ""))
+        .filter(Boolean)) {
+        printError(`    ${line}`);
+      }
+      printError("");
+    }
+  } catch {
+    // doctor logs unavailable — continue to best-effort cleanup and manual instructions
+  }
+
+  printError("  Cleaning up failed gateway state...");
+  try {
+    cleanupGateway();
+    printError("  Cleanup attempted.");
+  } catch (err) {
+    const message = compactText(err instanceof Error ? err.message : String(err));
+    printError(message ? `  Cleanup attempt failed: ${message}` : "  Cleanup attempt failed.");
+  }
+  printError("");
+  printError("  Diagnostic command attempted before cleanup:");
+  printError(`    openshell doctor logs --name ${GATEWAY_NAME}`);
+  printError("    openshell doctor check");
+  printError("");
+  printError("  If gateway cleanup did not complete, run:");
+  printError(`    openshell gateway destroy -g ${GATEWAY_NAME}`);
+  printError(
+    `    docker volume ls -q --filter "name=openshell-cluster-${GATEWAY_NAME}" | xargs -r docker volume rm`,
+  );
+  printError(`    nemoclaw onboard --resume`);
+  return exitProcess(1);
+}
+
 function getGatewayClusterContainerState(): string {
   const containerName = getGatewayClusterContainerName();
   const state = dockerContainerInspectFormat(
@@ -4225,32 +4286,7 @@ async function startGatewayWithOptions(
     );
   } catch {
     if (exitOnFailure) {
-      console.error(`  Gateway failed to start after ${retries + 1} attempts.`);
-      console.error("  Gateway state preserved for diagnostics.");
-      console.error("");
-      try {
-        const logs = redact(
-          runCaptureOpenshell(["doctor", "logs", "--name", GATEWAY_NAME], {
-            ignoreError: true,
-          }),
-        );
-        if (logs) {
-          console.error("  Gateway logs:");
-          for (const line of String(logs)
-            .split("\n")
-            .map((l) => l.replace(/\r/g, "").replace(ANSI_RE, ""))
-            .filter(Boolean)) {
-            console.error(`    ${line}`);
-          }
-          console.error("");
-        }
-      } catch {
-        // doctor logs unavailable — fall through to manual instructions
-      }
-      console.error("  Troubleshooting:");
-      console.error("    openshell doctor logs --name nemoclaw");
-      console.error("    openshell doctor check");
-      process.exit(1);
+      handleFinalGatewayStartFailure({ retries });
     }
     throw new Error("Gateway failed to start");
   }
@@ -10248,6 +10284,7 @@ module.exports = {
   getGatewayHealthWaitConfig,
   getGatewayReuseState,
   isDockerDriverGatewayPortListener,
+  handleFinalGatewayStartFailure,
   getNavigationChoice,
   getSandboxInferenceConfig,
   getInstalledOpenshellVersion,
