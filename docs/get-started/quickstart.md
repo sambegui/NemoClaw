@@ -327,6 +327,7 @@ openclaw agent --agent main --local -m "hello" --session-id test
 - [Switch inference providers](../inference/switch-inference-providers.md) to use a different model or endpoint.
 - [Approve or deny network requests](../network-policy/approve-network-requests.md) when the agent tries to reach external hosts.
 - [Customize the network policy](../network-policy/customize-network-policy.md) to pre-approve trusted domains.
+- [Common integration policy examples](../network-policy/integration-policy-examples.md) for maintained policy presets such as Outlook, messaging, GitHub, Jira, Brave Search, package managers, Hugging Face, and local inference.
 - [Deploy to a remote GPU instance](../deployment/deploy-to-remote-gpu.md) for always-on operation.
 - [Monitor sandbox activity](../monitoring/monitor-sandbox-activity.md) through the OpenShell TUI.
 - [Consult the troubleshooting guide](../reference/troubleshooting.md) for common error messages and resolution steps.

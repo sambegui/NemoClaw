@@ -13,10 +13,10 @@ import {
 } from "./domain/lifecycle/options";
 import * as onboardSession from "./onboard-session";
 import type { Session } from "./onboard-session";
-import { OPENSHELL_PROBE_TIMEOUT_MS } from "./openshell-timeouts";
+import { OPENSHELL_PROBE_TIMEOUT_MS } from "./adapters/openshell/timeouts";
 import { DASHBOARD_PORT } from "./ports";
 import * as registry from "./registry";
-import { resolveOpenshell } from "./resolve-openshell";
+import { resolveOpenshell } from "./adapters/openshell/resolve";
 import { parseLiveSandboxNames } from "./runtime-recovery";
 import {
   createSystemDeps as createSessionDeps,
@@ -45,7 +45,7 @@ const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
 const DASHBOARD_FORWARD_PORT = String(DASHBOARD_PORT);
 
 function cleanupGatewayAfterLastSandbox(): void {
-  const { runOpenshell } = require("./openshell-runtime") as {
+  const { runOpenshell } = require("./adapters/openshell/runtime") as {
     runOpenshell: (args: string[], opts?: Record<string, unknown>) => { status: number | null };
   };
   const { dockerRemoveVolumesByPrefix } = require("./docker") as {
@@ -63,7 +63,7 @@ function cleanupGatewayAfterLastSandbox(): void {
 }
 
 function hasNoLiveSandboxes(): boolean {
-  const { captureOpenshell } = require("./openshell-runtime") as {
+  const { captureOpenshell } = require("./adapters/openshell/runtime") as {
     captureOpenshell: (
       args: string[],
       opts?: { ignoreError?: boolean; timeout?: number },
@@ -102,7 +102,7 @@ function cleanupSandboxServices(
 
   // Delete messaging providers created during onboard. Suppress stderr so
   // "! Provider not found" noise doesn't appear when messaging was never configured.
-  const { runOpenshell } = require("./openshell-runtime") as {
+  const { runOpenshell } = require("./adapters/openshell/runtime") as {
     runOpenshell: (args: string[], opts?: Record<string, unknown>) => { status: number | null };
   };
   for (const suffix of ["telegram-bridge", "discord-bridge", "slack-bridge"]) {
@@ -209,7 +209,7 @@ export async function destroySandbox(
   }
 
   console.log(`  Deleting sandbox '${sandboxName}'...`);
-  const { runOpenshell } = require("./openshell-runtime") as {
+  const { runOpenshell } = require("./adapters/openshell/runtime") as {
     runOpenshell: (
       args: string[],
       opts?: Record<string, unknown>,

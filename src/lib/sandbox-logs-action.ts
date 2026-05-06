@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 
 import { ROOT } from "./runner";
-import { getOpenshellBinary, runOpenshell } from "./openshell-runtime";
+import { getOpenshellBinary, runOpenshell } from "./adapters/openshell/runtime";
 import {
   buildEnableSandboxAuditLogsArgs,
   buildSandboxLogsArgs,

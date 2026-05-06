@@ -9,7 +9,7 @@ import {
   normalizeUpgradeSandboxesOptions,
   type UpgradeSandboxesOptions,
 } from "./domain/lifecycle/options";
-import { captureOpenshell } from "./openshell-runtime";
+import { captureOpenshell } from "./adapters/openshell/runtime";
 import * as registry from "./registry";
 import { parseLiveSandboxNames } from "./runtime-recovery";
 import { rebuildSandbox } from "./sandbox-rebuild-action";

@@ -3075,8 +3075,22 @@ const { setupInference } = require(${onboardPath});
       source,
       // #2753: sandboxName is intentionally absent from the options here so
       // the session does not record a name before createSandbox completes.
-      /startRecordedStep\("sandbox", \{ provider, model \}\);\s*const recordedMessagingChannels = getRecordedMessagingChannelsForResume\(resume, session\);[\s\S]*?selectedMessagingChannels = recordedMessagingChannels;[\s\S]*?selectedMessagingChannels = await setupMessagingChannels\(\);[\s\S]*?onboardSession\.updateSession\(\(current[^)]*\) => \{\s*current\.messagingChannels = selectedMessagingChannels;\s*return current;\s*\}\);[\s\S]*?sandboxName = await createSandbox\(\s*gpu,\s*model,\s*provider,\s*preferredInferenceApi,\s*sandboxName,\s*nextWebSearchConfig,\s*selectedMessagingChannels,\s*fromDockerfile,\s*agent,\s*opts\.controlUiPort \|\| null,\s*\);/,
+      /startRecordedStep\("sandbox", \{ provider, model \}\);\s*const recordedMessagingChannels = getRecordedMessagingChannelsForResume\(resume, session\);[\s\S]*?selectedMessagingChannels = recordedMessagingChannels;[\s\S]*?selectedMessagingChannels = await setupMessagingChannels\(\);[\s\S]*?onboardSession\.updateSession\(\(current[^)]*\) => \{\s*current\.messagingChannels = selectedMessagingChannels;\s*return current;\s*\}\);[\s\S]*?sandboxName = await createSandbox\(\s*gpu,\s*model,\s*provider,\s*preferredInferenceApi,\s*sandboxName,\s*nextWebSearchConfig,\s*selectedMessagingChannels,\s*fromDockerfile,\s*agent,\s*opts\.controlUiPort \|\| null,\s*gpuPassthrough,\s*\);/,
     );
+  });
+
+  it("defaults GPU passthrough on for detected NVIDIA GPUs unless opted out", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dirname, "..", "src", "lib", "onboard.ts"),
+      "utf-8",
+    );
+
+    assert.match(source, /const detectedNvidiaGpu = gpu\?\.type === "nvidia";/);
+    assert.match(
+      source,
+      /const gpuPassthrough = optedOutGpuPassthrough[\s\S]*\? false[\s\S]*\? true[\s\S]*: detectedNvidiaGpu;/,
+    );
+    assert.match(source, /Use --no-gpu to opt out/);
   });
 
   it("does not persist sandboxName to onboard-session.json before createSandbox completes (#2753)", () => {

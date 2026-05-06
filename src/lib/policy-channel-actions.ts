@@ -15,7 +15,7 @@ const onboardProviders = require("./onboard-providers");
 import * as policies from "./policies";
 import { parsePolicyAddArgs } from "./domain/policy-channel";
 import * as registry from "./registry";
-import { runOpenshell } from "./openshell-runtime";
+import { runOpenshell } from "./adapters/openshell/runtime";
 import { rebuildSandbox } from "./sandbox-runtime-actions";
 import {
   KNOWN_CHANNELS,
