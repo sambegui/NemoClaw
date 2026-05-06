@@ -1,6 +1,6 @@
 ---
 name: nemoclaw-maintainer-verify-stale
-description: Verify whether old NVIDIA/NemoClaw bug reports still reproduce against the latest release. Picks candidate issues opened against older versions, reuses or provisions a Brev Linux box (CPU or GPU), attempts reproduction, scores confidence, and posts an evidence-backed comment with a label (fixed-on-latest or verify-inconclusive). Tag-only — never auto-closes. Linux-only in v1; Windows, macOS, and integration-token-dependent issues are skipped. Trigger keywords - verify stale, verify fixed, reproduce on latest, stale issue, old bug, fixed-on-latest, verify-inconclusive, drain backlog, brev verify.
+description: Verify whether old NVIDIA/NemoClaw bug reports still reproduce against the latest release. Picks candidate issues opened against older versions, runs the reproducer locally first when possible, otherwise reuses or provisions a Brev Linux box (CPU or GPU), detects behavior that was intentionally changed, scores confidence, and posts an evidence-backed comment with a label (fixed-on-latest, wontfix-by-design, or verify-inconclusive). Tag-only — never auto-closes. Linux-only in v1; Windows, macOS, and integration-token-dependent issues are skipped. Trigger keywords - verify stale, verify fixed, reproduce on latest, stale issue, old bug, fixed-on-latest, wontfix-by-design, verify-inconclusive, drain backlog, brev verify.
 user_invocable: true
 ---
 
@@ -72,8 +72,8 @@ Apply these rules in order. Drop any issue that fails a rule.
 
 **Idempotency:** drop if **either** of these is true:
 
-- The issue carries a `fixed-on-latest` or `verify-inconclusive` label. (Cleared by the release sweep in `nemoclaw-maintainer-cut-release-tag` so the issue re-opens on each release.)
-- A `<!-- nemoclaw-verify-stale v1 YYYY-MM-DD -->` comment was posted **within the last 7 days**. The marker carries a date so the candidate filter can apply a TTL — useful for the still-reproduces case (Step 9), where no label is applied and we want next week's run to re-verify rather than skip forever.
+- The issue carries a `fixed-on-latest`, `verify-inconclusive`, or `wontfix-by-design` label. (Cleared by the release sweep in `nemoclaw-maintainer-cut-release-tag` so the issue re-opens on each release.)
+- A comment matching `<!-- nemoclaw-verify-stale v\d+ YYYY-MM-DD -->` was posted **within the last 7 days**. The regex matches any marker version (`v1`, `v2`, …) so future skill versions can re-verify older-marked issues by tightening the regex (e.g. require a specific marker version). The marker carries a date so the candidate filter can apply a TTL — useful for the still-reproduces case (Step 9), where no label is applied and we want next week's run to re-verify rather than skip forever.
 
 **Candidate rule:** keep the issue if **either**:
 
@@ -396,6 +396,49 @@ brev shell "$INSTANCE_NAME"
 
 ---
 
+## Step 8.5: Detect "Behavior Changed by Design"
+
+Before scoring, check whether the symptom is intentional. Some bugs are filed against behavior that was **deliberately changed or removed** in a merged PR — running the rubric on these produces misleading verdicts. The symptom "still reproduces" but the right answer is "won't fix, see PR #X." Issue #2791 is the prototype: `config set` was removed in PR #2227, the reporter tested a version that already had it gone, and a verify-stale run that scored against the standard rubric would post a low-confidence `verify-inconclusive` label that buries the actual answer.
+
+**Signals that fire this branch (any one is sufficient):**
+
+1. **Maintainer attribution in comments.** Any comment by an author with `authorAssociation` of `MEMBER`, `OWNER`, or `COLLABORATOR` matches `removed in #\d+`, `removed in [Pp][Rr] ?#\d+`, `by design`, `wontfix`, `won't fix`, `not a bug`, or `intentional`.
+2. **Removal commit in range.** A commit between the reported version and `$LATEST` has subject matching `(?i)\b(remove|delete|drop|deprecate)\b` AND its diff deletes the symbol implicated by the reproducer (CLI subcommand, function, flag).
+3. **Symbol absent in both versions.** The implicated symbol (e.g. `config set`) is not present in either the reported version's source tree or `$LATEST`'s — meaning it was already gone when the issue was filed.
+
+**If any signal fires:**
+
+- **Skip the Step 9 score table** entirely. The "exit 0 + expected output" axis doesn't apply when the expected output is no longer the contract.
+- **Skip Brev provisioning** if the signal fires before Step 7 — a remote run would just confirm what static analysis already proved. (Detection on signals 2 and 3 can run as soon as the reported version is parsed in Step 4.)
+- **Apply label `wontfix-by-design`** (create the label if it doesn't exist; coordinate with maintainers on the canonical name before first use).
+- **Use the by-design comment template below** instead of the standard Step 10 template.
+- **@-mention the reporter** so they can object if the framing is wrong.
+- **Never auto-close.** A maintainer pulls the trigger, same as the other label paths.
+
+**Comment template** (4-backtick outer fence so any nested code blocks render correctly):
+
+````markdown
+## Stale-issue verification — behavior is by-design
+
+**Reported on:** v0.0.31
+**Verified on:** <tag-or-build-id>
+**Outcome:** symptom reproduces, but the implicated behavior was intentionally changed.
+
+**Reference:** #<PR> (merged YYYY-MM-DD) <removed | renamed | replaced> the
+`<symbol>` <command | function | flag>. <One-sentence summary of the new
+intended workflow.>
+
+@<reporter> — recommend closing as "won't fix / by design". If the secondary
+UX issue (e.g. confusing error message when invoking the removed symbol) is
+worth tracking, that should be a fresh issue.
+
+<!-- nemoclaw-verify-stale v1 YYYY-MM-DD -->
+````
+
+**If no signal fires:** continue to Step 9 normally.
+
+---
+
 ## Step 9: Score Confidence
 
 Start at 0. Apply each rule that fires.
@@ -635,7 +678,7 @@ After each issue (verified, inconclusive, or infra-failed), append to `~/develop
 **Latest install:** succeeded | failed (infra error)
 **Latest result:** not-reproduced (clean) | still-reproduces | partial / flake | n/a (skipped 8d)
 **Confidence:** 88 / 100 | n/a (still-reproduces)
-**Label applied:** fixed-on-latest | verify-inconclusive | none (still-reproduces) | none (infra)
+**Label applied:** fixed-on-latest | verify-inconclusive | wontfix-by-design | none (still-reproduces) | none (infra)
 **Brev wall time (approx):** N min
 
 ---
@@ -658,7 +701,9 @@ At end of a batch session, prepend a session summary:
 ## YYYY-MM-DD — Verify Session
 **Issues considered:** N
 **Verified `fixed-on-latest`:** N
+**Marked `wontfix-by-design`:** N
 **Marked `verify-inconclusive`:** N
+**Local-first short-circuits (no Brev cost):** N
 **Skipped (Windows / macOS / integration / no version):** N
 **Infra failures:** N
 **Brev wall time:** N min · approx $X.XX
@@ -689,4 +734,4 @@ Never stage or commit the log to the NemoClaw repo.
 
 ## Companion Behavior
 
-`nemoclaw-maintainer-cut-release-tag` sweeps `fixed-on-latest` and `verify-inconclusive` from all open issues at release time. Without that sweep, "latest" drifts and verifications go stale silently.
+`nemoclaw-maintainer-cut-release-tag` sweeps `fixed-on-latest`, `verify-inconclusive`, and `wontfix-by-design` from all open issues at release time. Without that sweep, "latest" drifts and verifications go stale silently.
