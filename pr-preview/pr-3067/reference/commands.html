@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=f956fd49"></script>
+    <script src="../_static/documentation_options.js?v=9d992d0d"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.34';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.35';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -637,8 +637,11 @@ Treat Brave Search as an explicit opt-in and use a dedicated low-privilege Brave
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span><span class="nv">NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>nemoclaw<span class="w"> </span>onboard<span class="w"> </span>--non-interactive
 </pre></div>
 </div>
-<p>For scripted installer runs, set <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_NON_INTERACTIVE=1</span></code> and <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1</span></code> before invoking <code class="docutils literal notranslate"><span class="pre">curl</span> <span class="pre">-fsSL</span> <span class="pre">https://www.nvidia.com/nemoclaw.sh</span> <span class="pre">|</span> <span class="pre">bash</span></code>.
-If the installer cannot prompt for the notice in a terminal and no explicit acceptance is set, it exits before installing Node.js or the NemoClaw CLI.</p>
+<p>For scripted installer runs, pass explicit acceptance to the <code class="docutils literal notranslate"><span class="pre">bash</span></code> side of the installer pipe:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://www.nvidia.com/nemoclaw.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nv">NEMOCLAW_NON_INTERACTIVE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>bash
+</pre></div>
+</div>
+<p>If the installer cannot prompt for the notice in a terminal and no explicit acceptance is set, it exits before installing Node.js or the NemoClaw CLI.</p>
 <p>To enable Brave Search in non-interactive mode, set:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span><span class="nv">BRAVE_API_KEY</span><span class="o">=</span>...<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>nemoclaw<span class="w"> </span>onboard<span class="w"> </span>--non-interactive

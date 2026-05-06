@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=f956fd49"></script>
+    <script src="../_static/documentation_options.js?v=9d992d0d"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.34';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.35';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -520,6 +520,11 @@ The script installs Node.js if it is not already present, then runs the guided o
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://www.nvidia.com/nemoclaw.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
 </pre></div>
 </div>
+<p>The piped installer prompts through your terminal. In headless scripts or CI,
+pass explicit acceptance to the <code class="docutils literal notranslate"><span class="pre">bash</span></code> side of the pipe:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://www.nvidia.com/nemoclaw.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nv">NEMOCLAW_NON_INTERACTIVE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>bash
+</pre></div>
+</div>
 <p>If you use nvm or fnm to manage Node.js, the installer might not update your current shell’s PATH.
 If <code class="docutils literal notranslate"><span class="pre">nemoclaw</span></code> is not found after install, run <code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">~/.bashrc</span></code> (or <code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">~/.zshrc</span></code> for zsh) or open a new terminal.</p>
 <div class="admonition note">
@@ -662,7 +667,7 @@ On WSL, NemoClaw can also use Ollama on the Windows host through <code class="do
 <p class="sd-card-text">These options appear when <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_EXPERIMENTAL=1</span></code> is set and the prerequisites are met.</p>
 <ul class="simple">
 <li><p class="sd-card-text"><strong>Local NVIDIA NIM</strong> requires a NIM-capable GPU. NemoClaw pulls and manages a NIM container.</p></li>
-<li><p class="sd-card-text"><strong>Local vLLM</strong> requires a vLLM server already running on <code class="docutils literal notranslate"><span class="pre">localhost:8000</span></code>. NemoClaw auto-detects the loaded model.</p></li>
+<li><p class="sd-card-text"><strong>Local vLLM</strong> uses a vLLM server already running on <code class="docutils literal notranslate"><span class="pre">localhost:8000</span></code>, or installs and starts a managed vLLM container on supported DGX Spark, DGX Station, and Linux NVIDIA GPU hosts. NemoClaw auto-detects the loaded model.</p></li>
 </ul>
 <p class="sd-card-text">For setup, refer to <a class="reference internal" href="../inference/use-local-inference.html"><span class="std std-doc">Use a Local Inference Server</span></a>.</p>
 </div>

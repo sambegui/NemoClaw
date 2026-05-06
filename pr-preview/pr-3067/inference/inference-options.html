@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=f956fd49"></script>
+    <script src="../_static/documentation_options.js?v=9d992d0d"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.34';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.35';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -583,7 +583,8 @@ NemoClaw uses provider-specific local tokens for those routes, and rebuilds of l
 <h2>Provider Options<a class="headerlink" href="#provider-options" title="Link to this heading">#</a></h2>
 <p>The onboard wizard presents the following provider options by default.
 The first six are always available.
-Ollama appears when it is installed or running on the host.</p>
+Ollama appears when it is installed or running on the host.
+Experimental local vLLM appears when you opt in and NemoClaw detects either a running vLLM server or a supported NVIDIA GPU host profile.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Option</p></th>
@@ -676,8 +677,8 @@ Ollama appears when it is installed or running on the host.</p>
 <td><p>Pulls and manages a NIM container.</p></td>
 </tr>
 <tr class="row-odd"><td><p>Local vLLM</p></td>
-<td><p>vLLM running on <code class="docutils literal notranslate"><span class="pre">localhost:8000</span></code></p></td>
-<td><p>Auto-detects the loaded model.</p></td>
+<td><p>vLLM running on <code class="docutils literal notranslate"><span class="pre">localhost:8000</span></code>, or a supported DGX Spark, DGX Station, or Linux NVIDIA GPU profile</p></td>
+<td><p>Auto-detects the loaded model. Can install or start a managed vLLM container for supported profiles.</p></td>
 </tr>
 </tbody>
 </table>
