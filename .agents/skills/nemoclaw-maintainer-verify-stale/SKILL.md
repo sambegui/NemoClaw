@@ -141,7 +141,7 @@ Two real failure modes surfaced during the v1 dry-run. Test both before trusting
 **CPU vs GPU:** GPU if any of these signals are present, else CPU.
 
 - Labels: `Platform: GB10`, `Platform: DGX Spark`.
-- Body keywords: `cuda`, `nvidia-smi`, `inference`, `model serving`, `H100`, `A100`, `GB10`, `DGX`.
+- Body keywords (whole-word, case-insensitive): `nvidia-smi`, `cuda`, `H100`, `A100`, `L40S`, `L4`, `T4`, `GB10`, `DGX`, `vllm`, `tensorrt`. Match as whole words — `inference` and `model serving` are too noisy (e.g. `models.providers.inference.baseUrl` is a config path on CPU bugs, not a GPU need) and intentionally excluded.
 
 CPU default keeps cost low. Only escalate to GPU when the reproducer needs one.
 
@@ -151,8 +151,29 @@ CPU default keeps cost low. Only escalate to GPU when the reproducer needs one.
 
 Extract whatever's available from the issue body. The decision about *whether the reproducer is good enough* lives in Step 8 (validate-on-baseline), not here.
 
-1. **Verbatim:** the first fenced code block (triple-backtick or `<pre>`) containing a `nemoclaw` invocation. Save to `./reproducer.sh`. No confidence penalty (yet).
+NV QA files most bugs through an HTML form, so issue bodies are typically a mix of `<pre>...</pre>` blocks and tables — not markdown fenced code blocks. Extraction must handle both shapes.
+
+1. **Verbatim:** the first markdown fence (```` ``` ```` or ```` ~~~ ````) **or** HTML `<pre>` block containing a `nemoclaw` invocation. Strip surrounding tags and unescape HTML entities before saving to `./reproducer.sh`. No confidence penalty (yet).
 2. **No verbatim block found:** leave `./reproducer.sh` absent. Step 8b will synthesize from the issue body on demand and apply the **−30 synth penalty** at that point.
+
+A robust extractor handles both shapes with the body fetched as JSON:
+
+```bash
+BODY=$(gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json body -q .body)
+
+REPRODUCER=$(printf '%s' "$BODY" | python3 -c '
+import re, sys, html
+b = sys.stdin.read()
+m = re.search(r"```(?:bash|sh)?\n(.*?nemoclaw.*?)\n```", b, re.S)
+if not m: m = re.search(r"~~~(?:bash|sh)?\n(.*?nemoclaw.*?)\n~~~", b, re.S)
+if not m: m = re.search(r"<pre[^>]*>(.*?nemoclaw.*?)</pre>", b, re.S)
+if m:
+    text = re.sub(r"<[^>]+>", "", m.group(1))
+    print(html.unescape(text).strip())
+')
+
+[ -n "$REPRODUCER" ] && printf '%s\n' "$REPRODUCER" > ./reproducer.sh
+```
 
 The "give up immediately" path is gone. Synthesis happens at validation time so it has the baseline transcript to react to, not just the issue body in isolation. The give-up decision now lands in Step 8c when synth fails to produce a script that actually exposes the bug.
 
@@ -522,6 +543,22 @@ The skill **never closes issues** in any branch. A maintainer pulls that trigger
 
 **Redaction pass before posting.** Run on **every** chunk of text quoted in the comment — issue body excerpts, baseline transcript, latest transcript, synth-repro scripts. Replace each match with `[REDACTED]`. The transcripts especially leak — they include full stdout/stderr from real installs and runs.
 
+**HTML → text pre-pass for issue body excerpts.** NV QA bodies are HTML; tokens nested in `<pre>` tags or HTML attributes (e.g. `<a href="https://user:tok@host/...">`) slip past the regex patterns below if the input still has tags. Convert to plain text first, then redact:
+
+```bash
+TEXT=$(printf '%s' "$BODY_EXCERPT" | python3 -c '
+import html, re, sys
+b = sys.stdin.read()
+b = re.sub(r"<br\s*/?>", "\n", b)
+b = re.sub(r"</?(p|div|tr|td|th|li|pre)[^>]*>", "\n", b)
+b = re.sub(r"<[^>]+>", "", b)
+print(html.unescape(b))
+')
+# Now apply the regex table below to $TEXT.
+```
+
+Transcripts and synth-repro scripts are already plain text and skip the pre-pass.
+
 | Pattern | Targets |
 |---|---|
 | `(?i)(token\|secret\|password\|api[_-]?key\|bearer)[^\n]*[:=][^\n]*` | Inline credentials in env/config/log output |
@@ -664,7 +701,7 @@ This degradation is expected — old releases rot. We still want to extract what
 
 ## Step 12: Log to Activity
 
-After each issue (verified, inconclusive, or infra-failed), append to `~/development/daily-rhythm/activity/nemoclaw-verify-stale-log.md`.
+After each issue (verified, inconclusive, by-design, or infra-failed), append to `${VERIFY_STALE_LOG_DIR:-$HOME/development/daily-rhythm/activity}/nemoclaw-verify-stale-log.md`. The default path matches the personal-organizer convention; export `VERIFY_STALE_LOG_DIR` to point elsewhere (CI, shared volume, etc.). Create the directory if missing — do not assume it exists.
 
 ```markdown
 ### NVIDIA/NemoClaw#<number> — <title>
