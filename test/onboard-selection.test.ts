@@ -804,6 +804,7 @@ const { setupNim } = require(${onboardPath});
     const onboardPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "onboard.js"));
     const credentialsPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "credentials.js"));
     const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
+    const platformPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "platform.js"));
 
     fs.mkdirSync(fakeBin, { recursive: true });
     fs.writeFileSync(
@@ -831,6 +832,7 @@ fi
     const script = String.raw`
 const credentials = require(${credentialsPath});
 const runner = require(${runnerPath});
+const platform = require(${platformPath});
 const child_process = require("child_process");
 
 child_process.spawn = () => ({ pid: 99999, unref() {}, on() {} });
@@ -872,6 +874,7 @@ runner.runShell = (command) => {
 };
 
 Object.defineProperty(process, "platform", { value: "linux" });
+platform.isWsl = () => false;
 
 const { setupNim } = require(${onboardPath});
 
@@ -3695,6 +3698,7 @@ const { setupNim } = require(${onboardPath});
     const credentialsPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "credentials.js"));
     const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
     const registryPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "registry.js"));
+    const platformPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "platform.js"));
 
     // Fake curl binary that returns a successful response — needed because
     // runCurlProbe and validateOllamaModel spawn real curl via child_process.
@@ -3721,20 +3725,15 @@ fi
       { mode: 0o755 },
     );
 
-    // Simulate: no Ollama installed, no Ollama running, no vLLM — cloud + install-ollama should appear.
-    // On true Linux that's option 7. On WSL the menu also surfaces a Windows-host
-    // install entry first, so install-ollama (labelled "Install Ollama (WSL Linux)")
-    // shifts to option 8. Detect at runtime so the test works in both environments.
-    const isHostWsl =
-      !!process.env.WSL_DISTRO_NAME ||
-      !!process.env.WSL_INTEROP ||
-      /microsoft/i.test(os.release());
-    const installOptionIndex = isHostWsl ? "8" : "7";
-    const expectedInstallLabel = isHostWsl ? "Install Ollama (WSL Linux)" : "Install Ollama (Linux)";
+    // Simulate: no Ollama installed, no Ollama running, no vLLM on native
+    // Linux, so cloud + install-ollama should appear.
+    const installOptionIndex = "7";
+    const expectedInstallLabel = "Install Ollama (Linux)";
     const script = String.raw`
 const credentials = require(${credentialsPath});
 const runner = require(${runnerPath});
 const registry = require(${registryPath});
+const platform = require(${platformPath});
 
 // Mock child_process.spawn so startOllamaAuthProxy doesn't try to spawn a real process.
 const child_process = require("child_process");
@@ -3800,6 +3799,7 @@ registry.updateSandbox = (_name, update) => updates.push(update);
 
 // Force platform to linux for this test
 Object.defineProperty(process, 'platform', { value: 'linux' });
+platform.isWsl = () => false;
 
 const { setupNim } = require(${onboardPath});
 
@@ -3871,10 +3871,12 @@ const { setupNim } = require(${onboardPath});
     const onboardPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "onboard.js"));
     const credentialsPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "credentials.js"));
     const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
+    const platformPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "platform.js"));
 
     const script = String.raw`
 const credentials = require(${credentialsPath});
 const runner = require(${runnerPath});
+const platform = require(${platformPath});
 
 const menuLines = [];
 const originalLog = console.log;
@@ -3910,6 +3912,7 @@ runner.runShell = (command) => {
 };
 
 Object.defineProperty(process, "platform", { value: "linux" });
+platform.isWsl = () => false;
 
 const { setupNim } = require(${onboardPath});
 
@@ -3947,6 +3950,7 @@ const { setupNim } = require(${onboardPath});
     const credentialsPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "credentials.js"));
     const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
     const registryPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "registry.js"));
+    const platformPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "platform.js"));
 
     fs.mkdirSync(fakeBin, { recursive: true });
     fs.writeFileSync(
@@ -3975,6 +3979,7 @@ fi
 const credentials = require(${credentialsPath});
 const runner = require(${runnerPath});
 const registry = require(${registryPath});
+const platform = require(${platformPath});
 const child_process = require("child_process");
 
 child_process.spawn = () => ({ pid: 99999, unref() {}, on() {} });
@@ -4019,6 +4024,7 @@ runner.runShell = (command) => {
 registry.updateSandbox = (_name, update) => updates.push(update);
 
 Object.defineProperty(process, "platform", { value: "linux" });
+platform.isWsl = () => false;
 
 const { setupNim } = require(${onboardPath});
 
