@@ -321,6 +321,17 @@ describe("model-specific-setup/schema.json", () => {
     expect(validate(bad)).toBe(false);
   });
 
+  it("rejects whitespace-only manifest strings", () => {
+    const bad = {
+      ...cloneObject(data),
+      description: "   ",
+      match: {
+        modelIds: ["   "],
+      },
+    };
+    expect(validate(bad)).toBe(false);
+  });
+
   it("rejects Hermes manifests with OpenClaw effects", () => {
     const bad = {
       id: "fixture-hermes",

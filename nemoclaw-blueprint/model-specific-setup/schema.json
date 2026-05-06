@@ -9,7 +9,8 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "id": {
       "type": "string",
@@ -21,7 +22,8 @@
     },
     "description": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "match": {
       "type": "object",
@@ -32,22 +34,26 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": ".*\\S.*"
           },
           "minItems": 1,
           "uniqueItems": true
         },
         "providerKey": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "inferenceApi": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "baseUrl": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         }
       }
     },
@@ -73,11 +79,13 @@
               },
               "path": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": ".*\\S.*"
               },
               "loadPath": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": ".*\\S.*"
               }
             }
           }
