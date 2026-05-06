@@ -455,17 +455,22 @@ gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json comments \
 
 Capture for evidence: comment URL + author login + the exact quoted phrase.
 
-**Signal 2 — Removal commit in range.** A commit between the reported version and `$LATEST` has subject matching `(?i)\b(remove|delete|drop|deprecate)\b` AND its diff deletes the symbol implicated by the reproducer (CLI subcommand, function, flag).
+**Signal 2 — Removal commit in range.** A commit between the reported version and `$LATEST` deletes the symbol implicated by the reproducer (CLI subcommand, function, flag). The commit subject does NOT need to mention "remove" / "delete" — many removals ride into a `refactor(...)` or `feat(...)` commit (e.g. PR #2227 removed `--dangerously-skip-permissions` under a `refactor(sandbox): ...` subject). Use git's pickaxe to find the responsible commit by content:
 
 ```bash
-# Find candidate removal commits.
+# Pickaxe: list every commit whose diff changes the count of <symbol> occurrences.
+# Reverse order so the earliest removal commit lands first in the list.
+git log "$REPORTED_VERSION".."$LATEST" -S'<symbol>' --reverse --oneline -- src/ bin/ nemoclaw/src/
+
+# Subject-keyword narrowing is only a SUPPLEMENTARY lookup — useful when the
+# pickaxe returns many commits and you want to focus on the obviously-removal one.
 git log "$REPORTED_VERSION".."$LATEST" --grep='remove\|delete\|drop\|deprecate' -i --oneline
 
-# For each candidate, confirm the diff actually deletes the symbol (not just renames).
+# For each candidate, confirm the diff actually deletes the symbol (not just renames or moves it).
 git log -p <candidate-sha> -- src/ bin/ nemoclaw/src/ | grep -nE '^-.*\b<symbol>\b'
 ```
 
-Capture for evidence: commit SHA + each `file:line` block of deletions touching the symbol.
+Capture for evidence: commit SHA + each `file:line` block of deletions touching the symbol. Note the commit's actual subject — don't assume it says "remove."
 
 **Signal 3 — Symbol absent in both reported version and latest.** The implicated symbol (e.g. `config set`) is not present in either tag's source tree — meaning the responsible change landed before the version the reporter tested. This is the #2791 case.
 
