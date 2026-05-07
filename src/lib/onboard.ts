@@ -3263,6 +3263,22 @@ function destroyGateway() {
   const destroyResult = runOpenshell(["gateway", "destroy", "-g", GATEWAY_NAME], {
     ignoreError: true,
   });
+  if (destroyResult.status !== 0 && isLinuxDockerDriverGatewayEnabled()) {
+    // OpenShell >= 0.0.37 removed `gateway destroy`.  Best-effort fallback:
+    // terminate the Docker-driver gateway process so the next start can bind
+    // the port.  Stale gateway *metadata* is tolerated by
+    // registerDockerDriverGatewayEndpoint() which only requires `gateway
+    // select` to succeed.
+    const pid = getDockerDriverGatewayPid();
+    if (pid !== null && isPidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        /* best effort */
+      }
+      sleep(1);
+    }
+  }
   // Clear the local registry so `nemoclaw list` stays consistent with OpenShell state. (#532)
   if (destroyResult.status === 0) {
     registry.clearAll();
@@ -3671,7 +3687,7 @@ function writeDockerGatewayDebEnvOverride(): void {
 }
 
 function registerDockerDriverGatewayEndpoint(): boolean {
-  const addResult = runOpenshell(
+  runOpenshell(
     ["gateway", "add", "--local", "--name", GATEWAY_NAME, getDockerDriverGatewayEndpoint()],
     { ignoreError: true, suppressOutput: true },
   );
@@ -3679,7 +3695,13 @@ function registerDockerDriverGatewayEndpoint(): boolean {
     ignoreError: true,
     suppressOutput: true,
   });
-  const ok = addResult.status === 0 && selectResult.status === 0;
+  // `gateway add` may fail when a record with the same name already exists
+  // (e.g. stale metadata after OpenShell >= 0.0.37 dropped `gateway destroy`).
+  // That is acceptable on the Docker-driver path: the endpoint is always
+  // http://127.0.0.1:<GATEWAY_PORT>, so the existing record already points at
+  // the right address.  `gateway select` still succeeds and the subsequent
+  // health probe will verify the endpoint is reachable.
+  const ok = selectResult.status === 0;
   if (ok) {
     process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
   } else if (process.env.OPENSHELL_GATEWAY === GATEWAY_NAME) {
