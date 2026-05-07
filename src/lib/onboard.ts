@@ -272,6 +272,9 @@ const {
   saveCredential,
 } = credentials;
 const { hashCredential }: typeof import("./security/credential-hash") = require("./security/credential-hash");
+const {
+  cleanupStaleHostFiles,
+}: typeof import("./host-artifact-cleanup") = require("./host-artifact-cleanup");
 const registry: typeof import("./state/registry") = require("./state/registry");
 const nim: typeof import("./inference/nim") = require("./inference/nim");
 const onboardSession: typeof import("./onboard-session") = require("./onboard-session");
@@ -310,6 +313,14 @@ import type { AgentDefinition } from "./agent/defs";
 import type { CurlProbeResult } from "./http-probe";
 import type { GatewayInference, ProviderSelectionConfig } from "./inference/config";
 import type { GpuInfo, ValidationResult } from "./inference/local";
+import {
+  hydrateMessagingChannelConfig,
+  mergeMessagingChannelConfigs,
+  normalizeMessagingChannelConfigValue,
+  readMessagingChannelConfigFromEnv,
+  sanitizeMessagingChannelConfig,
+  type MessagingChannelConfig,
+} from "./messaging-channel-config";
 import type { ContainerRuntime } from "./platform";
 import type { SandboxEntry } from "./state/registry";
 import type { Session, SessionUpdates } from "./onboard-session";
@@ -1127,6 +1138,32 @@ function runCaptureOpenshell(
   opts: RunnerOptions & { openshellBinary?: string } = {},
 ) {
   return runCapture(openshellArgv(args, opts), opts);
+}
+
+/**
+ * Execute a shell command inside a sandbox for post-deployment verification.
+ * Returns a structured result with status, stdout, stderr — or null if
+ * the sandbox is unreachable. Uses `openshell sandbox exec` with sh -c.
+ */
+function executeSandboxCommandForVerification(
+  sandboxName: string,
+  script: string,
+): { status: number; stdout: string; stderr: string } | null {
+  try {
+    const result = spawnSync(
+      getOpenshellBinary(),
+      ["sandbox", "exec", "-n", sandboxName, "--", "sh", "-c", script],
+      { encoding: "utf-8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    if (result.error) return null;
+    return {
+      status: result.status ?? 1,
+      stdout: (result.stdout || "").trim(),
+      stderr: (result.stderr || "").trim(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // URL/string utilities — delegated to src/lib/core/url-utils.ts
@@ -5011,6 +5048,7 @@ async function createSandbox(
   }
 
   console.log(`  Creating sandbox '${sandboxName}' (this takes a few minutes on first run)...`);
+  const messagingChannelConfig = readMessagingChannelConfigFromEnv();
   // Build allowed sender IDs map from env vars set during the messaging prompt.
   // Each channel with a userIdEnvKey in MESSAGING_CHANNELS may have a
   // comma-separated list of IDs (e.g. TELEGRAM_ALLOWED_IDS="123,456").
@@ -5071,17 +5109,14 @@ async function createSandbox(
   // can detect drift (TELEGRAM_REQUIRE_MENTION changed since last build) and
   // force a sandbox recreate — otherwise the old groupPolicy would stay baked
   // in. Mirrors the pattern used for webSearchConfig. See CodeRabbit on #2417.
-  if (typeof telegramConfig.requireMention === "boolean") {
-    onboardSession.updateSession((current) => {
-      current.telegramConfig = { requireMention: telegramConfig.requireMention as boolean };
-      return current;
-    });
-  } else {
-    onboardSession.updateSession((current) => {
-      current.telegramConfig = null;
-      return current;
-    });
-  }
+  onboardSession.updateSession((current) => {
+    current.telegramConfig =
+      typeof telegramConfig.requireMention === "boolean"
+        ? { requireMention: telegramConfig.requireMention as boolean }
+        : null;
+    current.messagingChannelConfig = messagingChannelConfig;
+    return current;
+  });
   // Pull the base image and resolve its digest so the Dockerfile is pinned to
   // exactly what we just fetched. This prevents stale :latest tags from
   // silently reusing a cached old image after NemoClaw upgrades (#1904).
@@ -5282,23 +5317,18 @@ async function createSandbox(
   // Wait for the branded dashboard to become fully ready (web server live)
   // This prevents port forwards from connecting to a non-existent port
   // or seeing 502/503 errors during initial load.
-  console.log(`  Waiting for ${cliDisplayName()} dashboard to become ready...`);
+  // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
+  // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
+  console.log("  Waiting for NemoClaw dashboard to become ready...");
   const openshellBin = getOpenshellBinary();
   for (let i = 0; i < 15; i++) {
-    const readyMatch = runCaptureOpenshell(
-      [
-        "sandbox",
-        "exec",
-        "-n",
-        sandboxName,
-        "--",
-        "curl",
-        "-sf",
-        `http://localhost:${effectiveDashboardPort}/`,
-      ],
+    const readyOutput = runCaptureOpenshell(
+      ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-so", "/dev/null", "-w", "%{http_code}",
+        "--max-time", "3", `http://localhost:${effectiveDashboardPort}/health`],
       { ignoreError: true },
     );
-    if (readyMatch) {
+    const readyCode = parseInt((readyOutput || "").trim(), 10) || 0;
+    if (readyCode === 200 || readyCode === 401) {
       console.log("  ✓ Dashboard is live");
       break;
     }
@@ -5369,6 +5399,7 @@ async function createSandbox(
     providerCredentialHashes:
       Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
     messagingChannels: activeMessagingChannels,
+    messagingChannelConfig: messagingChannelConfig || undefined,
     disabledChannels: disabledChannels.length > 0 ? [...disabledChannels] : undefined,
     dashboardPort: actualDashboardPort,
   });
@@ -7112,6 +7143,38 @@ async function setupInference(
 
 const MESSAGING_CHANNELS = listChannels();
 
+function getStoredMessagingChannelConfig(
+  sandboxName: string | null,
+  session: Session | null,
+): MessagingChannelConfig | null {
+  const registryConfig = sandboxName
+    ? sanitizeMessagingChannelConfig(registry.getSandbox(sandboxName)?.messagingChannelConfig)
+    : null;
+  const sessionMatchesSandbox =
+    !session?.sandboxName || !sandboxName || session.sandboxName === sandboxName;
+  const sessionConfig = sessionMatchesSandbox
+    ? sanitizeMessagingChannelConfig(session?.messagingChannelConfig)
+    : null;
+  return mergeMessagingChannelConfigs(registryConfig, sessionConfig);
+}
+
+function persistMessagingChannelConfigToSession(config: MessagingChannelConfig | null): void {
+  onboardSession.updateSession((current: Session) => {
+    current.messagingChannelConfig = config;
+    return current;
+  });
+}
+
+function messagingChannelConfigsEqual(
+  left: MessagingChannelConfig | null,
+  right: MessagingChannelConfig | null,
+): boolean {
+  const leftKeys = Object.keys(left || {}).sort();
+  const rightKeys = Object.keys(right || {}).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key, index) => key === rightKeys[index] && left?.[key] === right?.[key]);
+}
+
 // Curl exit codes that indicate a network-level failure (not a token problem).
 // 35 (TLS handshake failure) covers corporate proxies that MITM HTTPS.
 const TELEGRAM_NETWORK_CURL_CODES = new Set([6, 7, 28, 35, 52, 56]);
@@ -7176,6 +7239,9 @@ async function setupMessagingChannels(): Promise<string[]> {
 
   const getMessagingToken = (envKey: string): string | null =>
     getCredential(envKey) || normalizeCredentialValue(process.env[envKey]) || null;
+
+  const getMessagingConfigValue = (envKey: string): string | null =>
+    normalizeMessagingChannelConfigValue(envKey, process.env[envKey]);
 
   // Non-interactive: skip prompt, tokens come from env/credentials
   if (isNonInteractive() || process.env.NEMOCLAW_NON_INTERACTIVE === "1") {
@@ -7362,8 +7428,9 @@ async function setupMessagingChannels(): Promise<string[]> {
       }
     }
     if (ch.serverIdEnvKey) {
-      const existingServerIds = process.env[ch.serverIdEnvKey] || "";
+      const existingServerIds = getMessagingConfigValue(ch.serverIdEnvKey) || "";
       if (existingServerIds) {
+        process.env[ch.serverIdEnvKey] = existingServerIds;
         console.log(`  ✓ ${ch.name} — server ID already set: ${existingServerIds}`);
       } else {
         console.log(`  ${ch.serverIdHelp}`);
@@ -7383,23 +7450,25 @@ async function setupMessagingChannels(): Promise<string[]> {
     // the bot is added to, so the prompt always fires there. See #1737.
     const requireMentionKey = ch.requireMentionEnvKey;
     if (requireMentionKey && (!ch.serverIdEnvKey || Boolean(process.env[ch.serverIdEnvKey]))) {
-      const existingRequireMention = process.env[requireMentionKey];
+      const existingRequireMention = getMessagingConfigValue(requireMentionKey);
       if (existingRequireMention === "0" || existingRequireMention === "1") {
+        process.env[requireMentionKey] = existingRequireMention;
         const mode = existingRequireMention === "0" ? "all messages" : "@mentions only";
         console.log(`  ✓ ${ch.name} — reply mode already set: ${mode}`);
       } else {
         console.log(`  ${ch.requireMentionHelp}`);
         const answer = (await prompt("  Reply only when @mentioned? [Y/n]: ")).trim().toLowerCase();
-        process.env[requireMentionKey] = answer === "n" || answer === "no" ? "0" : "1";
-        const mode =
-          process.env[requireMentionKey] === "0" ? "all messages" : "@mentions only";
+        const value = answer === "n" || answer === "no" ? "0" : "1";
+        process.env[requireMentionKey] = value;
+        const mode = value === "0" ? "all messages" : "@mentions only";
         console.log(`  ✓ ${ch.name} reply mode saved: ${mode}`);
       }
     }
     // Prompt for user/sender ID when the channel supports allowlisting
     if (ch.userIdEnvKey && (!ch.serverIdEnvKey || process.env[ch.serverIdEnvKey])) {
-      const existingIds = process.env[ch.userIdEnvKey] || "";
+      const existingIds = getMessagingConfigValue(ch.userIdEnvKey) || "";
       if (existingIds) {
+        process.env[ch.userIdEnvKey] = existingIds;
         console.log(`  ✓ ${ch.name} — allowed IDs already set: ${existingIds}`);
       } else {
         console.log(`  ${ch.userIdHelp}`);
@@ -8930,6 +8999,7 @@ function toSessionUpdates(
     webSearchConfig?: WebSearchConfig | null;
     policyPresets?: string[] | null;
     messagingChannels?: string[] | null;
+    messagingChannelConfig?: MessagingChannelConfig | null;
   } = {},
 ): SessionUpdates {
   const normalized: SessionUpdates = {};
@@ -8949,6 +9019,9 @@ function toSessionUpdates(
   if (updates.webSearchConfig !== undefined) normalized.webSearchConfig = updates.webSearchConfig;
   if (updates.policyPresets) normalized.policyPresets = updates.policyPresets;
   if (updates.messagingChannels) normalized.messagingChannels = updates.messagingChannels;
+  if (updates.messagingChannelConfig !== undefined) {
+    normalized.messagingChannelConfig = updates.messagingChannelConfig;
+  }
   return normalized;
 }
 
@@ -9611,6 +9684,19 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       });
     }
 
+    const storedMessagingChannelConfig = getStoredMessagingChannelConfig(sandboxName, session);
+    const effectiveMessagingChannelConfig = hydrateMessagingChannelConfig(storedMessagingChannelConfig);
+    const messagingChannelConfigChanged = !messagingChannelConfigsEqual(
+      effectiveMessagingChannelConfig,
+      storedMessagingChannelConfig,
+    );
+    if (effectiveMessagingChannelConfig) {
+      persistMessagingChannelConfigToSession(effectiveMessagingChannelConfig);
+      if (session) {
+        session.messagingChannelConfig = effectiveMessagingChannelConfig;
+      }
+    }
+
     const sandboxReuseState = getSandboxReuseState(sandboxName);
     const webSearchConfigChanged = Boolean(session?.webSearchConfig) !== Boolean(webSearchConfig);
     // Telegram mention-mode is baked into openclaw.json at sandbox build time, so
@@ -9634,6 +9720,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       resume &&
       !webSearchConfigChanged &&
       !telegramConfigChanged &&
+      !messagingChannelConfigChanged &&
       session?.steps?.sandbox?.status === "complete" &&
       sandboxReuseState === "ready";
     if (resumeSandbox) {
@@ -9651,6 +9738,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           }
         } else if (telegramConfigChanged) {
           note("  [resume] TELEGRAM_REQUIRE_MENTION changed; recreating sandbox.");
+          if (sandboxName) {
+            registry.removeSandbox(sandboxName);
+          }
+        } else if (messagingChannelConfigChanged) {
+          note("  [resume] Messaging channel configuration changed; recreating sandbox.");
           if (sandboxName) {
             registry.removeSandbox(sandboxName);
           }
@@ -9689,8 +9781,10 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       } else {
         selectedMessagingChannels = await setupMessagingChannels();
       }
+      const messagingChannelConfig = readMessagingChannelConfigFromEnv();
       onboardSession.updateSession((current: Session) => {
         current.messagingChannels = selectedMessagingChannels;
+        current.messagingChannelConfig = messagingChannelConfig;
         return current;
       });
       if (typeof model !== "string" || typeof provider !== "string") {
@@ -9722,7 +9816,14 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       registry.setDefault(sandboxName);
       onboardSession.markStepComplete(
         "sandbox",
-        toSessionUpdates({ sandboxName, provider, model, nimContainer, webSearchConfig }),
+        toSessionUpdates({
+          sandboxName,
+          provider,
+          model,
+          nimContainer,
+          webSearchConfig,
+          messagingChannelConfig,
+        }),
       );
     }
 
@@ -9856,6 +9957,48 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           `providers/channels enabled to migrate them, then the file is removed automatically.`,
       );
     }
+    // Sweep stale host files left over from older NemoClaw versions —
+    // e.g. an empty/orphaned ~/.nemoclaw/credentials.json from upgrades
+    // before the credentials-gateway move (issue #3105). Each registered
+    // entry enforces its own safety guards; this call is a no-op when
+    // every target is already clean.
+    cleanupStaleHostFiles();
+
+    // Post-deployment verification — confirm the full delivery chain is
+    // operational before telling the user "YOUR AGENT IS LIVE". Fixes #2342.
+    const verifyDeploymentModule: typeof import("./verify-deployment") = require("./verify-deployment");
+    const _verifyChatUiUrl = process.env.CHAT_UI_URL || `http://127.0.0.1:${DASHBOARD_PORT}`;
+    const verifyChain = buildChain({ chatUiUrl: _verifyChatUiUrl, isWsl: isWsl(), wslHostAddress: getWslHostAddress() });
+    const verificationResult = verifyDeploymentModule.verifyDeployment(
+      sandboxName,
+      verifyChain,
+      {
+        executeSandboxCommand: (name: string, script: string) => {
+          return executeSandboxCommandForVerification(name, script);
+        },
+        probeHostPort: (port: number, probePath: string) => {
+          const result = runCapture(
+            ["curl", "-so", "/dev/null", "-w", "%{http_code}", "--max-time", "3",
+              `http://127.0.0.1:${port}${probePath}`],
+            { ignoreError: true },
+          );
+          return parseInt(result.trim(), 10) || 0;
+        },
+        captureForwardList: () => {
+          const output = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+          return output || null;
+        },
+        getMessagingChannels: (_name: string) => selectedMessagingChannels || [],
+        providerExistsInGateway: (providerName: string) => providerExistsInGateway(providerName),
+      },
+    );
+
+    // Print verification diagnostics
+    const diagLines = verifyDeploymentModule.formatVerificationDiagnostics(verificationResult);
+    for (const line of diagLines) {
+      console.log(line);
+    }
+
     printDashboard(sandboxName, model, provider, nimContainer, agent);
   } finally {
     releaseOnboardLock();
