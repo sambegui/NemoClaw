@@ -107,6 +107,20 @@ describe("buildRecoveryScript", () => {
     expect(script).not.toContain("hermes gateway run --port 8642");
   });
 
+  it("waits for Hermes proxy recovery ports only after ss finds them", () => {
+    const recoveryScript = buildRecoveryScript(hermesAgent, 8642);
+    expect(recoveryScript).not.toBeNull();
+    for (const script of [recoveryScript!, buildManualRecoveryCommand(hermesAgent, 8642)]) {
+      expect(script).toContain(
+        'command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q "127.0.0.1:3129" && break',
+      );
+      expect(script).toContain(
+        'command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q "127.0.0.1:3130" && break',
+      );
+      expect(script).not.toContain("do ! command -v ss >/dev/null 2>&1 || ss -tln");
+    }
+  });
+
   it("falls back to openclaw gateway run when gateway_command is absent", () => {
     const agent = makeAgent({ gateway_command: undefined });
     const script = buildRecoveryScript(agent, 19000);
