@@ -374,6 +374,7 @@ text = Path("/sandbox/.hermes/.env").read_text(encoding="utf-8")
 errors = []
 required = [
     "DISCORD_BOT_TOKEN=openshell:resolve:env:DISCORD_BOT_TOKEN",
+    "DISCORD_PROXY=http://127.0.0.1:3129",
     f"DISCORD_ALLOWED_USERS={os.environ['EXPECTED_ALLOWED_USERS']}",
 ]
 for line in required:
@@ -389,9 +390,16 @@ PY
 )
 
 if [ "$env_probe" = "OK" ]; then
-  pass ".hermes/.env contains Discord placeholder and allowed users"
+  pass ".hermes/.env contains Discord placeholder, proxy bridge, and allowed users"
 else
   fail ".hermes/.env check failed: ${env_probe:0:400}"
+fi
+
+gateway_proxy_log=$(sandbox_exec "grep -F 'Using proxy for Discord: http://127.0.0.1:3129' /tmp/gateway.log 2>/dev/null | tail -1 || true")
+if [ -n "$gateway_proxy_log" ]; then
+  pass "Hermes Discord adapter loaded DISCORD_PROXY from the local bridge"
+else
+  fail "Hermes gateway log did not show DISCORD_PROXY bridge activation"
 fi
 
 token_file_hits=$(printf '%s' "$DISCORD_TOKEN" | sandbox_exec_stdin 'grep -Fq -f - /sandbox/.hermes/config.yaml /sandbox/.hermes/.env 2>/dev/null && echo LEAK || echo OK')
@@ -408,8 +416,10 @@ if [ -z "$sandbox_env_all" ]; then
   skip "Sandbox environment dump is empty"
 elif echo "$sandbox_env_all" | grep -qF "$DISCORD_TOKEN"; then
   fail "Raw Discord token found in sandbox environment"
+elif ! echo "$sandbox_env_all" | grep -qx "DISCORD_PROXY=http://127.0.0.1:3129"; then
+  fail "Sandbox environment missing DISCORD_PROXY bridge setting"
 else
-  pass "Raw Discord token absent from sandbox environment"
+  pass "Raw Discord token absent from sandbox environment and DISCORD_PROXY bridge is present"
 fi
 
 sandbox_ps=$(sandbox_exec 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" "\n"')

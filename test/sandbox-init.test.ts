@@ -577,6 +577,12 @@ EOF
       expect(src).not.toContain("_PROXY_MARKER_BEGIN");
     });
 
+    it("hermes start.sh routes Discord through the local decode proxy", () => {
+      const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
+      expect(src).toContain('export DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
+      expect(src).toContain('DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
+    });
+
     it("hermes start.sh calls validate_tmp_permissions", () => {
       const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
       expect(src).toContain("validate_tmp_permissions");

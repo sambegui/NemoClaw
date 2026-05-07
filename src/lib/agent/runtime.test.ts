@@ -96,6 +96,7 @@ describe("buildRecoveryScript", () => {
     const script = buildRecoveryScript(hermesAgent, 8642);
     expect(script).toContain("export HERMES_HOME=/sandbox/.hermes");
     expect(script).toContain("HERMES_HOME=/sandbox/.hermes");
+    expect(script).toContain("DISCORD_PROXY=http://127.0.0.1:3129");
     expect(script).toContain("HTTPS_PROXY=http://127.0.0.1:3129");
     expect(script).toContain("nemoclaw-decode-proxy");
     expect(script).toContain('"$AGENT_BIN" gateway run');
@@ -316,6 +317,7 @@ describe("buildManualRecoveryCommand (#2426)", () => {
   it("omits --port for Hermes and uses the current Hermes home", () => {
     const cmd = buildManualRecoveryCommand(hermesAgent, 8642);
     expect(cmd).toContain("HERMES_HOME=/sandbox/.hermes");
+    expect(cmd).toContain("DISCORD_PROXY=http://127.0.0.1:3129");
     expect(cmd).toContain("HTTPS_PROXY=http://127.0.0.1:3129");
     expect(cmd).toContain("nemoclaw-decode-proxy");
     expect(cmd).toContain("nohup hermes gateway run");

@@ -146,6 +146,7 @@ function hermesGatewayEnvPrefix(): string {
   const decodeProxy = "http://127.0.0.1:3129";
   return [
     "HERMES_HOME=/sandbox/.hermes",
+    `DISCORD_PROXY=${decodeProxy}`,
     `HTTPS_PROXY=${decodeProxy}`,
     `HTTP_PROXY=${decodeProxy}`,
     `https_proxy=${decodeProxy}`,

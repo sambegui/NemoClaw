@@ -319,6 +319,7 @@ export http_proxy="$_PROXY_URL"
 export https_proxy="$_PROXY_URL"
 export no_proxy="$_NO_PROXY_VAL"
 export HERMES_HOME="${HERMES_DIR}"
+export DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"
 PROXYEOF
 } | emit_sandbox_sourced_file "$_PROXY_ENV_FILE"
 
@@ -507,6 +508,7 @@ if [ "$(id -u)" -ne 0 ]; then
   start_decode_proxy
   umask 0007
   HERMES_HOME="${HERMES_DIR}" \
+    DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
     HTTPS_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
     HTTP_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
     https_proxy="http://127.0.0.1:${DECODE_PROXY_PORT}" \
@@ -552,6 +554,7 @@ validate_tmp_permissions
 # Start decode proxy and gateway
 start_decode_proxy
 HERMES_HOME="${HERMES_DIR}" \
+  DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
   HTTPS_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
   HTTP_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
   https_proxy="http://127.0.0.1:${DECODE_PROXY_PORT}" \
