@@ -533,7 +533,7 @@ usage() {
   printf "    NEMOCLAW_RECREATE_SANDBOX=1   Recreate an existing sandbox\n"
   printf "    NEMOCLAW_INSTALL_TAG         Git ref to install (default: latest release)\n"
   printf "    NEMOCLAW_PROVIDER             build | openai | anthropic | anthropicCompatible\n"
-  printf "                                  | gemini | ollama | custom | nim-local | vllm\n"
+  printf "                                  | gemini | ollama | custom | nim-local | vllm | routed\n"
   printf "                                  (aliases: cloud -> build, nim -> nim-local)\n"
   printf "    NEMOCLAW_MODEL                Inference model to configure\n"
   printf "    NEMOCLAW_POLICY_MODE          suggested | custom | skip\n"
@@ -1320,13 +1320,6 @@ is_source_checkout() {
   return 1
 }
 
-init_nemoclaw_submodules() {
-  local root="$1"
-  [[ -f "$root/.gitmodules" ]] || return 0
-  git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  git -C "$root" submodule update --init --depth 1 2>/dev/null
-}
-
 install_nemoclaw() {
   command_exists git || error "git was not found on PATH."
   local repo_root package_json
@@ -1341,9 +1334,6 @@ install_nemoclaw() {
     if [[ -z "${NEMOCLAW_AGENT:-}" || "${NEMOCLAW_AGENT}" == "openclaw" ]]; then
       spin "Preparing OpenClaw package" bash -c "$(declare -f info warn resolve_openclaw_version pre_extract_openclaw); pre_extract_openclaw \"\$1\"" _ "$NEMOCLAW_SOURCE_ROOT" \
         || warn "Pre-extraction failed — npm install may fail if openclaw tarball is broken"
-    fi
-    if ! spin "Initializing ${_CLI_DISPLAY} submodules" init_nemoclaw_submodules "$NEMOCLAW_SOURCE_ROOT"; then
-      warn "Submodule initialization failed — model router support may be unavailable"
     fi
     spin "Installing ${_CLI_DISPLAY} dependencies" bash -c "cd \"$NEMOCLAW_SOURCE_ROOT\" && npm install --ignore-scripts"
     spin "Building ${_CLI_DISPLAY} CLI modules" bash -c "cd \"$NEMOCLAW_SOURCE_ROOT\" && npm run --if-present build:cli"
@@ -1366,9 +1356,6 @@ install_nemoclaw() {
     mkdir -p "$(dirname "$nemoclaw_src")"
     NEMOCLAW_SOURCE_ROOT="$nemoclaw_src"
     spin "Cloning ${_CLI_DISPLAY} source" clone_nemoclaw_ref "$release_ref" "$nemoclaw_src"
-    if ! spin "Initializing ${_CLI_DISPLAY} submodules" init_nemoclaw_submodules "$nemoclaw_src"; then
-      warn "Submodule initialization failed — model router support may be unavailable"
-    fi
     # Fetch version tags into the shallow clone so `git describe --tags
     # --match "v*"` works at runtime (the shallow clone only has the
     # single ref we asked for).

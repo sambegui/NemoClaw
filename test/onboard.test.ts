@@ -2497,6 +2497,9 @@ runner.run = (command, opts = {}) => {
 };
 runner.runCapture = (command) => {
   const cmd = _n(command);
+  if (cmd.includes("command -v") && /model-router$/.test(cmd)) {
+    return ${JSON.stringify(path.join(fakeBin, "model-router"))};
+  }
   if (cmd.includes("inference") && cmd.includes("get")) {
     return [
       "Gateway inference:",
@@ -2576,6 +2579,197 @@ const { setupInference, getSandboxInferenceConfig } = require(${onboardPath});
       inferenceApi: "openai-completions",
       inferenceCompat: null,
     });
+  });
+
+  it("prepares Model Router dependencies during routed inference setup when command is absent", () => {
+    const repoRoot = path.join(import.meta.dirname, "..");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-onboard-router-venv-"));
+    const fakeBin = path.join(tmpDir, "bin");
+    const scriptPath = path.join(tmpDir, "setup-router-venv-check.js");
+    const fakeRouterSource = path.join(tmpDir, "model-router-source.js");
+    const setupLog = path.join(tmpDir, "router-setup.log");
+    const venvDir = path.join(tmpDir, "model-router-venv");
+    const routerPort = 45000 + (process.pid % 10000);
+    const onboardPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "onboard.js"));
+    const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
+    const registryPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "state", "registry.js"));
+
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, "openshell"), "#!/usr/bin/env bash\nexit 0\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(
+      path.join(fakeBin, "python3"),
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'printf "python3 %s\\n" "$*" >> "$ROUTER_SETUP_LOG"',
+        'if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then',
+        '  venv_dir="$3"',
+        '  mkdir -p "$venv_dir/bin"',
+        '  cat > "$venv_dir/bin/python" <<\'PY\'',
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'printf "venv-python %s\\n" "$*" >> "$ROUTER_SETUP_LOG"',
+        'if [ "$1" = "-m" ] && [ "$2" = "pip" ] && [ "$3" = "install" ]; then',
+        '  venv_bin="$(cd "$(dirname "$0")" && pwd)"',
+        '  cp "$FAKE_ROUTER_SOURCE" "$venv_bin/model-router"',
+        '  chmod +x "$venv_bin/model-router"',
+        "  exit 0",
+        "fi",
+        "exit 97",
+        "PY",
+        '  chmod +x "$venv_dir/bin/python"',
+        "  exit 0",
+        "fi",
+        "exit 96",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(
+      path.join(fakeBin, "pip3"),
+      [
+        "#!/usr/bin/env bash",
+        'printf "pip3 %s\\n" "$*" >> "$ROUTER_SETUP_LOG"',
+        "exit 88",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(
+      fakeRouterSource,
+      [
+        `#!${process.execPath}`,
+        'const fs = require("fs");',
+        'const http = require("http");',
+        'const path = require("path");',
+        "const args = process.argv.slice(2);",
+        'if (args[0] === "proxy-config") {',
+        '  const output = args[args.indexOf("--output") + 1];',
+        "  fs.mkdirSync(path.dirname(output), { recursive: true });",
+        '  fs.writeFileSync(output, "model_list: []\\n");',
+        "  process.exit(0);",
+        "}",
+        'if (args[0] === "proxy") {',
+        '  const port = Number(args[args.indexOf("--port") + 1] || "4000");',
+        "  const server = http.createServer((req, res) => {",
+        '    if (req.url === "/health") { res.statusCode = 200; res.end("ok"); return; }',
+        "    res.statusCode = 404;",
+        "    res.end();",
+        "  });",
+        '  server.listen(port, "127.0.0.1");',
+        "  setTimeout(() => process.exit(0), 10000);",
+        "} else {",
+        "  process.exit(1);",
+        "}",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const script = String.raw`
+const fs = require("fs");
+const path = require("path");
+const runner = require(${runnerPath});
+const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
+const registry = require(${registryPath});
+const routerPort = ${routerPort};
+const repoRoot = ${JSON.stringify(repoRoot)};
+const blueprintPath = path.join(repoRoot, "nemoclaw-blueprint", "blueprint.yaml");
+const routerPyproject = path.join(repoRoot, "nemoclaw-blueprint", "router", "llm-router", "pyproject.toml");
+const originalReadFileSync = fs.readFileSync;
+const originalExistsSync = fs.existsSync;
+const originalRun = runner.run;
+fs.existsSync = (filePath) => {
+  if (filePath === routerPyproject || String(filePath) === routerPyproject) return true;
+  return originalExistsSync(filePath);
+};
+fs.readFileSync = (filePath, ...args) => {
+  const raw = originalReadFileSync(filePath, ...args);
+  if (filePath === blueprintPath || String(filePath) === blueprintPath) {
+    return String(raw)
+      .replace('endpoint: "http://localhost:4000/v1"', 'endpoint: "http://localhost:' + routerPort + '/v1"')
+      .replace("port: 4000", "port: " + routerPort);
+  }
+  return raw;
+};
+
+const commands = [];
+runner.run = (command, opts = {}) => {
+  const cmd = _n(command);
+  if (cmd.startsWith("python3 -m venv") || cmd.includes("/bin/python -m pip") || cmd.includes("git -C")) {
+    return originalRun(command, opts);
+  }
+  commands.push({ command: cmd, env: opts.env || null });
+  if (cmd.includes("provider get")) return { status: 1, stdout: "", stderr: "" };
+  return { status: 0, stdout: "", stderr: "" };
+};
+runner.runCapture = (command) => {
+  const cmd = _n(command);
+  if (cmd.includes("command -v") && /model-router$/.test(cmd)) return "";
+  if (cmd.includes("command -v") && /python3$/.test(cmd)) {
+    return ${JSON.stringify(path.join(fakeBin, "python3"))};
+  }
+  if (cmd.includes("inference") && cmd.includes("get")) {
+    return [
+      "Gateway inference:",
+      "",
+      "  Route: inference.local",
+      "  Provider: nvidia-router",
+      "  Model: nvidia-routed",
+      "  Version: 1",
+    ].join("\\n");
+  }
+  return "";
+};
+registry.updateSandbox = () => true;
+
+process.env.NVIDIA_API_KEY = "nvapi-router-secret";
+
+const { setupInference } = require(${onboardPath});
+
+(async () => {
+  await setupInference(
+    "router-box",
+    "nvidia-routed",
+    "nvidia-router",
+    "http://host.openshell.internal:" + routerPort + "/v1",
+    "NVIDIA_API_KEY",
+  );
+  console.log(JSON.stringify({ commands }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+`;
+    fs.writeFileSync(scriptPath, script);
+
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      env: {
+        HOME: tmpDir,
+        PATH: `${fakeBin}:/usr/bin:/bin`,
+        FAKE_ROUTER_SOURCE: fakeRouterSource,
+        ROUTER_SETUP_LOG: setupLog,
+        NEMOCLAW_MODEL_ROUTER_VENV: venvDir,
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const log = fs.readFileSync(setupLog, "utf-8");
+    assert.ok(log.includes(`python3 -m venv ${venvDir}`), log);
+    assert.ok(
+      log.includes(
+        `venv-python -m pip install --quiet --upgrade ${path.join(repoRoot, "nemoclaw-blueprint", "router", "llm-router")}[prefill,proxy]`,
+      ),
+      log,
+    );
+    assert.doesNotMatch(log, /pip3 /);
+    const payload = parseStdoutJson<{ commands: CommandEntry[] }>(result.stdout);
+    assert.ok(payload.commands.some((entry) => /provider create/.test(entry.command)));
+    assert.ok(payload.commands.some((entry) => /inference set/.test(entry.command)));
   });
 
   it("does not delete saved OpenAI credentials when configuring local vLLM", () => {

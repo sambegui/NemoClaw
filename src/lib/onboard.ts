@@ -826,6 +826,8 @@ function loadBlueprintProfile(
 const ROUTER_HEALTH_RETRIES = 15;
 const ROUTER_HEALTH_INTERVAL_MS = 2000;
 const ROUTER_HEALTH_TIMEOUT_MS = 3000;
+const MODEL_ROUTER_RELATIVE_DIR = path.join("nemoclaw-blueprint", "router", "llm-router");
+const MODEL_ROUTER_VENV_DIR = path.join(os.homedir(), ".nemoclaw", "model-router-venv");
 
 async function isRouterHealthy(port: number, timeoutMs = ROUTER_HEALTH_TIMEOUT_MS): Promise<boolean> {
   const http = require("http");
@@ -880,12 +882,87 @@ async function stopModelRouterProcess(pid: number, port: number): Promise<void> 
   }
 }
 
+function resolveHostCommandPath(commandName: string): string | null {
+  const result = runCapture(["sh", "-c", 'command -v "$1"', "--", commandName], {
+    ignoreError: true,
+  }).trim();
+  return result || null;
+}
+
+function modelRouterPackageDir(): string {
+  return path.join(ROOT, MODEL_ROUTER_RELATIVE_DIR);
+}
+
+function isModelRouterPackageReady(routerDir = modelRouterPackageDir()): boolean {
+  return fs.existsSync(path.join(routerDir, "pyproject.toml")) ||
+    fs.existsSync(path.join(routerDir, "setup.py"));
+}
+
+function initializeModelRouterSubmodule(routerDir = modelRouterPackageDir()): void {
+  if (isModelRouterPackageReady(routerDir)) return;
+  if (!fs.existsSync(path.join(ROOT, ".gitmodules")) || !fs.existsSync(path.join(ROOT, ".git"))) {
+    return;
+  }
+  console.log("  Initializing Model Router source...");
+  run(["git", "-C", ROOT, "submodule", "update", "--init", "--depth", "1", MODEL_ROUTER_RELATIVE_DIR], {
+    ignoreError: true,
+  });
+}
+
+function installModelRouterCommand(routerDir = modelRouterPackageDir()): string {
+  initializeModelRouterSubmodule(routerDir);
+  if (!isModelRouterPackageReady(routerDir)) {
+    throw new Error(
+      `Model Router source is not initialized at ${routerDir}. ` +
+        `Run: git -C ${ROOT} submodule update --init --depth 1 ${MODEL_ROUTER_RELATIVE_DIR}`,
+    );
+  }
+
+  if (!resolveHostCommandPath("python3")) {
+    throw new Error("python3 is required to prepare Model Router.");
+  }
+
+  const venvDir = process.env.NEMOCLAW_MODEL_ROUTER_VENV || MODEL_ROUTER_VENV_DIR;
+  const venvPython = path.join(venvDir, "bin", "python");
+  const routerCommand = path.join(venvDir, "bin", "model-router");
+
+  fs.mkdirSync(path.dirname(venvDir), { recursive: true });
+  console.log(`  Preparing Model Router environment: ${venvDir}`);
+  const venvResult = run(["python3", "-m", "venv", venvDir], {
+    ignoreError: true,
+    timeout: 120_000,
+  });
+  if (venvResult.status !== 0 || !fs.existsSync(venvPython)) {
+    throw new Error("Failed to create Model Router virtual environment.");
+  }
+
+  const installResult = run(
+    [venvPython, "-m", "pip", "install", "--quiet", "--upgrade", `${routerDir}[prefill,proxy]`],
+    {
+      ignoreError: true,
+      timeout: 600_000,
+    },
+  );
+  if (installResult.status !== 0) {
+    throw new Error("Failed to install Model Router dependencies.");
+  }
+  if (!fs.existsSync(routerCommand)) {
+    throw new Error("Model Router install did not produce the model-router command.");
+  }
+  return routerCommand;
+}
+
+function ensureModelRouterCommand(): string {
+  return resolveHostCommandPath("model-router") || installModelRouterCommand();
+}
+
 /**
  * Start the model-router proxy and wait for it to become healthy.
  * Follows the same pattern as Ollama startup (spawn detached, poll health).
  * Returns the PID of the child process.
  */
 async function startModelRouter(routerCfg: BlueprintRouterConfig): Promise<number> {
+  const routerCommand = ensureModelRouterCommand();
   const port = routerCfg.port || 4000;
   const blueprintDir = path.join(ROOT, "nemoclaw-blueprint");
   const poolConfigPath = path.join(
@@ -898,7 +975,7 @@ async function startModelRouter(routerCfg: BlueprintRouterConfig): Promise<numbe
   fs.mkdirSync(stateDir, { recursive: true });
 
   const proxyConfigResult = spawnSync(
-    "model-router",
+    routerCommand,
     ["proxy-config", "--config", poolConfigPath, "--output", litellmConfigPath],
     { encoding: "utf8", timeout: 30_000, cwd: blueprintDir },
   );
@@ -931,7 +1008,7 @@ async function startModelRouter(routerCfg: BlueprintRouterConfig): Promise<numbe
   }
 
   const child = spawn(
-    "model-router",
+    routerCommand,
     [
       "proxy",
       "--litellm-config", litellmConfigPath,
