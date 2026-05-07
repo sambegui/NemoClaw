@@ -109,8 +109,14 @@ describe("shields — unit logic", () => {
       fs.mkdirSync(stateDir, { recursive: true });
 
       // Write state for two different sandboxes
-      const alphaState = { shieldsDown: true, updatedAt: new Date().toISOString() };
-      const betaState = { shieldsDown: false, updatedAt: new Date().toISOString() };
+      const alphaState = {
+        shieldsDown: true,
+        updatedAt: new Date().toISOString(),
+      };
+      const betaState = {
+        shieldsDown: false,
+        updatedAt: new Date().toISOString(),
+      };
       fs.writeFileSync(
         path.join(stateDir, "shields-alpha.json"),
         JSON.stringify(alphaState, null, 2),
@@ -120,8 +126,12 @@ describe("shields — unit logic", () => {
         JSON.stringify(betaState, null, 2),
       );
 
-      const alpha = JSON.parse(fs.readFileSync(path.join(stateDir, "shields-alpha.json"), "utf-8"));
-      const beta = JSON.parse(fs.readFileSync(path.join(stateDir, "shields-beta.json"), "utf-8"));
+      const alpha = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "shields-alpha.json"), "utf-8"),
+      );
+      const beta = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "shields-beta.json"), "utf-8"),
+      );
       expect(alpha.shieldsDown).toBe(true);
       expect(beta.shieldsDown).toBe(false);
     });
@@ -132,9 +142,13 @@ describe("shields — unit logic", () => {
 
       const ts = Date.now();
       const snapshotPath = path.join(stateDir, `policy-snapshot-${ts}.yaml`);
-      fs.writeFileSync(snapshotPath, "version: 1\nnetwork_policies:\n  test: {}", {
-        mode: 0o600,
-      });
+      fs.writeFileSync(
+        snapshotPath,
+        "version: 1\nnetwork_policies:\n  test: {}",
+        {
+          mode: 0o600,
+        },
+      );
 
       const state = {
         shieldsDown: true,
@@ -164,7 +178,10 @@ describe("shields — unit logic", () => {
       fs.mkdirSync(stateDir, { recursive: true });
 
       const snapshotPath = path.join(stateDir, "policy-snapshot-test.yaml");
-      fs.writeFileSync(snapshotPath, "version: 1\nnetwork_policies:\n  test: {}");
+      fs.writeFileSync(
+        snapshotPath,
+        "version: 1\nnetwork_policies:\n  test: {}",
+      );
 
       const downState = {
         shieldsDown: true,
@@ -266,12 +283,58 @@ describe("shields — unit logic", () => {
   // -------------------------------------------------------------------
   describe("NC-2227-02: three-state shields model", () => {
     it("deriveShieldsMode encodes the fresh, locked, unlocked, and legacy-state cases", async () => {
-      const { deriveShieldsMode } = await import("../../../dist/lib/shields/index.js");
+      const distModulePath = path.join(
+        process.cwd(),
+        "dist",
+        "lib",
+        "shields",
+        "index.js",
+      );
+      const { deriveShieldsMode } = await import(distModulePath);
 
       expect(deriveShieldsMode({}, false)).toBe("mutable_default");
-      expect(deriveShieldsMode({ shieldsDown: true }, true)).toBe("temporarily_unlocked");
+      expect(deriveShieldsMode({ shieldsDown: true }, true)).toBe(
+        "temporarily_unlocked",
+      );
       expect(deriveShieldsMode({ shieldsDown: false }, true)).toBe("locked");
       expect(deriveShieldsMode({}, true)).toBe("mutable_default");
+    });
+  });
+
+  describe("NC-3112: status self-heals stale expired auto-restore markers", () => {
+    function getSourceCode(): string {
+      return fs.readFileSync(
+        path.join(import.meta.dirname, "index.ts"),
+        "utf-8",
+      );
+    }
+
+    it("status checks timer expiry + pid liveness before attempting inline restore", () => {
+      const src = getSourceCode();
+      const fnStart = src.indexOf("function recoverExpiredAutoRestoreInline");
+      expect(fnStart).toBeGreaterThan(-1);
+      const fnBody = src.slice(fnStart, src.indexOf("function shieldsDown"));
+
+      expect(fnBody).toContain("restoreAtMs > Date.now()");
+      expect(fnBody).toContain("isProcessAlive(marker.pid)");
+      expect(fnBody).toContain("activateLockdownFromSnapshot");
+      expect(fnBody).toContain("shields_auto_restore");
+    });
+
+    it("status re-reports after successful inline restore and warns on failure", () => {
+      const src = getSourceCode();
+      const fnStart = src.indexOf("function shieldsStatus");
+      expect(fnStart).toBeGreaterThan(-1);
+      const fnBody = src.slice(fnStart, src.indexOf("function isShieldsDown"));
+
+      expect(fnBody).toContain("recoverExpiredAutoRestoreGate");
+      expect(src).toContain(
+        "Recovery warning: inline auto-restore failed; shields remain DOWN.",
+      );
+      expect(src).toContain(
+        "run \\`nemoclaw ${sandboxName} shields up\\` manually.",
+      );
+      expect(fnBody).toContain("Shields: DOWN (temporarily unlocked)");
     });
   });
 });
@@ -281,7 +344,10 @@ describe("shields — unit logic", () => {
 // -------------------------------------------------------------------
 describe("NC-2227-04: sandbox-state.ts tar commands do not follow symlinks", () => {
   function getSourceCode(): string {
-    return fs.readFileSync(path.join(import.meta.dirname, "..", "state", "sandbox.ts"), "utf-8");
+    return fs.readFileSync(
+      path.join(import.meta.dirname, "..", "state", "sandbox.ts"),
+      "utf-8",
+    );
   }
 
   it("backup tar command does not use -h flag (no symlink following)", () => {
@@ -370,10 +436,14 @@ describe("NC-2227-04: sandbox-state.ts tar commands do not follow symlinks", () 
     expect(chownCheck).toContain("2>/dev/null || true");
     expect(chownCheck).toContain("chownResult.error");
     expect(chownCheck).toContain("chownResult.signal");
-    expect(chownCheck).toContain("WARNING: post-restore ownership repair did not complete");
+    expect(chownCheck).toContain(
+      "WARNING: post-restore ownership repair did not complete",
+    );
     expect(usabilityCheck).toContain("[ -r");
     expect(usabilityCheck).toContain("[ -w");
-    expect(usabilityCheck).toContain("FAILED: restored state usability check failed");
+    expect(usabilityCheck).toContain(
+      "FAILED: restored state usability check failed",
+    );
     expect(fnBody).toContain("failedDirs.push(...localDirs)");
   });
 });
@@ -414,7 +484,9 @@ describe("NC-2227-05: shields.ts locks state directories", () => {
     expect(fnBody).toContain("applyStateDirLockMode");
     expect(fnBody).toContain('["chmod", "g-s", target.configDir]');
     expect(src).toContain('["chmod", "g-s", dirPath]');
-    expect(src).toContain("Best effort; do not skip recursive write stripping.");
+    expect(src).toContain(
+      "Best effort; do not skip recursive write stripping.",
+    );
     expect(src).toContain('[ "$clear_setgid" = "1" ] && chmod g-s "$dir"');
     expect(fnBody).toContain("chown");
     expect(fnBody).toContain("g-s");
@@ -432,7 +504,10 @@ describe("NC-2227-05: shields.ts locks state directories", () => {
     );
 
     expect(verificationBlock).toContain("for (const f of filesToLock)");
-    expect(verificationBlock).toContain('["stat", "-c", "%a %U:%G", f]');
+    expect(verificationBlock).toContain('"%a %U:%G"');
+    expect(verificationBlock).toContain(
+      "privilegedSandboxExecCapture(sandboxName",
+    );
     expect(verificationBlock).toContain("${f} mode=");
     expect(verificationBlock).toContain("${f} owner=");
     expect(verificationBlock).toContain("${f} immutable bit not set");

@@ -214,7 +214,7 @@ function runRestoreTimer(args: TimerArgs): void {
         timestamp: now,
         restored_by: "auto_timer",
         policy_snapshot: args.snapshotPath,
-        restore_at: args.restoreAtIso,
+        scheduled_restore_at: args.restoreAtIso,
       });
       return;
     }

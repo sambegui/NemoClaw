@@ -26,6 +26,7 @@ export interface ShieldsAuditEntry {
   policy_applied?: string;
   policy_snapshot?: string;
   restored_at?: string;
+  scheduled_restore_at?: string;
   restored_by?: "operator" | "auto_timer";
   duration_seconds?: number;
   error?: string;
