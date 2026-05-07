@@ -5,7 +5,7 @@
 
 import * as onboardSession from "./onboard-session";
 import type { ListSandboxesCommandDeps } from "./inventory-commands";
-import { parseGatewayInference } from "./inference-config";
+import { parseGatewayInference } from "./inference/config";
 import { OPENSHELL_PROBE_TIMEOUT_MS } from "./adapters/openshell/timeouts";
 import { parseSshProcesses, createSystemDeps } from "./state/sandbox-session";
 import { resolveOpenshell } from "./adapters/openshell/resolve";

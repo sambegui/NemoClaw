@@ -187,7 +187,7 @@ fi
 
 info "11. NIM docker run maps host port to container internal 8000"
 OUT=$(docker run --rm --entrypoint "" "$IMAGE" bash -c '
-  NIM_FILE=$(find / -path "*/dist/lib/nim.js" -type f 2>/dev/null | head -1)
+  NIM_FILE=$(find / -path "*/dist/lib/inference/nim.js" -type f 2>/dev/null | head -1)
   [ -z "$NIM_FILE" ] && NIM_FILE=$(find / -path "*/lib/nim.ts" -type f 2>/dev/null | head -1)
   if [ -z "$NIM_FILE" ]; then echo "NIM_NOT_FOUND"
   elif grep -q ":8000" "$NIM_FILE" 2>/dev/null; then echo "INTERNAL_PORT_OK"
@@ -205,7 +205,7 @@ fi
 
 info "12. NIM status queries docker port on internal 8000"
 OUT=$(docker run --rm --entrypoint "" "$IMAGE" bash -c '
-  NIM_FILE=$(find / -path "*/dist/lib/nim.js" -type f 2>/dev/null | head -1)
+  NIM_FILE=$(find / -path "*/dist/lib/inference/nim.js" -type f 2>/dev/null | head -1)
   [ -z "$NIM_FILE" ] && NIM_FILE=$(find / -path "*/lib/nim.ts" -type f 2>/dev/null | head -1)
   if [ -z "$NIM_FILE" ]; then echo "NIM_NOT_FOUND"
   elif grep -q "docker port.*8000" "$NIM_FILE" 2>/dev/null; then echo "DOCKER_PORT_QUERY_OK"

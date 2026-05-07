@@ -21,7 +21,7 @@ const { LOCAL_INFERENCE_PROVIDERS, REMOTE_PROVIDER_CONFIG } = require("../../onb
 import { loadAgent } from "../../agent/defs";
 import { ensureAgentBaseImage } from "../../agent/onboard";
 import { getSandboxDeleteOutcome } from "../../domain/sandbox/destroy";
-import * as nim from "../../nim";
+import * as nim from "../../inference/nim";
 import type { Session } from "../../onboard-session";
 import * as onboardSession from "../../onboard-session";
 import { captureOpenshell, runOpenshell } from "../../adapters/openshell/runtime";

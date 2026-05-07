@@ -2588,7 +2588,7 @@ const { setupInference, getSandboxInferenceConfig } = require(${onboardPath});
     const registryPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "state", "registry.js"));
     const credentialsPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "credentials", "store.js"));
     const localInferencePath = JSON.stringify(
-      path.join(repoRoot, "dist", "lib", "local-inference.js"),
+      path.join(repoRoot, "dist", "lib", "inference", "local.js"),
     );
 
     fs.mkdirSync(fakeBin, { recursive: true });

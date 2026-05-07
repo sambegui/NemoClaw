@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import http from "node:http";
 
-import { unloadOllamaModels } from "../dist/lib/onboard-ollama-proxy.js";
+import { unloadOllamaModels } from "../dist/lib/inference/ollama/proxy.js";
 
 describe("Ollama GPU cleanup", () => {
   it("unloads all running Ollama models via the production HTTP implementation", async () => {

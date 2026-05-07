@@ -12,7 +12,7 @@ import path from "node:path";
 
 import { redactSensitiveText, redactUrl } from "./security/redact";
 import { isErrnoException } from "./core/errno";
-import type { WebSearchConfig } from "./web-search";
+import type { WebSearchConfig } from "./inference/web-search";
 
 export const SESSION_VERSION = 1;
 export const SESSION_DIR = path.join(process.env.HOME || "/tmp", ".nemoclaw");

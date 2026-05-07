@@ -10,8 +10,8 @@ const os = require("os");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
-const { ROOT, SCRIPTS, run, runCapture, shellQuote } = require("./runner");
-const { OLLAMA_PORT, OLLAMA_PROXY_PORT } = require("./core/ports");
+const { ROOT, SCRIPTS, run, runCapture, shellQuote } = require("../../runner");
+const { OLLAMA_PORT, OLLAMA_PROXY_PORT } = require("../../core/ports");
 const {
   getDefaultOllamaModel,
   getBootstrapOllamaModelOptions,
@@ -21,10 +21,10 @@ const {
   OLLAMA_HOST_DOCKER_INTERNAL,
   probeOllamaModelCapabilities,
   validateOllamaModel,
-} = require("./local-inference");
-const { buildSubprocessEnv } = require("./subprocess-env");
-const { prompt } = require("./credentials/store");
-const { promptManualModelId } = require("./model-prompts");
+} = require("../local");
+const { buildSubprocessEnv } = require("../../subprocess-env");
+const { prompt } = require("../../credentials/store");
+const { promptManualModelId } = require("../model-prompts");
 
 // ── State ────────────────────────────────────────────────────────
 

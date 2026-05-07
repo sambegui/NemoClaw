@@ -11,7 +11,7 @@ import path from "path";
 
 import { dockerBuild, dockerImageInspect } from "../adapters/docker";
 import { getAgentBranding } from "../cli/branding";
-import { getProviderSelectionConfig } from "../inference-config";
+import { getProviderSelectionConfig } from "../inference/config";
 import type { JsonObject as LooseObject, JsonValue as LooseValue } from "../core/json-types";
 import * as onboardSession from "../onboard-session";
 import { ROOT, redact, run, shellQuote } from "../runner";
