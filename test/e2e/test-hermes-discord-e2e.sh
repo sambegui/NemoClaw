@@ -413,6 +413,91 @@ else
   fail "Hermes fake Discord facade did not answer health probe: ${facade_health:0:200}"
 fi
 
+facade_protocol=$(
+  cat <<'PY' | sandbox_exec_stdin 'NEMOCLAW_DISCORD_FACADE_URL=http://127.0.0.1:3130 PYTHONPATH=/opt/nemoclaw-hermes-discord-preload python3 - 2>&1' 2>/dev/null || true
+import asyncio
+import json
+
+from aiohttp import ClientSession, WSMsgType
+
+PLACEHOLDER = "openshell:resolve:env:DISCORD_BOT_TOKEN"
+
+
+async def receive_json(ws, label):
+    msg = await ws.receive(timeout=5)
+    if msg.type != WSMsgType.TEXT:
+        raise AssertionError(f"{label}: expected text frame, got {msg.type} {msg.data!r}")
+    return json.loads(msg.data)
+
+
+async def main():
+    async with ClientSession() as session:
+        async with session.get("https://discord.com/api/v10/gateway") as response:
+            data = await response.json()
+            assert response.status == 200, data
+            assert data["url"] == "ws://127.0.0.1:3130/gateway", data
+
+        async with session.ws_connect("wss://gateway.discord.gg/?v=10&encoding=json") as ws:
+            hello = await receive_json(ws, "HELLO")
+            assert hello["op"] == 10, hello
+
+            await ws.send_json({
+                "op": 2,
+                "d": {
+                    "token": PLACEHOLDER,
+                    "intents": 0,
+                    "properties": {
+                        "os": "linux",
+                        "browser": "nemoclaw-e2e",
+                        "device": "nemoclaw-e2e",
+                    },
+                },
+            })
+            ready = await receive_json(ws, "READY")
+            assert ready["op"] == 0 and ready["t"] == "READY", ready
+            assert ready["d"]["resume_gateway_url"] == "ws://127.0.0.1:3130/gateway", ready
+
+            await ws.send_json({"op": 1, "d": ready.get("s")})
+            ack = await receive_json(ws, "HEARTBEAT_ACK")
+            assert ack["op"] == 11, ack
+
+        async with session.ws_connect("wss://gateway.discord.gg/?v=10&encoding=json") as ws:
+            hello = await receive_json(ws, "reject HELLO")
+            assert hello["op"] == 10, hello
+            await ws.send_json({
+                "op": 2,
+                "d": {
+                    "token": "not-the-openshell-placeholder",
+                    "intents": 0,
+                    "properties": {
+                        "os": "linux",
+                        "browser": "nemoclaw-e2e",
+                        "device": "nemoclaw-e2e",
+                    },
+                },
+            })
+            close = await ws.receive(timeout=5)
+            assert close.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING), close
+            assert ws.close_code == 4004 or close.data == 4004, (ws.close_code, close.data)
+
+        async with session.post("http://127.0.0.1:3130/interactions", json={"type": 1}) as response:
+            assert response.status == 401, await response.text()
+
+    print("OK preload_rest=local preload_gateway=ready heartbeat=ack reject=4004 unsigned_interaction=401")
+
+
+asyncio.run(main())
+PY
+)
+info "Fake Discord facade protocol probe: ${facade_protocol:0:300}"
+if echo "$facade_protocol" | grep -q "OK preload_rest=local preload_gateway=ready heartbeat=ack reject=4004 unsigned_interaction=401"; then
+  pass "Hermes Discord preload and fake Gateway protocol path work inside the sandbox"
+elif echo "$facade_protocol" | grep -q "ModuleNotFoundError"; then
+  fail "Hermes Discord facade protocol probe could not import required Python modules: ${facade_protocol:0:300}"
+else
+  fail "Hermes Discord facade protocol probe failed: ${facade_protocol:0:300}"
+fi
+
 token_file_hits=$(printf '%s' "$DISCORD_TOKEN" | sandbox_exec_stdin 'grep -Fq -f - /sandbox/.hermes/config.yaml /sandbox/.hermes/.env 2>/dev/null && echo LEAK || echo OK')
 if [ "$token_file_hits" = "OK" ]; then
   pass "Raw Discord token absent from Hermes config.yaml and .env"
