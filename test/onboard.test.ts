@@ -2733,6 +2733,9 @@ runner.run = (command, opts = {}) => {
   if (cmd.startsWith("python3 -m venv") || cmd.includes("/bin/python -m pip")) {
     return originalRun(command, opts);
   }
+  if (/(^|[\/\s])pip3(?:\s|$)/.test(cmd)) {
+    throw new Error("unexpected pip3 invocation in test harness: " + cmd);
+  }
   if (cmd.includes("git -C") || /^git(?:\s|$)/.test(cmd)) {
     throw new Error("unexpected git invocation in test harness: " + cmd);
   }
@@ -3116,6 +3119,9 @@ runner.run = (command, opts = {}) => {
   const cmd = _n(command);
   if (cmd.startsWith("python3 -m venv") || cmd.includes("/bin/python -m pip")) {
     return originalRun(command, opts);
+  }
+  if (/(^|[\/\s])pip3(?:\s|$)/.test(cmd)) {
+    throw new Error("unexpected pip3 invocation in test harness: " + cmd);
   }
   if (cmd.includes("git -C") || /^git(?:\s|$)/.test(cmd)) {
     throw new Error("unexpected git invocation in test harness: " + cmd);
