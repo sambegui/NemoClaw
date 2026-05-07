@@ -586,6 +586,24 @@ EOF
       expect(src).toContain("nemoclaw-discord-facade");
     });
 
+    it("hermes start.sh prepares the Discord facade log before child redirection", () => {
+      const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
+      const startFn = src.match(/start_discord_facade\(\) \{([\s\S]*?)^}/m);
+      expect(startFn).toBeTruthy();
+      const body = startFn![1];
+      expect(body).toContain('local log_path="/tmp/discord-facade.log"');
+      expect(body).toContain('prepare_restricted_log "$log_path" gateway:gateway 600');
+      expect(body).toContain('prepare_restricted_log "$log_path" "" 600');
+      expect(body).toContain("gosu gateway sh -c");
+      expect(body).toContain('exec "$@" >/tmp/discord-facade.log 2>&1');
+      expect(body).not.toContain(
+        "gosu gateway python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log",
+      );
+      expect(body).not.toContain(
+        "python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log",
+      );
+    });
+
     it("hermes start.sh calls validate_tmp_permissions", () => {
       const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
       expect(src).toContain("validate_tmp_permissions");

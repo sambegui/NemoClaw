@@ -283,6 +283,7 @@ start_decode_proxy() {
 start_discord_facade() {
   local facade_url="http://127.0.0.1:${DISCORD_FACADE_PORT}"
   local proxy_url="http://127.0.0.1:${DECODE_PROXY_PORT}"
+  local log_path="/tmp/discord-facade.log"
   local launch_env=(
     "DISCORD_PROXY=${proxy_url}"
     "HTTPS_PROXY=${proxy_url}"
@@ -291,9 +292,11 @@ start_discord_facade() {
   )
 
   if [ "$(id -u)" -eq 0 ] && command -v gosu >/dev/null 2>&1 && id gateway >/dev/null 2>&1; then
-    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" gosu gateway python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log 2>&1 &
+    prepare_restricted_log "$log_path" gateway:gateway 600
+    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" gosu gateway sh -c 'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1' sh python3 /usr/local/bin/nemoclaw-discord-facade &
   else
-    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log 2>&1 &
+    prepare_restricted_log "$log_path" "" 600
+    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" sh -c 'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1' sh python3 /usr/local/bin/nemoclaw-discord-facade &
   fi
   DISCORD_FACADE_PID=$!
   local attempts=0

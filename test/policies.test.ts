@@ -780,6 +780,56 @@ describe("policies", () => {
       }
     });
 
+    it("Hermes Discord REST mutations are scoped to discord.com", () => {
+      const content = fs.readFileSync(
+        path.join(REPO_ROOT, "agents/hermes/policy-additions.yaml"),
+        "utf8",
+      );
+      const parsed = YAML.parse(content);
+      const networkPolicies = parsed.network_policies as Record<
+        string,
+        {
+          endpoints?: Array<{
+            host?: string;
+            rules?: Array<{ allow?: { method?: string; path?: string } }>;
+          }>;
+        }
+      >;
+      const rulesFor = (policy: string, host: string) =>
+        (networkPolicies[policy]?.endpoints ?? [])
+          .find((endpoint) => endpoint.host === host)
+          ?.rules?.map((rule) => rule.allow)
+          .filter((rule): rule is { method: string; path: string } =>
+            Boolean(rule?.method && rule?.path),
+          ) ?? [];
+
+      const nousRules = rulesFor("nous_research", "nousresearch.com");
+      expect(nousRules).not.toContainEqual({ method: "PUT", path: "/**" });
+      expect(nousRules).not.toContainEqual({ method: "PATCH", path: "/**" });
+      expect(
+        nousRules.filter((rule) => ["PUT", "PATCH", "DELETE"].includes(rule.method)),
+      ).toEqual([]);
+
+      const discordRules = rulesFor("discord", "discord.com");
+      expect(discordRules).toEqual(
+        expect.arrayContaining([
+          { method: "PUT", path: "/api/v*/applications/*/commands" },
+          { method: "PUT", path: "/api/v*/channels/*/messages/*/reactions/*/@me" },
+          { method: "PATCH", path: "/api/v*/applications/*" },
+          { method: "PATCH", path: "/api/v*/applications/*/commands/*" },
+          { method: "PATCH", path: "/api/v*/channels/*/messages/*" },
+          { method: "PATCH", path: "/api/v*/webhooks/*/*/messages/*" },
+          { method: "DELETE", path: "/api/v*/applications/*/commands/*" },
+          { method: "DELETE", path: "/api/v*/channels/*/messages/*" },
+          { method: "DELETE", path: "/api/v*/channels/*/messages/*/reactions/*/*" },
+          { method: "DELETE", path: "/api/v*/webhooks/*/*/messages/*" },
+        ]),
+      );
+      expect(
+        discordRules.filter((rule) => ["PUT", "PATCH"].includes(rule.method) && rule.path === "/**"),
+      ).toEqual([]);
+    });
+
     it("REST policy YAML avoids deprecated tls: terminate", () => {
       const agentsDir = path.join(REPO_ROOT, "agents");
       const agentPolicyFiles = fs.existsSync(agentsDir)
