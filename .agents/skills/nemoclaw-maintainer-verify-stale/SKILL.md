@@ -103,6 +103,35 @@ fi
 
 Run this check for every candidate that survived the label-based filters above; drop those whose `RECENT_MARKER` is non-empty.
 
+**Active-maintainer-discussion skip.** Drop the issue if a `MEMBER`, `OWNER`, or `COLLABORATOR` comment was posted within the last 7 days AND the original reporter hasn't replied since. The skill is for *stale* issues; actively-discussed ones are in-flight. Posting verify-stale verdicts on top of an open question from a maintainer creates noise and can conflict with the maintainer's framing. Surfaced during pre-flight on #2757 — the maintainer @cjagwani had just asked the reporter clarifying questions about whether the bug premise was even correct, and running verify-stale would have stomped on that conversation.
+
+```bash
+# Reuse the cutoff from the marker-TTL check above ($SEVEN_DAYS_AGO).
+REPORTER=$(gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json author --jq .author.login)
+
+ACTIVE_DISCUSSION=$(gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json comments \
+  --jq --arg cutoff "$SEVEN_DAYS_AGO" --arg reporter "$REPORTER" '
+    (.comments
+     | map(select(
+         (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")
+         and .createdAt > $cutoff))
+     | sort_by(.createdAt) | last) as $maint
+    | if $maint == null then null
+      else
+        ((.comments
+          | map(select(.author.login == $reporter and .createdAt > $maint.createdAt))
+          | length) as $replies
+         | if $replies > 0 then null else $maint.createdAt end)
+      end')
+
+if [ -n "$ACTIVE_DISCUSSION" ] && [ "$ACTIVE_DISCUSSION" != "null" ]; then
+  echo "Skip: active maintainer discussion since $ACTIVE_DISCUSSION (reporter has not replied)"
+  # Single-issue mode: exit 0 with the message; batch mode: continue to next candidate.
+fi
+```
+
+Applies to both single-issue and batch mode. Single-issue mode shows the message and exits friendlily so the maintainer knows why the skill bailed. Batch mode just moves on.
+
 **Candidate rule:** keep the issue if **either**:
 
 - The reported version (parsed from body or labels — see Step 4) is **at least 2 versions behind** `$LATEST` in the rightmost-incrementing component, **or**
