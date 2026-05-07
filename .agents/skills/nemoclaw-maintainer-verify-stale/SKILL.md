@@ -630,7 +630,7 @@ The new workflow is `<one-sentence: how to do what the user was trying to do>`.
 
 ### Recommendation
 
-@<reporter> — recommend closing as "won't fix / by design". If a related symptom (e.g. `<related failure mode from above>`) is hitting you on ≥ v0.0.<Z>, please file a fresh issue with a v0.0.<Z>+ reproducer.
+@<reporter> — please confirm the by-design framing is correct (the implicated `<symbol>` was intentionally removed, the original reproducer can no longer execute) and close as "won't fix / by design" if you agree. If a related symptom (e.g. `<related failure mode from above>`) is hitting you on ≥ v0.0.<Z>, please file a fresh issue with a v0.0.<Z>+ reproducer.
 
 `<NVBugs cross-ref line — see below>`
 
@@ -764,6 +764,14 @@ Transcripts and synth-repro scripts are already plain text and skip the pre-pass
 
 **File paths under the reporter's home directory** (`/Users/<name>/`, `/home/<name>/`) → replace with `~/`. Run last; catches incidental username PII.
 
+**Length target.** Default rendered comment to **400–500 words**. The evidence table (or by-design "What's structurally fixed" + "Vestigial references" sections) is the hero. Strip architectural prose "for QA reference," PR-attribution caveats beyond one sentence, and closing reopen-instructions boilerplate. If a comment runs past 500 words, cut everything that doesn't directly support the verdict — every section needs to either change a reader's mind about the verdict or be deleted.
+
+**Mandatory closing block — reporter @-mention with confirmation language.** Every template below ends with an explicit @-mention of the original reporter using this exact shape:
+
+> @\<reporter\> — please confirm the symptom is gone on a recent build (≥ v0.0.\<Z\>) and reopen with a fresh reproducer if you observe otherwise.
+
+The skill cannot independently confirm a closed-as-fixed verdict — only the reporter knows whether their original symptom is gone in their environment. The @-mention is what converts a "skill says it's fixed" claim into actionable confirmation work for QA. Customize `<Z>` per case (the version that shipped the fix or `$LATEST`), but never omit the line.
+
 **Comment template (fixed / inconclusive — bug not reproduced on latest):**
 
 ````markdown
@@ -811,7 +819,7 @@ Transcripts and synth-repro scripts are already plain text and skip the pre-pass
 
 </details>
 
-If this verification is wrong, please reopen the issue with a comment and the skill will re-verify on the next release.
+@<reporter> — please confirm the symptom is gone on a recent build (≥ v0.0.<Z>) and reopen with a fresh reproducer if you observe otherwise.
 
 <!-- nemoclaw-verify-stale v1 2026-05-12 -->
 ````
@@ -828,6 +836,8 @@ If this verification is wrong, please reopen the issue with a comment and the sk
 The skill ran the reported reproducer on v0.0.34 and observed the same bug symptom described in this issue. The bug is still live.
 
 No label applied. Will re-verify automatically next weekly run; if a fix lands in the interim, the next pass catches it.
+
+@<reporter> — please confirm the symptom still matches your observation on v0.0.<Y> and reopen with any updated reproducer or environment details if it has shifted.
 
 <details><summary>Baseline transcript (validated reproducer)</summary>
 
