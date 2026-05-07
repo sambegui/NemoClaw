@@ -331,6 +331,134 @@ restore_openclaw_config_after_write() {
   lock_config_after_write "$config_file" "$hash_file"
 }
 
+# ── Empty-config recovery and baseline (#3118) ──────────────────
+# Upstream OpenShell's `openshell inference set` (run inside the sandbox to
+# change the runtime model) can truncate /sandbox/.openclaw/openclaw.json to
+# 0 bytes when its write fails partway through. The corrupted file then
+# breaks `openclaw doctor --fix` (its own JSON5.parse crashes on empty
+# input) and any other consumer of the config.
+#
+# These two functions are NemoClaw's defensive recovery — they don't fix the
+# upstream bugs (which still need to be filed against OpenShell and OpenClaw)
+# but they let a sandbox restart restore working state instead of leaving the
+# sandbox unusable. Both are scoped to mutable-default mode: in shields-up
+# mode openclaw.json is root-owned and immutable, so an empty file there
+# implies tampering (which integrity check should catch) rather than the
+# #3118 trigger (which requires a writable config).
+
+# Capture a known-good copy of openclaw.json for later restore. Idempotent:
+# only writes the baseline once. Runs at root after apply_model_override and
+# apply_cors_override so the baseline reflects the post-override config that
+# the user actually started with. Refuses to capture broken state (empty,
+# whitespace-only, or unparseable input).
+write_openclaw_config_baseline() {
+  local config_dir="/sandbox/.openclaw"
+  local config_file="$config_dir/openclaw.json"
+  local baseline_file="$config_dir/openclaw.json.nemoclaw-baseline"
+
+  [ -d "$config_dir" ] || return 0
+  [ -f "$config_file" ] || return 0
+  [ "$(id -u)" -eq 0 ] || return 0
+
+  # Refuse to act through symlinks (mirrors apply_model_override's stance).
+  if [ -L "$config_dir" ] || [ -L "$config_file" ] || [ -L "$baseline_file" ]; then
+    return 0
+  fi
+
+  # Skip in shields-up mode — config is supposed to be locked, baseline
+  # capture is unnecessary and the prepare/restore permission dance is
+  # already owned by the override paths.
+  if [ "$(openclaw_config_dir_owner "$config_dir")" = "root" ]; then
+    return 0
+  fi
+
+  # Idempotent — only capture once per sandbox.
+  [ -f "$baseline_file" ] && return 0
+
+  # Refuse to capture broken state. grep -q '[^[:space:]]' is false for both
+  # 0-byte and whitespace-only files.
+  if ! grep -q '[^[:space:]]' "$config_file" 2>/dev/null; then
+    return 0
+  fi
+
+  # Refuse to capture content that doesn't parse as JSON — keeps the
+  # baseline a known-good restore target.
+  if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$config_file" 2>/dev/null; then
+    return 0
+  fi
+
+  if ! cp "$config_file" "$baseline_file" 2>/dev/null; then
+    return 0
+  fi
+  # 0440 root:sandbox so the gateway/sandbox user can READ for recovery but
+  # cannot truncate or rewrite the baseline through the same path that
+  # corrupts the active config.
+  chown root:sandbox "$baseline_file" 2>/dev/null || true
+  chmod 0440 "$baseline_file" 2>/dev/null || true
+  printf '[config] Baseline snapshot created: %s\n' "$baseline_file" >&2
+}
+
+# Restore openclaw.json from a baseline when the active file has been
+# truncated to 0 bytes / whitespace-only. Runs at startup before
+# verify_config_integrity_if_locked. Prefers OpenClaw's own
+# openclaw.json.last-good (if it exists and is non-empty) over our
+# nemoclaw-baseline so we ride OpenClaw's recovery convention when both
+# are available. Recomputes .config-hash on success so subsequent
+# integrity checks pass.
+recover_openclaw_config_if_empty() {
+  local config_dir="/sandbox/.openclaw"
+  local config_file="$config_dir/openclaw.json"
+  local hash_file="$config_dir/.config-hash"
+  local baseline_file="$config_dir/openclaw.json.nemoclaw-baseline"
+  local last_good_file="$config_dir/openclaw.json.last-good"
+
+  [ -d "$config_dir" ] || return 0
+  [ -f "$config_file" ] || return 0
+
+  # Refuse to act through symlinks.
+  if [ -L "$config_dir" ] || [ -L "$config_file" ] || [ -L "$hash_file" ]; then
+    return 0
+  fi
+
+  # Skip in shields-up mode — see header comment.
+  if [ "$(openclaw_config_dir_owner "$config_dir")" = "root" ]; then
+    return 0
+  fi
+
+  # Active file is non-empty → no-op.
+  if grep -q '[^[:space:]]' "$config_file" 2>/dev/null; then
+    return 0
+  fi
+
+  local source=""
+  if [ -f "$last_good_file" ] && [ ! -L "$last_good_file" ] \
+    && grep -q '[^[:space:]]' "$last_good_file" 2>/dev/null; then
+    source="$last_good_file"
+  elif [ -f "$baseline_file" ] && [ ! -L "$baseline_file" ] \
+    && grep -q '[^[:space:]]' "$baseline_file" 2>/dev/null; then
+    source="$baseline_file"
+  fi
+
+  if [ -z "$source" ]; then
+    printf '[config] WARNING: openclaw.json is empty (%s). No baseline available; restart cannot recover. See issue #3118.\n' "$config_file" >&2
+    return 0
+  fi
+
+  if ! cp "$source" "$config_file" 2>/dev/null; then
+    printf '[config] WARNING: Failed to restore openclaw.json from %s (see #3118)\n' "$source" >&2
+    return 0
+  fi
+  chown sandbox:sandbox "$config_file" 2>/dev/null || true
+  chmod 660 "$config_file" 2>/dev/null || true
+
+  if (cd "$config_dir" && sha256sum openclaw.json >".config-hash") 2>/dev/null; then
+    chown sandbox:sandbox "$hash_file" 2>/dev/null || true
+    chmod 660 "$hash_file" 2>/dev/null || true
+  fi
+
+  printf '[config] openclaw.json restored from %s (was empty — see #3118)\n' "$source" >&2
+}
+
 # ── Runtime model/provider override ──────────────────────────────
 # Patches openclaw.json at startup when NEMOCLAW_MODEL_OVERRIDE is set,
 # allowing model or provider changes without rebuilding the sandbox image.
@@ -1492,6 +1620,10 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
   echo "[gateway] Running as non-root (uid=$(id -u)) — privilege separation disabled" >&2
   export HOME=/sandbox
+  # Empty-config recovery runs before integrity check so a #3118 truncation
+  # (openshell inference set inside the sandbox) is restored from baseline
+  # rather than failing the integrity hash for the empty file.
+  recover_openclaw_config_if_empty
   if ! verify_config_integrity_if_locked /sandbox/.openclaw; then
     echo "[SECURITY] Config integrity check failed — refusing to start (non-root mode)" >&2
     exit 1
@@ -1499,6 +1631,9 @@ if [ "$(id -u)" -ne 0 ]; then
   normalize_mutable_config_perms
   apply_model_override
   apply_cors_override
+  # Capture baseline for next start's recovery — only after overrides have
+  # produced the post-startup config the user actually runs with.
+  write_openclaw_config_baseline
   export_gateway_token
   write_runtime_shell_env
   ensure_runtime_shell_env_shim
@@ -1584,12 +1719,19 @@ fi
 
 # ── Root path (full privilege separation via gosu) ─────────────
 
+# Empty-config recovery runs before integrity check so a #3118 truncation
+# (openshell inference set inside the sandbox) is restored from baseline
+# rather than failing the integrity hash for the empty file.
+recover_openclaw_config_if_empty
 # Verify locked config integrity before starting anything. Mutable-default
 # config is intentionally writable and is not a trust anchor until shields-up.
 verify_config_integrity_if_locked /sandbox/.openclaw
 normalize_mutable_config_perms
 apply_model_override
 apply_cors_override
+# Capture baseline for next start's recovery — only after overrides have
+# produced the post-startup config the user actually runs with.
+write_openclaw_config_baseline
 export_gateway_token
 write_runtime_shell_env
 ensure_runtime_shell_env_shim
