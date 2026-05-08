@@ -925,6 +925,56 @@ gh issue edit "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --add-label "fixed-on-lates
 # gh issue edit "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --add-label "verify-inconclusive"
 ```
 
+**Move the issue to "Needs Review" on the NemoClaw Development Tracker (only on `fixed-on-latest`).** The tracker is GitHub Project [NVIDIA/199](https://github.com/orgs/NVIDIA/projects/199) ("NemoClaw Development Tracker"). When the skill's verdict is `fixed-on-latest`, the issue moves to **Needs Review** so the maintainer queue picks it up for confirmation; after the reporter confirms and the maintainer closes, existing Project automation (or a manual move) advances it to Done. **No move on `wontfix` / `verify-inconclusive` / no-label-still-reproduces** — those have separate close paths.
+
+This step requires the `project` scope on the maintainer's gh CLI (`gh auth refresh -h github.com -s project` in a real terminal once; OAuth device-code flow). If the scope is missing, the lookup query returns an auth error — fall through with a one-line warning rather than failing the whole run.
+
+```bash
+# Project 199 constants (re-run gh project field-list 199 --owner NVIDIA --format json
+# if the project gets renamed/restructured and these IDs drift):
+PROJECT_ID="PVT_kwDOABpemM4BSCP5"
+STATUS_FIELD_ID="PVTSSF_lADOABpemM4BSCP5zg_r9p8"
+NEEDS_REVIEW_OPTION_ID="5c5922a9"
+
+# Only fire on fixed-on-latest. Skip silently otherwise.
+if [ "$VERDICT" = "fixed-on-latest" ]; then
+  # Find the issue's existing project item, if any.
+  ITEM_ID=$(gh api graphql -f query='
+    query($num: Int!) {
+      repository(owner: "NVIDIA", name: "NemoClaw") {
+        issue(number: $num) {
+          projectItems(first: 10) {
+            nodes { id project { number } }
+          }
+        }
+      }
+    }' -F num="$ISSUE_NUMBER" \
+    --jq '.data.repository.issue.projectItems.nodes[] | select(.project.number == 199) | .id' \
+    2>/dev/null | head -1)
+
+  # If the issue isn't on the project yet, add it. (NV QA bots usually add new
+  # issues automatically, but cover the gap.)
+  if [ -z "$ITEM_ID" ]; then
+    ITEM_ID=$(gh project item-add 199 --owner NVIDIA \
+      --url "https://github.com/NVIDIA/NemoClaw/issues/$ISSUE_NUMBER" \
+      --format json --jq .id 2>/dev/null)
+  fi
+
+  if [ -n "$ITEM_ID" ]; then
+    gh project item-edit \
+      --id "$ITEM_ID" \
+      --project-id "$PROJECT_ID" \
+      --field-id "$STATUS_FIELD_ID" \
+      --single-select-option-id "$NEEDS_REVIEW_OPTION_ID" \
+      >/dev/null && echo "[verify-stale] moved #$ISSUE_NUMBER to 'Needs Review' on Project 199"
+  else
+    echo "[verify-stale] WARN could not resolve project item for #$ISSUE_NUMBER on Project 199 — label applied but tracker not moved"
+  fi
+fi
+```
+
+The Step 12 activity log line should record the project move (or the warn-and-skip case) so a maintainer scanning the log can spot tracker drift. Add a `Tracker:` row to the per-issue entry: `Tracker: moved to Needs Review` | `not moved (verdict: <X>)` | `not moved (project lookup failed)`.
+
 ---
 
 ## Step 11: Infra Failure Handling
@@ -984,6 +1034,7 @@ After each issue (verified, inconclusive, by-design, or infra-failed), append to
 **Latest result:** not-reproduced (clean) | still-reproduces | partial / flake | n/a (skipped 8d)
 **Confidence:** 88 / 100 | n/a (still-reproduces)
 **Label applied:** fixed-on-latest | verify-inconclusive | status: wont-fix | none (still-reproduces) | none (infra)
+**Tracker:** moved to Needs Review on Project 199 | not moved (verdict: <X>) | not moved (project lookup failed)
 **Brev wall time (approx):** N min
 
 ---

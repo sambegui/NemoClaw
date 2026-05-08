@@ -396,6 +396,9 @@ if [ -z "$GH_IDENTITY" ]; then
 fi
 echo "gh identity: @$GH_IDENTITY — comments posted by this run will appear under this handle"
 
+# gh 'project' scope — Step 10 moves fixed-on-latest issues to "Needs Review" on Project 199. Warn if missing.
+gh auth status 2>&1 | grep -q "'project'" || echo "[verify-stale] WARN gh missing 'project' scope — Step 10 tracker move will skip. Fix: run 'gh auth refresh -h github.com -s project' in a real terminal."
+
 # Brev auth — short-circuit only after the auth check, not before.
 # When auth fails, give the user a directive recipe (the browser-flow path is
 # what works from non-TTY harnesses like Claude Code, not the headless options).
