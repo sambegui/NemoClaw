@@ -8,8 +8,15 @@ import { describe, expect, it } from "vitest";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FACADE = path.join(ROOT, "agents", "hermes", "discord-facade.py");
 const PRELOAD = path.join(ROOT, "agents", "hermes", "discord-preload", "sitecustomize.py");
+const sanitizedEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([key, value]) =>
+      value !== undefined && !key.startsWith("DISCORD_") && !key.startsWith("TELEGRAM_"),
+  ),
+) as Record<string, string>;
 const hasCryptography =
   spawnSync("python3", ["-c", "import cryptography.hazmat.primitives.asymmetric.ed25519"], {
+    env: sanitizedEnv,
     stdio: "ignore",
   }).status === 0;
 
@@ -18,7 +25,7 @@ function runPython(source: string, env: Record<string, string> = {}) {
     input: source,
     encoding: "utf-8",
     env: {
-      ...process.env,
+      ...sanitizedEnv,
       ...env,
     },
     timeout: 10_000,
@@ -250,6 +257,23 @@ async def main():
     assert "MESSAGE_REACTION_ADD" in event_names
 
     events.clear()
+    state["messages"] = [
+        {
+            "id": str(1000 + index),
+            "channel_id": "200",
+            "guild_id": "100",
+            "content": f"page item {index}",
+            "author": {"id": "400", "username": "user", "discriminator": "0000"},
+            "timestamp": "2026-05-07T00:02:00.000000+00:00",
+            "reactions": [],
+        }
+        for index in range(25)
+    ]
+    await facade._poll_once()
+    event_names = [event[0] for event in events]
+    assert "MESSAGE_DELETE" not in event_names
+
+    events.clear()
     state["messages"] = []
     state["threads"] = []
     await facade._poll_once()
@@ -307,6 +331,70 @@ assert facade._interaction_tokens[localized["token"]] == "real-interaction-token
     expect(result.status, result.stderr || result.stdout).toBe(0);
     },
   );
+
+  it("maps localized interaction callback tokens back to Discord before forwarding", () => {
+    const result = runPython(`${pythonPrelude()}
+import asyncio
+
+class ForwardResponse:
+    status = 204
+    headers = {"Content-Type": "application/json"}
+    async def read(self):
+        return b""
+
+class ForwardContext:
+    async def __aenter__(self):
+        return ForwardResponse()
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+class ForwardSession:
+    def __init__(self):
+        self.calls = []
+    def request(self, method, target, headers, data, proxy, allow_redirects):
+        self.calls.append({
+            "method": method,
+            "target": target,
+            "headers": headers,
+            "data": data,
+            "proxy": proxy,
+            "allow_redirects": allow_redirects,
+        })
+        return ForwardContext()
+
+class FakeRequest:
+    method = "POST"
+    path = "/api/v10/interactions/42/nemoclaw-local-token/callback"
+    path_qs = path
+    query_string = ""
+    headers = {"Authorization": "Bot placeholder", "Content-Type": "application/json"}
+    async def read(self):
+        return b'{"type":4,"data":{"content":"done"}}'
+
+async def main():
+    facade = discord_facade.DiscordFacade(
+        host="127.0.0.1",
+        port=3130,
+        placeholder_token=discord_facade.DEFAULT_TOKEN_PLACEHOLDER,
+        upstream_proxy="http://127.0.0.1:3129",
+        public_base_url=None,
+        public_key=None,
+    )
+    session = ForwardSession()
+    facade._session = session
+    facade._interaction_tokens["nemoclaw-local-token"] = "real-interaction-token"
+    response = await facade._handle_interaction_callback(FakeRequest(), "42", "nemoclaw-local-token")
+    assert response.status == 204
+    assert len(session.calls) == 1
+    assert session.calls[0]["target"] == "https://discord.com/api/v10/interactions/42/real-interaction-token/callback"
+    assert session.calls[0]["data"] == b'{"type":4,"data":{"content":"done"}}'
+    assert session.calls[0]["proxy"] == "http://127.0.0.1:3129"
+
+asyncio.run(main())
+`);
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+  });
 });
 
 describe("Hermes Discord preload", () => {

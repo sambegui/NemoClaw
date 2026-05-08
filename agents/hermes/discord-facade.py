@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import sys
@@ -169,6 +170,16 @@ class DiscordFacade:
         await site.start()
         LOGGER.info("Discord facade listening on http://%s:%s", self.host, self.port)
         self._start_polling()
+        return runner
+
+    async def start_public_interactions(self, host: str, port: int) -> web.AppRunner:
+        app = web.Application(client_max_size=2 * 1024 * 1024)
+        app.add_routes([web.post("/interactions", self.handle_interaction)])
+        runner = web.AppRunner(app, access_log=None)
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
+        LOGGER.info("Discord public interactions listener on http://%s:%s", host, port)
         return runner
 
     async def close(self) -> None:
@@ -370,15 +381,16 @@ class DiscordFacade:
                 self._message_cache[message_id] = message
 
         previous_ids = self._channel_message_ids.get(channel_id, set())
-        for deleted_id in sorted(previous_ids - current_ids):
-            deleted = self._message_cache.pop(deleted_id, {})
-            payload = {
-                "id": deleted_id,
-                "channel_id": channel_id,
-            }
-            if deleted.get("guild_id"):
-                payload["guild_id"] = deleted["guild_id"]
-            await self.dispatch_to_all("MESSAGE_DELETE", payload)
+        if len(messages) < 25:
+            for deleted_id in sorted(previous_ids - current_ids):
+                deleted = self._message_cache.pop(deleted_id, {})
+                payload = {
+                    "id": deleted_id,
+                    "channel_id": channel_id,
+                }
+                if deleted.get("guild_id"):
+                    payload["guild_id"] = deleted["guild_id"]
+                await self.dispatch_to_all("MESSAGE_DELETE", payload)
         self._channel_message_ids[channel_id] = current_ids
 
     async def _poll_guild_threads(self, guild_id: str) -> None:
@@ -625,12 +637,13 @@ class DiscordFacade:
     async def _handle_interaction_callback(
         self,
         request: web.Request,
-        _interaction_id: str,
+        interaction_id: str,
         local_token: str,
     ) -> web.Response:
-        if local_token in self._interaction_tokens:
-            await self._read_bytes(request)
-            return web.Response(status=204)
+        real_token = self._interaction_tokens.get(local_token)
+        if real_token is not None:
+            path = f"/api/v10/interactions/{interaction_id}/{real_token}/callback"
+            return await self._forward_rest(request, override_path=path)
         return await self._forward_rest(request)
 
     async def _forward_with_interaction_token(
@@ -802,13 +815,23 @@ class _SyntheticRequest:
         return self._body
 
 
-async def _run_tunnel_command(public_url_file: str) -> asyncio.subprocess.Process | None:
+def _tunnel_requested() -> bool:
+    return bool(
+        os.getenv("NEMOCLAW_DISCORD_TUNNEL_COMMAND", "").strip()
+        or os.getenv("NEMOCLAW_DISCORD_ENABLE_TUNNEL", "").strip() == "1"
+    )
+
+
+async def _run_tunnel_command(
+    public_url_file: str,
+    *,
+    local_url: str,
+) -> asyncio.subprocess.Process | None:
     command = os.getenv("NEMOCLAW_DISCORD_TUNNEL_COMMAND", "").strip()
     if not command and os.getenv("NEMOCLAW_DISCORD_ENABLE_TUNNEL", "").strip() == "1":
         cloudflared = shutil.which("cloudflared")
         if cloudflared:
-            port = _env_int("NEMOCLAW_DISCORD_FACADE_PORT", DEFAULT_LISTEN_PORT)
-            command = f"{cloudflared} tunnel --url http://127.0.0.1:{port}"
+            command = f"{shlex.quote(cloudflared)} tunnel --url {shlex.quote(local_url)}"
         else:
             LOGGER.warning("Discord interactions tunnel requested but cloudflared is not installed")
     if not command:
@@ -842,17 +865,10 @@ async def main() -> None:
     )
     host = os.getenv("NEMOCLAW_DISCORD_FACADE_HOST", DEFAULT_LISTEN_HOST)
     port = _env_int("NEMOCLAW_DISCORD_FACADE_PORT", DEFAULT_LISTEN_PORT)
+    interactions_host = os.getenv("NEMOCLAW_DISCORD_INTERACTIONS_HOST", DEFAULT_LISTEN_HOST)
+    interactions_port = _env_int("NEMOCLAW_DISCORD_INTERACTIONS_PORT", port + 1)
     public_url_file = os.getenv("NEMOCLAW_DISCORD_TUNNEL_URL_FILE", "/tmp/nemoclaw-discord-tunnel-url")
     public_base_url = os.getenv("NEMOCLAW_DISCORD_PUBLIC_URL", "").strip() or None
-    tunnel_proc = await _run_tunnel_command(public_url_file)
-    if not public_base_url:
-        for _ in range(20 if tunnel_proc else 1):
-            if os.path.exists(public_url_file):
-                with open(public_url_file, "r", encoding="utf-8") as handle:
-                    public_base_url = handle.read().strip() or None
-                if public_base_url:
-                    break
-            await asyncio.sleep(0.25)
 
     facade = DiscordFacade(
         host=host,
@@ -863,7 +879,23 @@ async def main() -> None:
         public_key=os.getenv("DISCORD_PUBLIC_KEY") or os.getenv("NEMOCLAW_DISCORD_PUBLIC_KEY"),
     )
     runner = await facade.start()
+    interactions_runner: web.AppRunner | None = None
+    if public_base_url or _tunnel_requested():
+        interactions_runner = await facade.start_public_interactions(interactions_host, interactions_port)
+    tunnel_proc = await _run_tunnel_command(
+        public_url_file,
+        local_url=f"http://{interactions_host}:{interactions_port}",
+    )
+    if not public_base_url:
+        for _ in range(20 if tunnel_proc else 1):
+            if os.path.exists(public_url_file):
+                with open(public_url_file, "r", encoding="utf-8") as handle:
+                    public_base_url = handle.read().strip() or None
+                if public_base_url:
+                    break
+            await asyncio.sleep(0.25)
     if public_base_url:
+        facade.public_base_url = public_base_url
         await facade.register_interactions_endpoint()
 
     stop_event = asyncio.Event()
@@ -871,6 +903,8 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop_event.set)
     await stop_event.wait()
+    if interactions_runner is not None:
+        await interactions_runner.cleanup()
     await runner.cleanup()
     await facade.close()
     if tunnel_proc and tunnel_proc.returncode is None:
