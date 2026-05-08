@@ -121,6 +121,24 @@ describe("buildRecoveryScript", () => {
     }
   });
 
+  it("prepares the Hermes Discord facade log before child-side redirection", () => {
+    const recoveryScript = buildRecoveryScript(hermesAgent, 8642);
+    expect(recoveryScript).not.toBeNull();
+    for (const script of [recoveryScript!, buildManualRecoveryCommand(hermesAgent, 8642)]) {
+      expect(script).toContain("/tmp/discord-facade.log");
+      expect(script).toContain("O_NOFOLLOW");
+      expect(script).toContain(
+        'sh -c \'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1\' sh python3 /usr/local/bin/nemoclaw-discord-facade &',
+      );
+      expect(script).not.toContain(
+        "nohup python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log 2>&1",
+      );
+      expect(script.indexOf("O_NOFOLLOW")).toBeLessThan(
+        script.indexOf('exec "$@" >/tmp/discord-facade.log 2>&1'),
+      );
+    }
+  });
+
   it("falls back to openclaw gateway run when gateway_command is absent", () => {
     const agent = makeAgent({ gateway_command: undefined });
     const script = buildRecoveryScript(agent, 19000);
