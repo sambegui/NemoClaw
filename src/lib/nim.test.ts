@@ -475,6 +475,9 @@ describe("nim", () => {
 
           expect(st).toMatchObject({ running: true, healthy: true, container: "foo", state: "running" });
           expect(commands.some((c) => c[0] === "docker" && c.includes("port"))).toBe(true);
+          expect(commands.some((c) => c.includes("http://127.0.0.1:9000/v1/models"))).toBe(
+            true,
+          );
           expect(
             timeoutForCommand(
               runCapture,
@@ -505,7 +508,13 @@ describe("nim", () => {
 
       try {
         const st = nimModule.nimStatusByName("foo");
+        const commands = runCapture.mock.calls.map(([c]: [string | string[]]) => c);
+
         expect(st).toMatchObject({ running: true, healthy: true, container: "foo", state: "running" });
+        expect(commands.some((c) => c[0] === "docker" && c.includes("port"))).toBe(true);
+        expect(commands.some((c) => c.includes("http://127.0.0.1:8000/v1/models"))).toBe(
+          true,
+        );
       } finally {
         restore();
       }
