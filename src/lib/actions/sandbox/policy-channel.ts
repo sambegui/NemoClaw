@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/* v8 ignore start -- exercised through CLI subprocess policy/channel tests. */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +10,7 @@ import { hashCredential } from "../../security/credential-hash";
 import { getCredential, prompt as askPrompt } from "../../credentials/store";
 import { recoverNamedGatewayRuntime } from "../../gateway-runtime-action";
 const { isNonInteractive } = require("../../onboard") as { isNonInteractive: () => boolean };
-const onboardProviders = require("../../onboard-providers");
+const onboardProviders = require("../../onboard/providers");
 import * as policies from "../../policies";
 import { parsePolicyAddArgs } from "../../domain/policy-channel";
 import * as registry from "../../state/registry";

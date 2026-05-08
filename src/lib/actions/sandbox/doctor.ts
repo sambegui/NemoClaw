@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/* v8 ignore start -- exercised through CLI subprocess doctor tests. */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -10,8 +9,8 @@ import path from "node:path";
 import { CLI_DISPLAY_NAME, CLI_NAME } from "../../cli/branding";
 import { isErrnoException } from "../../core/errno";
 import { recoverNamedGatewayRuntime } from "../../gateway-runtime-action";
-import { probeProviderHealth } from "../../inference-health";
-import { parseGatewayInference } from "../../inference-config";
+import { probeProviderHealth } from "../../inference/health";
+import { parseGatewayInference } from "../../inference/config";
 import { stripAnsi } from "../../adapters/openshell/client";
 import { captureOpenshell } from "../../adapters/openshell/runtime";
 import { OPENSHELL_PROBE_TIMEOUT_MS } from "../../adapters/openshell/timeouts";
