@@ -142,7 +142,7 @@ describe("buildRecoveryScript", () => {
       expect(script).toContain("_DISCORD_FACADE_LOG='/tmp/discord-facade-recovery.log'");
       expect(script).toContain('DISCORD_FACADE_LOG="$_DISCORD_FACADE_LOG"');
       expect(script).toContain(
-        'sh -c \'umask 0007; exec "$@" >>"$DISCORD_FACADE_LOG" 2>&1\' sh python3 /usr/local/bin/nemoclaw-discord-facade &',
+        'sh -c \'umask 0007; exec "$@" >>"$DISCORD_FACADE_LOG" 2>&1\' sh /opt/hermes/.venv/bin/python /usr/local/bin/nemoclaw-discord-facade &',
       );
       expect(script).not.toContain(
         "nohup python3 /usr/local/bin/nemoclaw-discord-facade >/tmp/discord-facade.log 2>&1",
