@@ -227,4 +227,3 @@ describe("waitForGatewayHttpReady (#3258)", () => {
     expect(sleeps).toEqual([]);
   });
 });
-
