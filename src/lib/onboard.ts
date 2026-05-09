@@ -3488,13 +3488,17 @@ type WaitForGatewayHttpReadyOpts = {
 };
 
 /**
- * Resolve poll count and interval (seconds) for the reuse-time gateway HTTP
- * readiness wait. Defaults are tighter than the startup health wait because
- * reuse only needs to verify a previously-warm gateway is still serving —
- * not wait for a cold k3s cluster to come up.
- *
- * Override via `NEMOCLAW_REUSE_HEALTH_POLL_COUNT` and
+ * Resolve raw poll count and interval (seconds) for the reuse-time gateway
+ * HTTP readiness wait, from `NEMOCLAW_REUSE_HEALTH_POLL_COUNT` and
  * `NEMOCLAW_REUSE_HEALTH_POLL_INTERVAL`.
+ *
+ * Defaults are tighter than the startup health wait because reuse only needs
+ * to verify a previously-warm gateway is still serving — not wait for a cold
+ * k3s cluster to come up.
+ *
+ * The values are normalised in `waitForGatewayHttpReady`, not here, so the
+ * consumer-layer guards (probe at least once; non-negative interval) cover
+ * both env-derived and caller-supplied options uniformly.
  */
 function getGatewayReuseHealthWaitConfig(): { count: number; interval: number } {
   return {
@@ -3525,10 +3529,16 @@ const GATEWAY_HTTP_ALIVE_CODES = new Set<number>([200, 401]);
  *
  * `url` is overridable for unit tests; production callers use the default.
  */
+const ISGATEWAY_HTTP_READY_DEFAULT_TIMEOUT_MS = 3000;
+
 function isGatewayHttpReady(
-  timeoutMs = 3000,
+  timeoutMs = ISGATEWAY_HTTP_READY_DEFAULT_TIMEOUT_MS,
   url = `http://127.0.0.1:${GATEWAY_PORT}/`,
 ): Promise<boolean> {
+  const effectiveTimeout =
+    Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.round(timeoutMs)
+      : ISGATEWAY_HTTP_READY_DEFAULT_TIMEOUT_MS;
   const http = require("http");
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -3544,7 +3554,7 @@ function isGatewayHttpReady(
         settle(GATEWAY_HTTP_ALIVE_CODES.has(code));
       })
       .on("error", () => settle(false));
-    request.setTimeout(timeoutMs, () => {
+    request.setTimeout(effectiveTimeout, () => {
       request.destroy();
       settle(false);
     });
@@ -3571,12 +3581,15 @@ async function waitForGatewayHttpReady(
   const probe = opts.probe ?? (() => isGatewayHttpReady());
   const sleeper = opts.sleeper ?? sleep;
   const config = getGatewayReuseHealthWaitConfig();
-  const maxAttempts = opts.maxAttempts ?? config.count;
-  const intervalSeconds = opts.intervalSeconds ?? config.interval;
+  // Always probe at least once, even if the caller passed a non-positive
+  // maxAttempts. Negative or non-finite intervals fall back to no sleep.
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? config.count);
+  const intervalSeconds = Math.max(0, opts.intervalSeconds ?? config.interval);
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  if (await probe()) return true;
+  for (let attempt = 1; attempt < maxAttempts; attempt++) {
+    sleeper(intervalSeconds);
     if (await probe()) return true;
-    if (attempt < maxAttempts - 1) sleeper(intervalSeconds);
   }
   return false;
 }

@@ -100,6 +100,15 @@ describe("getGatewayReuseHealthWaitConfig (#3258)", () => {
     process.env.NEMOCLAW_REUSE_HEALTH_POLL_INTERVAL = "";
     expect(getGatewayReuseHealthWaitConfig()).toEqual({ count: 6, interval: 5 });
   });
+
+  it("returns env values unclamped — normalisation is the consumer's job", () => {
+    // The wait helper applies `Math.max(1, count)` and `Math.max(0, interval)`,
+    // covering both env-derived and caller-supplied values in one place. The
+    // config function itself just reads the env.
+    process.env.NEMOCLAW_REUSE_HEALTH_POLL_COUNT = "0";
+    process.env.NEMOCLAW_REUSE_HEALTH_POLL_INTERVAL = "0";
+    expect(getGatewayReuseHealthWaitConfig()).toEqual({ count: 0, interval: 0 });
+  });
 });
 
 describe("isGatewayHttpReady status-code semantics (#3258)", () => {
@@ -153,6 +162,20 @@ describe("isGatewayHttpReady status-code semantics (#3258)", () => {
     // guaranteed unreachable — more deterministic than relying on port 1.
     const url = await getClosedLocalUrl();
     expect(await isGatewayHttpReady(2000, url)).toBe(false);
+  });
+
+  it("falls back to the default timeout when given a non-positive value", async () => {
+    // A non-positive timeoutMs must not cause the request to be torn down
+    // immediately — the helper falls back to the safe default and lets the
+    // probe complete normally against a healthy server.
+    const server = await startStatusServer(200);
+    try {
+      for (const bad of [0, -1, Number.NaN]) {
+        expect(await isGatewayHttpReady(bad, server.url)).toBe(true);
+      }
+    } finally {
+      await server.close();
+    }
   });
 });
 
@@ -225,5 +248,24 @@ describe("waitForGatewayHttpReady (#3258)", () => {
     expect(result).toBe(false);
     expect(calls).toBe(1);
     expect(sleeps).toEqual([]);
+  });
+
+  it("always probes at least once even when maxAttempts is 0 or negative", async () => {
+    for (const bad of [0, -1, -100]) {
+      let calls = 0;
+      const sleeps: number[] = [];
+      const result = await waitForGatewayHttpReady({
+        probe: async () => {
+          calls += 1;
+          return false;
+        },
+        sleeper: (s: number) => sleeps.push(s),
+        maxAttempts: bad,
+        intervalSeconds: 5,
+      });
+      expect(result).toBe(false);
+      expect(calls).toBe(1);
+      expect(sleeps).toEqual([]);
+    }
   });
 });
