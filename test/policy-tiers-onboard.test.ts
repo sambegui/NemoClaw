@@ -289,7 +289,7 @@ console.log = (...args) => lines.push(args.join(" "));
   });
 
   it("omits Brave from policy preset selection when web search is unsupported", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
@@ -330,7 +330,7 @@ console.log = () => {};
   });
 
   it("removes a previously-applied Brave preset when web search is unsupported", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
@@ -376,7 +376,7 @@ console.log = () => {};
   });
 
   it("clamps resumed policy presets to web-search-supported presets", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
@@ -416,7 +416,7 @@ console.log = () => {};
   });
 
   it("clamps an unsupported-only resumed policy preset list to empty", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
@@ -456,7 +456,7 @@ console.log = () => {};
   });
 
   it("preserves a resumed custom preset whose name matches an unsupported built-in", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
@@ -497,7 +497,7 @@ console.log = () => {};
   });
 
   it("preserves a non-interactive custom preset whose name matches an unsupported built-in", () => {
-    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policies.js"));
+    const policiesPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "index.js"));
     const script =
       buildPreamble({
         tierEnv: "balanced",
