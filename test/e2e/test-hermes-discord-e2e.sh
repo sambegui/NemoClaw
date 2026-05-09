@@ -90,6 +90,7 @@ dump_hermes_discord_diagnostics() {
   diag_script='set +e'
   diag_script+='; echo "== hermes config =="; sed -n "1,120p" /sandbox/.hermes/config.yaml 2>&1 || true'
   diag_script+='; echo "== hermes env keys =="; cut -d= -f1 /sandbox/.hermes/.env 2>&1 || true'
+  diag_script+='; echo "== hermes runtime status =="; cat /sandbox/.hermes/gateway_state.json 2>&1 || true'
   diag_script+='; echo "== hermes health =="; curl -sf http://localhost:8642/health 2>&1 || true'
   diag_script+='; echo "== hermes-related processes =="'
   # shellcheck disable=SC2016  # script is intentionally evaluated inside the sandbox
@@ -606,19 +607,47 @@ fi
 
 section "Phase 7: Discord gateway auth boundary"
 
-gateway_auth_log=""
+gateway_connected_status=""
 for gw_attempt in $(seq 1 10); do
-  gateway_auth_log=$(sandbox_exec "grep -E 'Connected as ' /tmp/gateway.log 2>/dev/null | tail -1 || true")
-  [ -n "$gateway_auth_log" ] && break
+  gateway_connected_status=$(
+    sandbox_exec_stdin 'python3 -' <<'PY'
+import json
+from pathlib import Path
+
+path = Path("/sandbox/.hermes/gateway_state.json")
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    print("MISSING /sandbox/.hermes/gateway_state.json")
+except Exception as exc:
+    print(f"ERROR reading gateway_state.json: {type(exc).__name__}: {exc}")
+else:
+    platforms = payload.get("platforms") if isinstance(payload, dict) else {}
+    discord = platforms.get("discord") if isinstance(platforms, dict) else {}
+    if isinstance(discord, dict) and discord.get("state") == "connected":
+        print("CONNECTED")
+    else:
+        print(json.dumps(
+            {
+                "gateway_state": payload.get("gateway_state") if isinstance(payload, dict) else None,
+                "discord": discord if isinstance(discord, dict) else None,
+            },
+            sort_keys=True,
+        ))
+PY
+  )
+  [ "$gateway_connected_status" = "CONNECTED" ] && break
   if [ "$gw_attempt" -lt 10 ]; then
-    info "Gateway auth log check attempt ${gw_attempt}/10 - waiting 3s..."
+    info "Gateway runtime status check attempt ${gw_attempt}/10 - waiting 3s..."
     sleep 3
   fi
 done
-if [ -n "$gateway_auth_log" ]; then
+if [ "$gateway_connected_status" = "CONNECTED" ]; then
   pass "Hermes Discord gateway reached READY through the fake local Gateway"
 else
+  info "Hermes Discord runtime status: ${gateway_connected_status:0:400}"
   fail "Hermes Discord gateway did not reach READY through the fake local Gateway"
+  dump_hermes_discord_diagnostics
 fi
 
 section "Phase 8: Cleanup"
