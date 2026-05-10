@@ -979,6 +979,17 @@ No label applied. Will re-verify automatically next weekly run; if a fix lands i
 
 The trailing HTML comment is the **idempotency marker** Step 3 looks for. Always include today's date in `YYYY-MM-DD` format so the candidate filter can apply the 7-day TTL.
 
+**Pre-post state-check.** A long-running verification can race with the maintainer closing the issue independently — happened on #2513 and #2519 (mid-batch closes by @jyaunches with their own verification). Re-check `state == OPEN` right before posting. If closed, apply the label tag-only (skipping the comment, since the maintainer's own close-comment is now the authoritative record) and skip the Project 199 move.
+
+```bash
+STATE=$(gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json state --jq .state)
+if [ "$STATE" != "OPEN" ]; then
+  echo "[verify-stale] #$ISSUE_NUMBER closed since verification started — applying label tag-only, skipping comment + tracker move"
+  gh issue edit "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --add-label "$LABEL"
+  exit 0
+fi
+```
+
 **Post the comment and apply the label:**
 
 ```bash
