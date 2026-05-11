@@ -21,6 +21,8 @@ const {
   secureTempFile,
 }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
 const {
+  buildDirectGpuPolicyYaml,
+  buildDirectSandboxGpuProofCommands,
   prepareInitialSandboxCreatePolicy,
 }: typeof import("./onboard/initial-policy") = require("./onboard/initial-policy");
 const crypto = require("node:crypto");
@@ -43,16 +45,22 @@ const {
   dockerContainerInspectFormat,
   dockerExecArgv,
   dockerImageInspect,
-  dockerImageInspectFormat,
   dockerInfo,
   dockerInfoFormat,
   dockerInspect,
-  dockerPull,
   dockerRemoveVolumesByPrefix,
   dockerRm,
   dockerRmi,
   dockerStop,
 } = docker;
+const sandboxBaseImage: typeof import("./sandbox-base-image") = require("./sandbox-base-image");
+const {
+  OPENCLAW_SANDBOX_BASE_IMAGE: SANDBOX_BASE_IMAGE,
+  SANDBOX_BASE_TAG,
+  defaultOpenclawBaseDockerfile,
+  buildLocalBaseTag,
+  resolveSandboxBaseImage,
+} = sandboxBaseImage;
 const errnoUtils: typeof import("./core/errno") = require("./core/errno");
 const { isErrnoException } = errnoUtils;
 
@@ -131,6 +139,7 @@ const {
 } = inferenceConfig;
 
 const onboardProviders = require("./onboard/providers");
+const hermesProviderAuth = require("./hermes-provider-auth");
 
 const CUSTOM_BUILD_CONTEXT_WARN_BYTES = 100_000_000;
 const CUSTOM_BUILD_CONTEXT_IGNORES = new Set([
@@ -294,6 +303,7 @@ const webSearch: typeof import("./inference/web-search") = require("./inference/
 
 import type { AgentDefinition } from "./agent/defs";
 import type { CurlProbeResult } from "./adapters/http/probe";
+import type { GatewayReuseState } from "./state/gateway";
 import type { GatewayInference, ProviderSelectionConfig } from "./inference/config";
 import type { GpuInfo, ValidationResult } from "./inference/local";
 import {
@@ -334,6 +344,12 @@ const GATEWAY_BOOTSTRAP_SECRET_NAMES = [
   "openshell-ssh-handshake",
 ];
 const BACK_TO_SELECTION = "__NEMOCLAW_BACK_TO_SELECTION__";
+type HermesAuthMethod = "oauth" | "api_key";
+const HERMES_AUTH_METHOD_OAUTH: HermesAuthMethod = "oauth";
+const HERMES_AUTH_METHOD_API_KEY: HermesAuthMethod = "api_key";
+const HERMES_NOUS_API_KEY_CREDENTIAL_ENV =
+  hermesProviderAuth.HERMES_NOUS_API_KEY_CREDENTIAL_ENV || "NOUS_API_KEY";
+const HERMES_NOUS_API_KEY_HELP_URL = "https://portal.nousresearch.com/manage-subscription";
 
 /**
  * Probe whether the gateway Docker container is actually running.
@@ -387,6 +403,8 @@ type OnboardOptions = {
   fresh?: boolean;
   fromDockerfile?: string | null;
   sandboxName?: string | null;
+  sandboxGpu?: "enable" | "disable" | null;
+  sandboxGpuDevice?: string | null;
   acceptThirdPartySoftware?: boolean;
   agent?: string | null;
   controlUiPort?: number | null;
@@ -790,6 +808,8 @@ function getBlueprintMinOpenshellVersion(rootDir = ROOT): string | null {
 function getBlueprintMaxOpenshellVersion(rootDir = ROOT): string | null {
   return getBlueprintVersionField("max_openshell_version", rootDir);
 }
+
+type OpenshellChannel = "stable" | "dev" | "auto";
 
 /**
  * Load a named inference profile and router config from blueprint.yaml.
@@ -1296,49 +1316,272 @@ async function reconcileModelRouter(): Promise<void> {
   });
 }
 
-// ── Base image digest resolution ────────────────────────────────
-// Pulls the sandbox-base image from GHCR and inspects it to get the
-// actual repo digest. This avoids the registry mismatch that broke
-// e2e tests in #1937 — the digest always comes from the same registry
-// we're pinning to. See #1904.
+function getOpenshellChannel(env: NodeJS.ProcessEnv = process.env): OpenshellChannel {
+  const raw = String(env.NEMOCLAW_OPENSHELL_CHANNEL || "auto")
+    .trim()
+    .toLowerCase();
+  if (raw === "stable" || raw === "dev" || raw === "auto") return raw;
+  return "auto";
+}
 
-const SANDBOX_BASE_IMAGE = "ghcr.io/nvidia/nemoclaw/sandbox-base";
-const SANDBOX_BASE_TAG = "latest";
+function shouldUseOpenshellDevChannel(
+  _platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const channel = getOpenshellChannel(env);
+  return channel === "dev";
+}
+
+function isOpenshellDevVersion(versionOutput: string | null | undefined): boolean {
+  return /\bdev[0-9.]*/i.test(String(versionOutput || ""));
+}
+
+function shouldAllowOpenshellAboveBlueprintMax(
+  versionOutput: string | null | undefined,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return shouldUseOpenshellDevChannel(platform, env) && isOpenshellDevVersion(versionOutput);
+}
+
+type SandboxGpuMode = "auto" | "1" | "0";
+type SandboxGpuFlag = "enable" | "disable" | null;
+
+type SandboxGpuConfig = {
+  mode: SandboxGpuMode;
+  hostGpuDetected: boolean;
+  sandboxGpuEnabled: boolean;
+  sandboxGpuDevice: string | null;
+  errors: string[];
+};
+
+type ResumeSandboxGpuOverrides = {
+  flag: SandboxGpuFlag;
+  device: string | null;
+};
+
+function isNvidiaGpuDetected(gpu: ReturnType<typeof nim.detectGpu>): boolean {
+  return Boolean(gpu && gpu.type === "nvidia");
+}
+
+function normalizeSandboxGpuMode(value: string | null | undefined): SandboxGpuMode | null {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!raw) return null;
+  if (raw === "auto") return "auto";
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "on") return "1";
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return "0";
+  return null;
+}
+
+function resolveSandboxGpuConfig(
+  gpu: ReturnType<typeof nim.detectGpu>,
+  options: {
+    flag?: SandboxGpuFlag;
+    device?: string | null;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): SandboxGpuConfig {
+  const env = options.env ?? process.env;
+  const errors: string[] = [];
+  const envModeRaw = env.NEMOCLAW_SANDBOX_GPU;
+  const envMode = normalizeSandboxGpuMode(envModeRaw);
+  if (envModeRaw !== undefined && envMode === null) {
+    errors.push("NEMOCLAW_SANDBOX_GPU must be one of: auto, 1, 0.");
+  }
+
+  let mode: SandboxGpuMode = envMode ?? "auto";
+  if (options.flag === "enable") mode = "1";
+  if (options.flag === "disable") mode = "0";
+
+  const device = (options.device ?? env.NEMOCLAW_SANDBOX_GPU_DEVICE ?? "").trim() || null;
+  if (device && mode === "0") {
+    errors.push("NEMOCLAW_SANDBOX_GPU_DEVICE cannot be used when sandbox GPU mode is 0.");
+  }
+  if (device && options.flag !== "disable" && envMode !== "0") {
+    mode = "1";
+  }
+
+  const hostGpuDetected = isNvidiaGpuDetected(gpu);
+  if (mode === "1" && !hostGpuDetected) {
+    errors.push("Sandbox GPU was requested, but no NVIDIA GPU was detected on the host.");
+  }
+
+  return {
+    mode,
+    hostGpuDetected,
+    sandboxGpuEnabled: mode === "1" || (mode === "auto" && hostGpuDetected),
+    sandboxGpuDevice: device,
+    errors,
+  };
+}
+
+function resolveSandboxGpuFlagFromOptions(
+  opts: Pick<OnboardOptions, "sandboxGpu" | "gpu" | "noGpu">,
+): SandboxGpuFlag {
+  const requestedGpuPassthrough = opts.gpu === true;
+  const optedOutGpuPassthrough = opts.noGpu === true;
+  const sandboxGpuFlag = opts.sandboxGpu ?? null;
+  if (requestedGpuPassthrough && optedOutGpuPassthrough) {
+    console.error("  --gpu and --no-gpu cannot both be set.");
+    process.exit(1);
+  }
+  if (
+    (requestedGpuPassthrough && sandboxGpuFlag === "disable") ||
+    (optedOutGpuPassthrough && sandboxGpuFlag === "enable")
+  ) {
+    console.error("  --gpu/--no-gpu conflict with the sandbox GPU flags.");
+    process.exit(1);
+  }
+  if (sandboxGpuFlag) return sandboxGpuFlag;
+  if (requestedGpuPassthrough) return "enable";
+  if (optedOutGpuPassthrough) return "disable";
+  return null;
+}
+
+function getResumeSandboxGpuOverrides(
+  entry: Pick<SandboxEntry, "sandboxGpuMode" | "sandboxGpuDevice"> | null | undefined,
+  sessionGpuPassthrough: boolean | undefined,
+): ResumeSandboxGpuOverrides {
+  const recordedMode = normalizeSandboxGpuMode(entry?.sandboxGpuMode);
+  if (recordedMode === "1") {
+    return { flag: "enable", device: entry?.sandboxGpuDevice || null };
+  }
+  if (recordedMode === "0") {
+    return { flag: "disable", device: null };
+  }
+  if (recordedMode === "auto") {
+    return { flag: null, device: null };
+  }
+  if (sessionGpuPassthrough === true) {
+    return { flag: "enable", device: entry?.sandboxGpuDevice || null };
+  }
+  return { flag: null, device: null };
+}
+
+function buildSandboxGpuCreateArgs(config: SandboxGpuConfig): string[] {
+  if (!config.sandboxGpuEnabled) return [];
+  const args = ["--gpu"];
+  if (config.sandboxGpuDevice) {
+    args.push("--gpu-device", config.sandboxGpuDevice);
+  }
+  return args;
+}
+
+function parseDockerCdiSpecDirs(value: string | null | undefined): string[] {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "<no value>") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return raw
+      .split(/[\s,]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+}
+
+function getDockerCdiSpecDirs(): string[] {
+  return parseDockerCdiSpecDirs(
+    dockerInfoFormat("{{json .CDISpecDirs}}", { ignoreError: true }),
+  );
+}
+
+function isLikelyNvidiaCdiSpecFile(filePath: string): boolean {
+  if (!/\.(json|ya?ml)$/i.test(filePath)) return false;
+  let stat: import("fs").Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return false;
+  }
+  if (!stat.isFile()) return false;
+
+  let content = "";
+  try {
+    content = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return false;
+  }
+  return /nvidia\.com\/gpu|nvidia-container|libcuda|cuda/i.test(content);
+}
+
+function findReadableNvidiaCdiSpecFiles(dirs: string[]): string[] {
+  const specs: string[] = [];
+  for (const dir of dirs) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const candidate = path.join(dir, entry);
+      if (isLikelyNvidiaCdiSpecFile(candidate)) specs.push(candidate);
+    }
+  }
+  return specs.sort();
+}
+
+function sandboxGpuRemediationLines(): string[] {
+  return [
+    "Install/configure NVIDIA Container Toolkit CDI, then restart Docker:",
+    "  sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
+    "  sudo systemctl restart docker",
+    "Or force CPU sandbox behavior with NEMOCLAW_SANDBOX_GPU=0.",
+  ];
+}
+
+function validateSandboxGpuPreflight(config: SandboxGpuConfig): void {
+  if (config.errors.length > 0) {
+    console.error("");
+    for (const error of config.errors) console.error(`  ✗ ${error}`);
+    process.exit(1);
+  }
+  if (!config.sandboxGpuEnabled) return;
+  if (!isLinuxDockerDriverGatewayEnabled()) return;
+
+  const cdiSpecDirs = getDockerCdiSpecDirs();
+  const cdiSpecFiles = findReadableNvidiaCdiSpecFiles(cdiSpecDirs);
+  if (cdiSpecFiles.length === 0) {
+    console.error("");
+    console.error("  ✗ Docker CDI GPU support was not detected.");
+    for (const line of sandboxGpuRemediationLines()) {
+      console.error(`    ${line}`);
+    }
+    process.exit(1);
+  }
+  console.log(`  ✓ Docker CDI GPU support detected (${cdiSpecFiles.join(", ")})`);
+}
+
+// ── Base image resolution ───────────────────────────────────────
+// Pulls candidate sandbox-base images from GHCR and inspects them to get the
+// actual repo digest when available. This avoids the registry mismatch that
+// broke e2e tests in #1937 while still allowing PR branches to use a source-SHA
+// base image or local build before latest has been rebuilt. See #1904.
 
 /**
- * Pull sandbox-base:latest from GHCR and resolve its repo digest.
- * Returns { digest, ref } on success, or null when the pull or
- * inspect fails (offline, GHCR outage, local-only build).
+ * Resolve a compatible sandbox-base image and pin it to a repo digest when
+ * possible. PR-branch validation first tries a source-SHA tag, then latest,
+ * and finally a local Dockerfile.base build when the OpenShell Docker driver
+ * requires a newer glibc than the published image provides.
  */
-function pullAndResolveBaseImageDigest(): { digest: string; ref: string } | null {
-  const imageWithTag = `${SANDBOX_BASE_IMAGE}:${SANDBOX_BASE_TAG}`;
-  const pullResult = dockerPull(imageWithTag, { ignoreError: true, suppressOutput: true });
-  if (pullResult.status !== 0) {
-    // Pull failed — caller should fall back to unpin :latest
-    return null;
-  }
-
-  const inspectOutput = dockerImageInspectFormat("{{json .RepoDigests}}", imageWithTag, {
-    ignoreError: true,
+function pullAndResolveBaseImageDigest(
+  options: { requireOpenshellSandboxAbi?: boolean } = {},
+): { digest: string | null; ref: string; source?: string; glibcVersion?: string | null } | null {
+  return resolveSandboxBaseImage({
+    imageName: SANDBOX_BASE_IMAGE,
+    dockerfilePath: defaultOpenclawBaseDockerfile(ROOT),
+    localTag: buildLocalBaseTag("nemoclaw-sandbox-base-local", ROOT),
+    envVar: "NEMOCLAW_SANDBOX_BASE_IMAGE_REF",
+    label: "OpenClaw sandbox base image",
+    requireOpenshellSandboxAbi: options.requireOpenshellSandboxAbi === true,
+    rootDir: ROOT,
   });
-  if (!inspectOutput) return null;
-
-  // RepoDigests is a JSON array like ["ghcr.io/nvidia/nemoclaw/sandbox-base@sha256:abc..."].
-  // Filter to the entry matching our registry — index ordering is not guaranteed.
-  let repoDigests;
-  try {
-    repoDigests = JSON.parse(inspectOutput || "[]");
-  } catch {
-    return null;
-  }
-  const repoDigest = Array.isArray(repoDigests)
-    ? repoDigests.find((entry) => entry.startsWith(`${SANDBOX_BASE_IMAGE}@sha256:`))
-    : null;
-  if (!repoDigest) return null;
-
-  const digest = repoDigest.slice(repoDigest.indexOf("@") + 1);
-  const ref = `${SANDBOX_BASE_IMAGE}@${digest}`;
-  return { digest, ref };
 }
 
 function getStableGatewayImageRef(versionOutput: string | null = null): string | null {
@@ -1456,6 +1699,135 @@ function getNavigationChoice(value = ""): "back" | "exit" | null {
 function exitOnboardFromPrompt(): never {
   console.log("  Exiting onboarding.");
   process.exit(1);
+}
+
+function normalizeHermesAuthMethod(value: string | null | undefined): HermesAuthMethod | null {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (normalized === "oauth" || normalized === "nous_oauth" || normalized === "nous_portal_oauth") {
+    return HERMES_AUTH_METHOD_OAUTH;
+  }
+  if (
+    normalized === "api" ||
+    normalized === "key" ||
+    normalized === "api_key" ||
+    normalized === "apikey" ||
+    normalized === "nous_api_key"
+  ) {
+    return HERMES_AUTH_METHOD_API_KEY;
+  }
+  return null;
+}
+
+function hermesAuthMethodLabel(method: HermesAuthMethod | null | undefined): string {
+  return method === HERMES_AUTH_METHOD_API_KEY ? "Nous API Key" : "Nous Portal OAuth";
+}
+
+function getRequestedHermesAuthMethod(): HermesAuthMethod | null {
+  const raw =
+    process.env.NEMOCLAW_HERMES_AUTH_METHOD ||
+    process.env.NEMOCLAW_HERMES_AUTH ||
+    process.env.NEMOCLAW_NOUS_AUTH_METHOD ||
+    "";
+  const method = normalizeHermesAuthMethod(raw);
+  if (!raw || method) return method;
+  console.error(`  Unsupported Hermes Provider auth method: ${raw}`);
+  console.error("  Valid values: oauth, nous-portal-oauth, api-key, nous-api-key");
+  process.exit(1);
+}
+
+async function promptHermesAuthMethod(): Promise<HermesAuthMethod | typeof BACK_TO_SELECTION> {
+  const methods: Array<{ key: HermesAuthMethod; label: string }> = [
+    { key: HERMES_AUTH_METHOD_OAUTH, label: "Nous Portal OAuth (authenticate via browser)" },
+    {
+      key: HERMES_AUTH_METHOD_API_KEY,
+      label: "Nous API Key (paste a key from the provider dashboard)",
+    },
+  ];
+  const requested = getRequestedHermesAuthMethod();
+  if (isNonInteractive()) {
+    const method =
+      requested ||
+      (resolveHermesNousApiKey()
+        ? HERMES_AUTH_METHOD_API_KEY
+        : HERMES_AUTH_METHOD_OAUTH);
+    note(`  [non-interactive] Hermes auth: ${hermesAuthMethodLabel(method)}`);
+    return method;
+  }
+
+  console.log("");
+  console.log("  Hermes Provider authentication:");
+  methods.forEach((method, index) => {
+    console.log(`    ${index + 1}) ${method.label}`);
+  });
+  console.log("");
+
+  const defaultIdx = (requested ? methods.findIndex((method) => method.key === requested) : 0) + 1;
+  const choice = await prompt(`  Choose [${defaultIdx}]: `);
+  const navigation = getNavigationChoice(choice);
+  if (navigation === "back") return BACK_TO_SELECTION;
+  if (navigation === "exit") exitOnboardFromPrompt();
+  const idx = parseInt(choice || String(defaultIdx), 10) - 1;
+  return methods[idx]?.key || methods[defaultIdx - 1]?.key || HERMES_AUTH_METHOD_OAUTH;
+}
+
+function resolveHermesNousApiKey(): string | null {
+  return (
+    // check-direct-credential-env-ignore -- Hermes Provider API keys are read only from the invoking shell for OpenShell provider registration; do not resolve host credentials.json.
+    normalizeCredentialValue(process.env[HERMES_NOUS_API_KEY_CREDENTIAL_ENV]) ||
+    normalizeCredentialValue(process.env.NEMOCLAW_PROVIDER_KEY) ||
+    null
+  );
+}
+
+function stageNousApiKeyProviderEnv(): void {
+  const key = resolveHermesNousApiKey();
+  if (key) {
+    process.env[HERMES_NOUS_API_KEY_CREDENTIAL_ENV] = key;
+  }
+}
+
+async function ensureHermesNousApiKeyEnv(): Promise<string> {
+  const existing = resolveHermesNousApiKey();
+  if (existing) {
+    process.env[HERMES_NOUS_API_KEY_CREDENTIAL_ENV] = existing;
+    return existing;
+  }
+  console.log("");
+  console.log("  Hermes Provider Nous API Key");
+  console.log(`  Create or copy a key from ${HERMES_NOUS_API_KEY_HELP_URL}`);
+  const key = normalizeCredentialValue(
+    await prompt("  Nous API Key: ", {
+      secret: true,
+    }),
+  );
+  const validationError = validateNvidiaApiKeyValue(key, HERMES_NOUS_API_KEY_CREDENTIAL_ENV);
+  if (validationError) {
+    console.error(validationError);
+    process.exit(1);
+  }
+  process.env[HERMES_NOUS_API_KEY_CREDENTIAL_ENV] = key;
+  return key;
+}
+
+async function selectOnboardAgent({
+  agentFlag = null,
+  session = null,
+}: {
+  agentFlag?: string | null;
+  session?: { agent?: string | null } | null;
+  resume?: boolean;
+  canPrompt?: boolean;
+} = {}): Promise<AgentDefinition | null> {
+  const agent = agentOnboard.resolveAgent({ agentFlag, session });
+  if (isNonInteractive()) {
+    const displayName = agent?.displayName || agentDefs.loadAgent("openclaw").displayName;
+    note(`  [non-interactive] Agent: ${displayName}`);
+  }
+  return agent;
 }
 
 const { getTransportRecoveryMessage, getProbeRecovery } = validationRecovery;
@@ -1715,6 +2087,30 @@ type SelectionDrift = {
   existingModel: string | null;
   unknown: boolean;
 };
+
+function verifyDirectSandboxGpu(sandboxName: string): void {
+  console.log("  Verifying direct sandbox GPU access...");
+  for (const proof of buildDirectSandboxGpuProofCommands(sandboxName)) {
+    const result = runOpenshell(proof.args, {
+      ignoreError: true,
+      suppressOutput: true,
+      timeout: 30_000,
+    });
+    if (result.status === 0) {
+      console.log(`  ✓ GPU proof passed: ${proof.label}`);
+      continue;
+    }
+    const diagnostic = compactText(redact(`${result.stderr || ""} ${result.stdout || ""}`));
+    console.error(`  ✗ GPU proof failed: ${proof.label}`);
+    if (diagnostic) console.error(`    ${diagnostic.slice(0, 300)}`);
+    for (const line of sandboxGpuRemediationLines()) {
+      console.error(`    ${line}`);
+    }
+    const statusText = String(result.status || 1);
+    const diagnosticSuffix = diagnostic ? `: ${diagnostic.slice(0, 300)}` : "";
+    throw new Error(`GPU proof failed: ${proof.label} (status ${statusText})${diagnosticSuffix}`);
+  }
+}
 
 function upsertMessagingProviders(tokenDefs: MessagingTokenDef[]) {
   const upserted = onboardProviders.upsertMessagingProviders(tokenDefs, runOpenshell);
@@ -2886,6 +3282,7 @@ async function validateCustomAnthropicSelection(
 
 const { promptManualModelId, promptCloudModel, promptRemoteModel, promptInputModel } = modelPrompts;
 const { validateAnthropicModel, validateOpenAiLikeModel } = providerModels;
+const nousModels: typeof import("./inference/nous-models") = require("./inference/nous-models");
 
 // Build context helpers — delegated to src/lib/build-context.ts
 const { shouldIncludeBuildContextPath, copyBuildContextDir, printSandboxCreateRecoveryHints } =
@@ -3108,17 +3505,131 @@ function sleep(seconds: number): void {
   sleepSeconds(seconds);
 }
 
-function destroyGateway() {
-  const destroyResult = runOpenshell(["gateway", "destroy", "-g", GATEWAY_NAME], {
+function runQuietOpenshell(args: string[]) {
+  return runOpenshell(args, {
     ignoreError: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    suppressOutput: true,
   });
+}
+
+function removeDockerDriverGatewayRegistration(): boolean {
+  const removeResult = runQuietOpenshell(["gateway", "remove", GATEWAY_NAME]);
+  if (removeResult.status === 0) return true;
+
+  // OpenShell dev builds before NVIDIA/OpenShell#1221 used `gateway destroy`
+  // for local metadata cleanup. Post-#1221 builds removed lifecycle verbs and
+  // use `gateway remove` instead, so keep both forms quiet and best-effort.
+  const destroyResult = runQuietOpenshell(["gateway", "destroy", "-g", GATEWAY_NAME]);
+  return destroyResult.status === 0;
+}
+
+function terminateDockerDriverGatewayProcess(pid: number): boolean {
+  if (!isPidAlive(pid)) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 10; i += 1) {
+      if (!isPidAlive(pid)) break;
+      sleep(1);
+    }
+    if (isPidAlive(pid)) process.kill(pid, "SIGKILL");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stopDockerDriverGatewayProcess(): boolean {
+  const pid = getDockerDriverGatewayPid();
+  if (pid === null || !isPidAlive(pid)) {
+    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    return false;
+  }
+  if (!isDockerDriverGatewayProcess(pid, resolveOpenShellGatewayBinary())) {
+    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    return false;
+  }
+
+  const stopped = terminateDockerDriverGatewayProcess(pid);
+  fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+  return stopped;
+}
+
+function restartDockerDriverGatewayProcessForDrift(pid: number, reason: string): void {
+  console.log(`  Existing OpenShell Docker-driver gateway is stale (${reason}); restarting...`);
+  terminateDockerDriverGatewayProcess(pid);
+  fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+}
+
+async function refreshDockerDriverGatewayReuseState(
+  gatewayReuseState: GatewayReuseState,
+): Promise<GatewayReuseState> {
+  if (!isLinuxDockerDriverGatewayEnabled() || gatewayReuseState !== "healthy") {
+    return gatewayReuseState;
+  }
+  const gatewayBin = resolveOpenShellGatewayBinary();
+  const desiredEnv = getDockerDriverGatewayEnv(
+    runCaptureOpenshell(["--version"], { ignoreError: true }),
+  );
+  const pid = getDockerDriverGatewayPid();
+  if (pid !== null && isDockerDriverGatewayProcessAlive()) {
+    const drift = getDockerDriverGatewayRuntimeDrift(pid, desiredEnv, gatewayBin);
+    if (drift) {
+      console.log(
+        `  Existing OpenShell Docker-driver gateway is stale (${drift.reason}); it will be recreated.`,
+      );
+      return "stale";
+    }
+    return gatewayReuseState;
+  }
+
+  const portCheck = await checkPortAvailable(GATEWAY_PORT);
+  const dockerGatewayPid = getDockerDriverGatewayPortListenerPid(portCheck, {
+    gatewayBin,
+  });
+  if (dockerGatewayPid !== null) {
+    const drift = getDockerDriverGatewayRuntimeDrift(dockerGatewayPid, desiredEnv, gatewayBin);
+    rememberDockerDriverGatewayPid(dockerGatewayPid);
+    if (drift) {
+      console.log(
+        `  Existing OpenShell Docker-driver gateway is stale (${drift.reason}); it will be recreated.`,
+      );
+      return "stale";
+    }
+    return "healthy";
+  }
+
+  // `openshell status` already proved the selected gateway is reachable. If
+  // the port probe cannot identify the owning PID, avoid tearing down a live
+  // gateway solely because the pid file is stale.
+  if (!portCheck.ok && !portCheck.pid) return "healthy";
+
+  return "stale";
+}
+
+function destroyGateway(): boolean {
+  const dockerDriver = isLinuxDockerDriverGatewayEnabled();
+  if (dockerDriver) {
+    stopDockerDriverGatewayProcess();
+  }
+
+  const gatewayRemoved = dockerDriver
+    ? removeDockerDriverGatewayRegistration()
+    : runOpenshell(["gateway", "destroy", "-g", GATEWAY_NAME], {
+        ignoreError: true,
+      }).status === 0;
+
   // Clear the local registry so `nemoclaw list` stays consistent with OpenShell state. (#532)
-  if (destroyResult.status === 0) {
+  if (gatewayRemoved) {
     registry.clearAll();
   }
-  // openshell gateway destroy doesn't remove Docker volumes, which leaves
-  // corrupted cluster state that breaks the next gateway start. Clean them up.
+  // Legacy OpenShell gateway cleanup doesn't remove Docker volumes, which
+  // leaves corrupted cluster state that breaks the next gateway start.
   dockerRemoveVolumesByPrefix(`openshell-cluster-${GATEWAY_NAME}`, { ignoreError: true });
+  return gatewayRemoved;
 }
 
 type FinalGatewayStartFailureOptions = {
@@ -3174,6 +3685,8 @@ function handleFinalGatewayStartFailure({
   printError("    openshell doctor check");
   printError("");
   printError("  If gateway cleanup did not complete, run:");
+  printError(`    openshell gateway remove ${GATEWAY_NAME}`);
+  printError(`    # For OpenShell releases that still expose lifecycle commands:`);
   printError(`    openshell gateway destroy -g ${GATEWAY_NAME}`);
   printError(
     `    docker volume ls -q --filter "name=openshell-cluster-${GATEWAY_NAME}" | xargs -r docker volume rm`,
@@ -3263,6 +3776,392 @@ function captureProcessArgs(pid: number): string {
 
 function getGatewayLocalEndpoint(): string {
   return `https://127.0.0.1:${GATEWAY_PORT}`;
+}
+
+function isLinuxDockerDriverGatewayEnabled(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "linux";
+}
+
+function getDockerDriverGatewayEndpoint(): string {
+  return `http://127.0.0.1:${GATEWAY_PORT}`;
+}
+
+function getDockerDriverGatewayStateDir(): string {
+  const configured = process.env.NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR;
+  if (configured && configured.trim()) return path.resolve(configured.trim());
+  return path.join(os.homedir(), ".local", "state", "nemoclaw", "openshell-docker-gateway");
+}
+
+function getDockerDriverGatewayPidFile(): string {
+  return path.join(getDockerDriverGatewayStateDir(), "openshell-gateway.pid");
+}
+
+function resolveSiblingBinary(binaryName: string): string | null {
+  const openshellBin = OPENSHELL_BIN || resolveOpenshell();
+  if (typeof openshellBin !== "string" || openshellBin.length === 0) return null;
+  const sibling = path.join(path.dirname(openshellBin), binaryName);
+  if (fs.existsSync(sibling)) return sibling;
+  return null;
+}
+
+function resolveOpenShellGatewayBinary(): string | null {
+  const configured = process.env.NEMOCLAW_OPENSHELL_GATEWAY_BIN;
+  if (configured && configured.trim()) return path.resolve(configured.trim());
+  const sibling = resolveSiblingBinary("openshell-gateway");
+  if (sibling) return sibling;
+  for (const candidate of [
+    path.join(os.homedir(), ".local", "bin", "openshell-gateway"),
+    "/usr/local/bin/openshell-gateway",
+    "/usr/bin/openshell-gateway",
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveOpenShellSandboxBinary(): string | null {
+  const configured = process.env.NEMOCLAW_OPENSHELL_SANDBOX_BIN;
+  if (configured && configured.trim()) return path.resolve(configured.trim());
+  const sibling = resolveSiblingBinary("openshell-sandbox");
+  if (sibling) return sibling;
+  for (const candidate of [
+    path.join(os.homedir(), ".local", "bin", "openshell-sandbox"),
+    "/usr/local/bin/openshell-sandbox",
+    "/usr/bin/openshell-sandbox",
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function getOpenShellDockerSupervisorImage(versionOutput: string | null = null): string {
+  if (process.env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE) {
+    return process.env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE;
+  }
+  const installedVersion = getInstalledOpenshellVersion(versionOutput);
+  if (shouldUseOpenshellDevChannel() || isOpenshellDevVersion(versionOutput)) {
+    return "ghcr.io/nvidia/openshell/supervisor:dev";
+  }
+  const supportedVersion = installedVersion ?? getBlueprintMaxOpenshellVersion() ?? "0.0.37";
+  return `ghcr.io/nvidia/openshell/supervisor:${supportedVersion}`;
+}
+
+function getDockerDriverGatewayEnv(
+  versionOutput: string | null = null,
+): Record<string, string> {
+  const stateDir = getDockerDriverGatewayStateDir();
+  const env: Record<string, string> = {
+    OPENSHELL_DRIVERS: "docker",
+    OPENSHELL_BIND_ADDRESS: "127.0.0.1",
+    OPENSHELL_SERVER_PORT: String(GATEWAY_PORT),
+    OPENSHELL_DISABLE_TLS: "true",
+    OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
+    OPENSHELL_DB_URL: `sqlite:${path.join(stateDir, "openshell.db")}`,
+    OPENSHELL_GRPC_ENDPOINT: getDockerDriverGatewayEndpoint(),
+    OPENSHELL_SSH_GATEWAY_HOST: "127.0.0.1",
+    OPENSHELL_SSH_GATEWAY_PORT: String(GATEWAY_PORT),
+    OPENSHELL_DOCKER_NETWORK_NAME:
+      process.env.OPENSHELL_DOCKER_NETWORK_NAME || "openshell-docker",
+    OPENSHELL_DOCKER_SUPERVISOR_IMAGE: getOpenShellDockerSupervisorImage(versionOutput),
+  };
+  const sandboxBin = resolveOpenShellSandboxBinary();
+  if (sandboxBin) {
+    env.OPENSHELL_DOCKER_SUPERVISOR_BIN = sandboxBin;
+  }
+  return env;
+}
+
+function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return isErrnoException(error) && error.code === "EPERM";
+  }
+}
+
+function getDockerDriverGatewayPid(): number | null {
+  try {
+    const raw = fs.readFileSync(getDockerDriverGatewayPidFile(), "utf-8").trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProcessEnv(pid: number): Record<string, string> | null {
+  const procEnvPath = `/proc/${pid}/environ`;
+  const env: Record<string, string> = {};
+  try {
+    if (!fs.existsSync(procEnvPath)) return null;
+    for (const entry of fs.readFileSync(procEnvPath, "utf-8").split("\0")) {
+      if (!entry) continue;
+      const idx = entry.indexOf("=");
+      if (idx <= 0) continue;
+      env[entry.slice(0, idx)] = entry.slice(idx + 1);
+    }
+  } catch {
+    return null;
+  }
+  return env;
+}
+
+function hasDockerDriverGatewayEnv(pid: number): boolean {
+  const env = readProcessEnv(pid);
+  if (!env) return false;
+  return (
+    env.OPENSHELL_DRIVERS === "docker" ||
+    Boolean(env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE) ||
+    env.OPENSHELL_GRPC_ENDPOINT === getDockerDriverGatewayEndpoint()
+  );
+}
+
+function readProcessExe(pid: number): string | null {
+  try {
+    const procExePath = `/proc/${pid}/exe`;
+    if (!fs.existsSync(procExePath)) return null;
+    return fs.readlinkSync(procExePath);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGatewayExecutablePath(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const withoutDeletedSuffix = value.replace(/ \(deleted\)$/, "");
+  try {
+    return fs.realpathSync.native(withoutDeletedSuffix);
+  } catch {
+    return path.resolve(withoutDeletedSuffix);
+  }
+}
+
+type DockerDriverGatewayRuntimeDrift = { reason: string };
+
+const DOCKER_DRIVER_GATEWAY_RUNTIME_ENV_KEYS = [
+  "OPENSHELL_DRIVERS",
+  "OPENSHELL_BIND_ADDRESS",
+  "OPENSHELL_SERVER_PORT",
+  "OPENSHELL_DISABLE_TLS",
+  "OPENSHELL_DISABLE_GATEWAY_AUTH",
+  "OPENSHELL_DB_URL",
+  "OPENSHELL_GRPC_ENDPOINT",
+  "OPENSHELL_SSH_GATEWAY_HOST",
+  "OPENSHELL_SSH_GATEWAY_PORT",
+  "OPENSHELL_DOCKER_NETWORK_NAME",
+  "OPENSHELL_DOCKER_SUPERVISOR_IMAGE",
+  "OPENSHELL_DOCKER_SUPERVISOR_BIN",
+] as const;
+
+function getDockerDriverGatewayRuntimeDriftFromSnapshot({
+  processEnv,
+  processExe,
+  desiredEnv,
+  gatewayBin,
+}: {
+  processEnv: Record<string, string> | null;
+  processExe: string | null;
+  desiredEnv: Record<string, string>;
+  gatewayBin?: string | null;
+}): DockerDriverGatewayRuntimeDrift | null {
+  if (!processEnv) {
+    return { reason: "could not verify process environment" };
+  }
+  for (const key of DOCKER_DRIVER_GATEWAY_RUNTIME_ENV_KEYS) {
+    const desired = desiredEnv[key];
+    if (typeof desired !== "string") continue;
+    const actual = processEnv[key];
+    if (actual !== desired) {
+      return { reason: `${key}=${actual || "<unset>"} (expected ${desired})` };
+    }
+  }
+
+  if (processExe === null) {
+    return { reason: "could not verify process executable" };
+  }
+  if (processExe.endsWith(" (deleted)")) {
+    return { reason: "gateway executable was replaced on disk" };
+  }
+  const expectedExe = normalizeGatewayExecutablePath(gatewayBin);
+  const actualExe = normalizeGatewayExecutablePath(processExe);
+  if (expectedExe && actualExe && actualExe !== expectedExe) {
+    return { reason: `executable=${actualExe} (expected ${expectedExe})` };
+  }
+  return null;
+}
+
+function getDockerDriverGatewayRuntimeDrift(
+  pid: number,
+  desiredEnv: Record<string, string>,
+  gatewayBin?: string | null,
+): DockerDriverGatewayRuntimeDrift | null {
+  return getDockerDriverGatewayRuntimeDriftFromSnapshot({
+    processEnv: readProcessEnv(pid),
+    processExe: readProcessExe(pid),
+    desiredEnv,
+    gatewayBin,
+  });
+}
+
+function isDockerDriverGatewayProcess(
+  pid: number,
+  gatewayBin?: string | null,
+  opts: { requireDockerDriverEnv?: boolean } = {},
+): boolean {
+  const procCmdlinePath = `/proc/${pid}/cmdline`;
+  let identity = "";
+  try {
+    if (fs.existsSync(procCmdlinePath)) {
+      identity = fs.readFileSync(procCmdlinePath, "utf-8").replace(/\0/g, " ").trim();
+    }
+  } catch {
+    identity = "";
+  }
+  if (!identity) {
+    identity = captureProcessArgs(pid);
+  }
+  if (!identity) return false;
+  const matchesGatewayBinary =
+    identity.includes("openshell-gateway") ||
+    (typeof gatewayBin === "string" && gatewayBin.length > 0 && identity.includes(gatewayBin));
+  if (!matchesGatewayBinary) return false;
+  if (opts.requireDockerDriverEnv && !hasDockerDriverGatewayEnv(pid)) return false;
+  return true;
+}
+
+function isDockerDriverGatewayProcessAlive(): boolean {
+  const pid = getDockerDriverGatewayPid();
+  if (pid === null || !isPidAlive(pid)) return false;
+  if (!isDockerDriverGatewayProcess(pid, resolveOpenShellGatewayBinary(), {
+    requireDockerDriverEnv: true,
+  })) {
+    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    return false;
+  }
+  return true;
+}
+
+function rememberDockerDriverGatewayPid(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const stateDir = getDockerDriverGatewayStateDir();
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(getDockerDriverGatewayPidFile(), `${pid}\n`, {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+}
+
+function getDockerDriverGatewayPortListenerPid(
+  portCheck: import("./onboard/preflight").PortProbeResult,
+  opts: {
+    platform?: NodeJS.Platform;
+    gatewayBin?: string | null;
+    isPidAliveFn?: (pid: number) => boolean;
+    isDockerDriverGatewayProcessFn?: (pid: number, gatewayBin?: string | null) => boolean;
+  } = {},
+): number | null {
+  if (portCheck.ok) return null;
+  if (!isLinuxDockerDriverGatewayEnabled(opts.platform ?? process.platform)) return null;
+  const pid = Number(portCheck.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  const proc = String(portCheck.process || "").toLowerCase();
+  if (!proc.startsWith("openshell")) return null;
+  const alive = opts.isPidAliveFn ?? isPidAlive;
+  if (!alive(pid)) return null;
+  const isGateway =
+    opts.isDockerDriverGatewayProcessFn ??
+    ((candidatePid: number, gatewayBin?: string | null) =>
+      isDockerDriverGatewayProcess(candidatePid, gatewayBin, { requireDockerDriverEnv: true }));
+  if (!isGateway(pid, opts.gatewayBin)) return null;
+  return pid;
+}
+
+function isDockerDriverGatewayPortListener(
+  portCheck: import("./onboard/preflight").PortProbeResult,
+  opts: Parameters<typeof getDockerDriverGatewayPortListenerPid>[1] = {},
+): boolean {
+  return getDockerDriverGatewayPortListenerPid(portCheck, opts) !== null;
+}
+
+function writeDockerGatewayDebEnvOverride(): void {
+  const servicePath = "/usr/lib/systemd/user/openshell-gateway.service";
+  const legacyServicePath = "/lib/systemd/user/openshell-gateway.service";
+  if (
+    !fs.existsSync("/usr/bin/openshell-gateway") &&
+    !fs.existsSync(servicePath) &&
+    !fs.existsSync(legacyServicePath)
+  ) {
+    return;
+  }
+  const envFile = path.join(os.homedir(), ".config", "openshell", "gateway.env");
+  fs.mkdirSync(path.dirname(envFile), { recursive: true, mode: 0o700 });
+  const existing = fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf-8") : "";
+  const preserved = existing
+    .split("\n")
+    .filter(
+      (line: string) =>
+        line.trim() &&
+        !/^OPENSHELL_(DRIVERS|DOCKER_SUPERVISOR_IMAGE|DOCKER_SUPERVISOR_BIN)=/.test(line),
+    );
+  const override = getDockerDriverGatewayEnv();
+  const next = [
+    ...preserved,
+    `OPENSHELL_DRIVERS=${override.OPENSHELL_DRIVERS}`,
+    `OPENSHELL_DOCKER_SUPERVISOR_IMAGE=${override.OPENSHELL_DOCKER_SUPERVISOR_IMAGE}`,
+    ...(override.OPENSHELL_DOCKER_SUPERVISOR_BIN
+      ? [`OPENSHELL_DOCKER_SUPERVISOR_BIN=${override.OPENSHELL_DOCKER_SUPERVISOR_BIN}`]
+      : []),
+  ].join("\n");
+  fs.writeFileSync(envFile, `${next}\n`, { encoding: "utf-8", mode: 0o600 });
+}
+
+function registerDockerDriverGatewayEndpoint(): boolean {
+  const selectExisting = runQuietOpenshell(["gateway", "select", GATEWAY_NAME]);
+  if (selectExisting.status === 0) {
+    const status = runCaptureOpenshell(["status"], { ignoreError: true });
+    const namedInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
+      ignoreError: true,
+    });
+    const currentInfo = runCaptureOpenshell(["gateway", "info"], { ignoreError: true });
+    if (isGatewayHealthy(status, namedInfo, currentInfo)) {
+      process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
+      return true;
+    }
+  }
+
+  let addResult = runOpenshell(
+    ["gateway", "add", "--local", "--name", GATEWAY_NAME, getDockerDriverGatewayEndpoint()],
+    { ignoreError: true, suppressOutput: true },
+  );
+  if (addResult.status !== 0) {
+    removeDockerDriverGatewayRegistration();
+    addResult = runOpenshell(
+      ["gateway", "add", "--local", "--name", GATEWAY_NAME, getDockerDriverGatewayEndpoint()],
+      { ignoreError: true, suppressOutput: true },
+    );
+  }
+  const selectResult = runOpenshell(["gateway", "select", GATEWAY_NAME], {
+    ignoreError: true,
+    suppressOutput: true,
+  });
+  const ok =
+    (addResult.status === 0 && selectResult.status === 0) ||
+    (selectResult.status === 0 &&
+      isGatewayHealthy(
+        runCaptureOpenshell(["status"], { ignoreError: true }),
+        runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], { ignoreError: true }),
+        runCaptureOpenshell(["gateway", "info"], { ignoreError: true }),
+      ));
+  if (ok) {
+    process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
+  } else if (process.env.OPENSHELL_GATEWAY === GATEWAY_NAME) {
+    delete process.env.OPENSHELL_GATEWAY;
+  }
+  return ok;
 }
 
 function getGatewayBootstrapRepairPlan(missingSecrets: string[] = []) {
@@ -3388,6 +4287,10 @@ function attachGatewayMetadataIfNeeded({
   // flow explicitly forces a refresh after recreating bootstrap secrets.
   if (!forceRefresh && hasStaleGateway(gwInfo)) return true;
 
+  if (isLinuxDockerDriverGatewayEnabled()) {
+    return registerDockerDriverGatewayEndpoint();
+  }
+
   const addResult = runOpenshell(
     ["gateway", "add", "--local", "--name", GATEWAY_NAME, getGatewayLocalEndpoint()],
     { ignoreError: true, suppressOutput: true },
@@ -3418,6 +4321,12 @@ async function ensureNamedCredential(
 
 function waitForSandboxReady(sandboxName: string, attempts = 10, delaySeconds = 2): boolean {
   for (let i = 0; i < attempts; i += 1) {
+    if (isLinuxDockerDriverGatewayEnabled()) {
+      const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+      if (isSandboxReady(list, sandboxName)) return true;
+      if (i < attempts - 1) sleep(delaySeconds);
+      continue;
+    }
     const podPhase = runCaptureOpenshell(
       [
         "doctor",
@@ -3474,8 +4383,15 @@ function assertCdiNvidiaGpuSpecPresent(
   process.exit(1);
 }
 
+type PreflightOptions = Pick<
+  OnboardOptions,
+  "sandboxGpu" | "sandboxGpuDevice" | "gpu" | "noGpu"
+> & {
+  optedOutGpuPassthrough?: boolean;
+};
+
 async function preflight(
-  preflightOpts: { optedOutGpuPassthrough?: boolean } = {},
+  preflightOpts: PreflightOptions = {},
 ): Promise<ReturnType<typeof nim.detectGpu>> {
   step(1, 8, "Preflight checks");
 
@@ -3489,7 +4405,9 @@ async function preflight(
   }
   console.log("  ✓ Docker is running");
 
-  assertCdiNvidiaGpuSpecPresent(host, preflightOpts.optedOutGpuPassthrough === true);
+  const optedOutGpuPassthrough =
+    preflightOpts.optedOutGpuPassthrough === true || preflightOpts.noGpu === true;
+  assertCdiNvidiaGpuSpecPresent(host, optedOutGpuPassthrough);
 
   // DNS resolution from inside containers (#2101). A corp firewall that
   // blocks outbound UDP:53 to public resolvers leaves the sandbox build
@@ -3662,7 +4580,12 @@ async function preflight(
   if (host.runtime !== "unknown") {
     console.log(`  ✓ Container runtime: ${host.runtime}`);
   }
-  // Podman is now supported — no unsupported runtime warning needed.
+  if (isLinuxDockerDriverGatewayEnabled() && host.runtime === "podman") {
+    console.error("  ✗ NemoClaw Linux onboarding now uses OpenShell's Docker driver.");
+    console.error("    Podman is not supported for this NemoClaw integration path.");
+    console.error("    Switch to Docker Engine and rerun onboarding.");
+    process.exit(1);
+  }
   if (host.notes.includes("Running under WSL")) {
     console.log("  ⓘ Running under WSL");
   }
@@ -3747,14 +4670,33 @@ async function preflight(
       }
     } else {
       // Source of truth: min_openshell_version in nemoclaw-blueprint/blueprint.yaml.
-      // Fall back to the Landlock-enforcement floor (also MIN_VERSION in
+      // Fall back to the released Docker-driver floor (also MIN_VERSION in
       // scripts/install-openshell.sh) if the blueprint cannot be read.
-      const minOpenshellVersion = getBlueprintMinOpenshellVersion() ?? "0.0.32";
-      const needsUpgrade = !versionGte(currentVersion, minOpenshellVersion);
+      const minOpenshellVersion = getBlueprintMinOpenshellVersion() ?? "0.0.37";
+      const currentVersionOutput = runCaptureOpenshell(["--version"], { ignoreError: true });
+      const needsDevChannel =
+        isLinuxDockerDriverGatewayEnabled() &&
+        shouldUseOpenshellDevChannel() &&
+        !isOpenshellDevVersion(currentVersionOutput);
+      const needsDockerDriverBinaries =
+        isLinuxDockerDriverGatewayEnabled() &&
+        (!resolveOpenShellGatewayBinary() || !resolveOpenShellSandboxBinary());
+      const needsUpgrade =
+        !versionGte(currentVersion, minOpenshellVersion) ||
+        needsDevChannel ||
+        needsDockerDriverBinaries;
       if (needsUpgrade) {
-        console.log(
-          `  openshell ${currentVersion} is below minimum required version. Upgrading...`,
-        );
+        if (needsDevChannel) {
+          console.log("  OpenShell Docker-driver onboarding requires the dev channel. Upgrading...");
+        } else if (needsDockerDriverBinaries) {
+          console.log(
+            "  OpenShell Docker-driver onboarding requires the gateway and sandbox binaries. Reinstalling...",
+          );
+        } else {
+          console.log(
+            `  openshell ${currentVersion} is below minimum required version. Upgrading...`,
+          );
+        }
         openshellInstall = installOpenshell();
         if (!openshellInstall.installed) {
           console.error("  Failed to upgrade openshell CLI.");
@@ -3801,7 +4743,8 @@ async function preflight(
   if (
     installedOpenshellVersion &&
     maxOpenshellVersion &&
-    !versionGte(maxOpenshellVersion, installedOpenshellVersion)
+    !versionGte(maxOpenshellVersion, installedOpenshellVersion) &&
+    !shouldAllowOpenshellAboveBlueprintMax(openshellVersionOutput)
   ) {
     console.error("");
     console.error(
@@ -3834,10 +4777,11 @@ async function preflight(
   // reuses the user's NemoClaw gateway instead of reporting a false conflict.
   const gatewaySnapshot = selectNamedGatewayForReuseIfNeeded(getGatewayReuseSnapshot());
   let gatewayReuseState = gatewaySnapshot.gatewayReuseState;
+  gatewayReuseState = await refreshDockerDriverGatewayReuseState(gatewayReuseState);
 
   // Verify the gateway container is actually running — openshell CLI metadata
   // can be stale after a manual `docker rm`. See #2020.
-  if (gatewayReuseState === "healthy") {
+  if (gatewayReuseState === "healthy" && !isLinuxDockerDriverGatewayEnabled()) {
     const containerState = verifyGatewayContainerRunning();
     if (containerState === "missing") {
       console.log("  Gateway metadata is stale (container not running). Cleaning up...");
@@ -3868,21 +4812,14 @@ async function preflight(
   if (gatewayReuseState === "stale" || gatewayReuseState === "active-unnamed") {
     console.log(`  Cleaning up previous ${cliDisplayName()} session...`);
     runOpenshell(["forward", "stop", String(DASHBOARD_PORT)], { ignoreError: true });
-    const destroyResult = runOpenshell(["gateway", "destroy", "-g", GATEWAY_NAME], {
-      ignoreError: true,
-    });
-    // Sandboxes under the destroyed gateway no longer exist in OpenShell —
-    // clear the local registry so `nemoclaw list` stays consistent. (#532)
-    if (destroyResult.status === 0) {
-      registry.clearAll();
-    }
+    destroyGateway();
     console.log("  ✓ Previous session cleaned up");
   }
 
   // Clean up orphaned Docker containers from interrupted onboard (e.g. Ctrl+C
   // during gateway start). The container may still be running even though
   // OpenShell has no metadata for it (gatewayReuseState === "missing").
-  if (gatewayReuseState === "missing") {
+  if (gatewayReuseState === "missing" && !isLinuxDockerDriverGatewayEnabled()) {
     const containerName = `openshell-cluster-${GATEWAY_NAME}`;
     const inspectResult = dockerInspect(
       ["--type", "container", "--format", "{{.State.Status}}", containerName],
@@ -3927,7 +4864,13 @@ async function preflight(
   const requiredPorts = [
     { port: GATEWAY_PORT, label: "OpenShell gateway", envVar: "NEMOCLAW_GATEWAY_PORT" },
     ...(dashboardPortToCheck !== null
-      ? [{ port: dashboardPortToCheck, label: `${cliDisplayName()} dashboard`, envVar: "NEMOCLAW_DASHBOARD_PORT" }]
+      ? [
+          {
+            port: dashboardPortToCheck,
+            label: `${cliDisplayName()} dashboard`,
+            envVar: "NEMOCLAW_DASHBOARD_PORT",
+          },
+        ]
       : []),
   ];
   for (const { port, label, envVar } of requiredPorts) {
@@ -3938,6 +4881,16 @@ async function preflight(
           `  ✓ Port ${port} already owned by healthy ${cliDisplayName()} runtime (${label})`,
         );
         continue;
+      }
+      if (port === GATEWAY_PORT) {
+        const dockerGatewayPid = getDockerDriverGatewayPortListenerPid(portCheck);
+        if (dockerGatewayPid !== null) {
+          rememberDockerDriverGatewayPid(dockerGatewayPid);
+          console.log(
+            `  ✓ Port ${port} already owned by NemoClaw OpenShell Docker gateway (${label})`,
+          );
+          continue;
+        }
       }
       // Auto-cleanup orphaned SSH port-forward from a previous NemoClaw session
       // (e.g. dashboard forward left behind after destroy). Only kill the process
@@ -4018,6 +4971,21 @@ async function preflight(
     console.log("  ⓘ Local NIM unavailable — no GPU detected");
   }
 
+  const sandboxGpuConfig = resolveSandboxGpuConfig(gpu, {
+    flag: resolveSandboxGpuFlagFromOptions(preflightOpts),
+    device: preflightOpts.sandboxGpuDevice ?? null,
+  });
+  validateSandboxGpuPreflight(sandboxGpuConfig);
+  if (sandboxGpuConfig.sandboxGpuEnabled) {
+    console.log(
+      `  ✓ Sandbox GPU: enabled (${sandboxGpuConfig.mode}${sandboxGpuConfig.sandboxGpuDevice ? `, device ${sandboxGpuConfig.sandboxGpuDevice}` : ""})`,
+    );
+  } else if (sandboxGpuConfig.mode === "0") {
+    console.log("  ✓ Sandbox GPU: disabled by configuration");
+  } else {
+    console.log("  ⓘ Sandbox GPU: disabled (no NVIDIA GPU detected)");
+  }
+
   // Memory / swap check (Linux only)
   if (process.platform === "linux") {
     const mem = getMemoryInfo();
@@ -4072,6 +5040,10 @@ async function startGatewayWithOptions(
   { exitOnFailure = true, gpuPassthrough = false }: { exitOnFailure?: boolean; gpuPassthrough?: boolean } = {},
 ) {
   step(2, 8, "Starting OpenShell gateway");
+
+  if (isLinuxDockerDriverGatewayEnabled()) {
+    return startDockerDriverGateway({ exitOnFailure });
+  }
 
   const gatewaySnapshot = selectNamedGatewayForReuseIfNeeded(getGatewayReuseSnapshot());
   if (
@@ -4225,6 +5197,148 @@ async function startGatewayWithOptions(
   process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
 }
 
+async function startDockerDriverGateway({
+  exitOnFailure = true,
+}: { exitOnFailure?: boolean } = {}): Promise<void> {
+  writeDockerGatewayDebEnvOverride();
+  const gatewayBin = resolveOpenShellGatewayBinary();
+  const openshellVersionOutput = runCaptureOpenshell(["--version"], {
+    ignoreError: true,
+  });
+  const gatewayEnv = getDockerDriverGatewayEnv(openshellVersionOutput);
+
+  const gatewayStatus = runCaptureOpenshell(["status"], { ignoreError: true });
+  const gwInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
+    ignoreError: true,
+  });
+  const activeGatewayInfo = runCaptureOpenshell(["gateway", "info"], { ignoreError: true });
+  const pidFileGatewayPid = getDockerDriverGatewayPid();
+  if (
+    pidFileGatewayPid !== null &&
+    isDockerDriverGatewayProcessAlive() &&
+    isGatewayHealthy(gatewayStatus, gwInfo, activeGatewayInfo)
+  ) {
+    const drift = getDockerDriverGatewayRuntimeDrift(pidFileGatewayPid, gatewayEnv, gatewayBin);
+    if (drift) {
+      restartDockerDriverGatewayProcessForDrift(pidFileGatewayPid, drift.reason);
+    } else if (registerDockerDriverGatewayEndpoint()) {
+      console.log("  ✓ Reusing existing Docker-driver gateway");
+      return;
+    }
+  }
+
+  const portCheck = await checkPortAvailable(GATEWAY_PORT);
+  const portListenerPid = getDockerDriverGatewayPortListenerPid(portCheck, { gatewayBin });
+  if (portListenerPid !== null) {
+    const drift = getDockerDriverGatewayRuntimeDrift(portListenerPid, gatewayEnv, gatewayBin);
+    if (drift) {
+      rememberDockerDriverGatewayPid(portListenerPid);
+      restartDockerDriverGatewayProcessForDrift(portListenerPid, drift.reason);
+    } else {
+      rememberDockerDriverGatewayPid(portListenerPid);
+    }
+    if (!drift && registerDockerDriverGatewayEndpoint()) {
+      const adoptedStatus = runCaptureOpenshell(["status"], { ignoreError: true });
+      const adoptedGwInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
+        ignoreError: true,
+      });
+      const adoptedActiveGatewayInfo = runCaptureOpenshell(["gateway", "info"], {
+        ignoreError: true,
+      });
+      if (isGatewayHealthy(adoptedStatus, adoptedGwInfo, adoptedActiveGatewayInfo)) {
+        console.log(`  ✓ Reusing existing Docker-driver gateway process (PID ${portListenerPid})`);
+        return;
+      }
+    }
+  }
+  if (!gatewayBin) {
+    console.error("  OpenShell Docker-driver gateway binary not found.");
+    console.error("  Install OpenShell v0.0.37, or set NEMOCLAW_OPENSHELL_GATEWAY_BIN.");
+    if (exitOnFailure) process.exit(1);
+    throw new Error("OpenShell gateway binary not found");
+  }
+
+  const existingPid = getDockerDriverGatewayPid() ?? portListenerPid;
+  if (existingPid !== null && isPidAlive(existingPid)) {
+    if (!isDockerDriverGatewayProcess(existingPid, gatewayBin)) {
+      fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    } else {
+      console.log(`  Restarting unhealthy Docker-driver gateway process (PID ${existingPid})...`);
+      try {
+        process.kill(existingPid, "SIGTERM");
+        sleep(1);
+      } catch {
+        /* best effort; the new process will surface any remaining port conflict */
+      }
+    }
+  }
+
+  const stateDir = getDockerDriverGatewayStateDir();
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const logPath = path.join(stateDir, "openshell-gateway.log");
+  const outFd = fs.openSync(logPath, "a", 0o600);
+  const errFd = fs.openSync(logPath, "a", 0o600);
+  console.log("  Starting OpenShell Docker-driver gateway...");
+  console.log(`  Gateway log: ${logPath}`);
+  const child = spawn(gatewayBin, [], {
+    detached: true,
+    stdio: ["ignore", outFd, errFd],
+    env: {
+      ...process.env,
+      ...gatewayEnv,
+    },
+  });
+  child.unref();
+  const childPid = child.pid ?? 0;
+  if (childPid <= 0) {
+    throw new Error("OpenShell gateway process did not return a pid");
+  }
+  rememberDockerDriverGatewayPid(childPid);
+
+  const pollCount = envInt("NEMOCLAW_HEALTH_POLL_COUNT", 30);
+  const pollInterval = envInt("NEMOCLAW_HEALTH_POLL_INTERVAL", 2);
+  for (let i = 0; i < pollCount; i += 1) {
+    if (!isPidAlive(childPid)) {
+      break;
+    }
+    if (!registerDockerDriverGatewayEndpoint()) {
+      if (i < pollCount - 1) sleep(pollInterval);
+      continue;
+    }
+    const status = runCaptureOpenshell(["status"], { ignoreError: true });
+    const namedInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
+      ignoreError: true,
+    });
+    const currentInfo = runCaptureOpenshell(["gateway", "info"], { ignoreError: true });
+    if (isGatewayHealthy(status, namedInfo, currentInfo)) {
+      console.log("  ✓ Docker-driver gateway is healthy");
+      return;
+    }
+    if (i < pollCount - 1) sleep(pollInterval);
+  }
+
+  const tail = fs.existsSync(logPath)
+    ? fs
+        .readFileSync(logPath, "utf-8")
+        .split("\n")
+        .filter(Boolean)
+        .slice(-20)
+        .join("\n")
+    : "";
+  if (exitOnFailure) {
+    console.error("  Docker-driver gateway failed to start.");
+    if (tail) {
+      console.error("  Gateway log tail:");
+      for (const line of tail.split("\n")) console.error(`    ${redact(line)}`);
+    }
+    console.error("  Troubleshooting:");
+    console.error(`    tail -100 ${logPath}`);
+    console.error("    docker info --format '{{json .CDISpecDirs}}'");
+    process.exit(1);
+  }
+  throw new Error("Docker-driver gateway failed to start");
+}
+
 async function startGateway(
   _gpu: ReturnType<typeof nim.detectGpu>,
   { gpuPassthrough = false }: { gpuPassthrough?: boolean } = {},
@@ -4342,6 +5456,15 @@ function applyOverlayfsAutoFix(upstreamImage: string): string | null {
 }
 
 async function recoverGatewayRuntime() {
+  if (isLinuxDockerDriverGatewayEnabled()) {
+    try {
+      await startDockerDriverGateway({ exitOnFailure: false });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   runOpenshell(["gateway", "select", GATEWAY_NAME], { ignoreError: true });
   let status = runCaptureOpenshell(["status"], { ignoreError: true });
   if (status.includes("Connected") && isSelectedGateway(status)) {
@@ -4464,6 +5587,15 @@ function getEffectiveSandboxAgent(agent: AgentDefinition | null | undefined): Ag
   return agent || agentDefs.loadAgent("openclaw");
 }
 
+function getAgentInferenceProviderOptions(agent: AgentDefinition | null | undefined): string[] {
+  const effectiveAgent = agent?.name
+    ? agentDefs.loadAgent(agent.name)
+    : getEffectiveSandboxAgent(agent);
+  return Array.isArray(effectiveAgent.inferenceProviderOptions)
+    ? effectiveAgent.inferenceProviderOptions
+    : [];
+}
+
 function getSandboxAgentRegistryFields(
   agent: AgentDefinition | null | undefined,
   agentVersionKnown = true,
@@ -4496,6 +5628,41 @@ function getSandboxAgentDrift(
   };
 }
 
+function getSandboxRuntimeRegistryFields(
+  config: SandboxGpuConfig,
+): Pick<
+  SandboxEntry,
+  | "gpuEnabled"
+  | "hostGpuDetected"
+  | "sandboxGpuEnabled"
+  | "sandboxGpuMode"
+  | "sandboxGpuDevice"
+  | "openshellDriver"
+  | "openshellVersion"
+> {
+  return {
+    gpuEnabled: config.sandboxGpuEnabled,
+    hostGpuDetected: config.hostGpuDetected,
+    sandboxGpuEnabled: config.sandboxGpuEnabled,
+    sandboxGpuMode: config.mode,
+    sandboxGpuDevice: config.sandboxGpuDevice,
+    openshellDriver: isLinuxDockerDriverGatewayEnabled() ? "docker" : "kubernetes",
+    openshellVersion: getInstalledOpenshellVersion(
+      runCaptureOpenshell(["--version"], { ignoreError: true }),
+    ),
+  };
+}
+
+function hasSandboxGpuDrift(sandboxName: string, config: SandboxGpuConfig): boolean {
+  const existingEntry: SandboxEntry | null = registry.getSandbox(sandboxName);
+  if (!existingEntry) return false;
+  return (
+    (existingEntry.sandboxGpuEnabled === true) !== config.sandboxGpuEnabled ||
+    (existingEntry.sandboxGpuMode || "auto") !== config.mode ||
+    (existingEntry.sandboxGpuDevice || null) !== config.sandboxGpuDevice
+  );
+}
+
 function updateReusedSandboxMetadata(
   sandboxName: string,
   agent: AgentDefinition | null | undefined,
@@ -4503,6 +5670,7 @@ function updateReusedSandboxMetadata(
   provider: string,
   dashboardPort: number,
   selectionVerified = true,
+  sandboxGpuConfig: SandboxGpuConfig | null = null,
 ): void {
   const existingEntry = registry.getSandbox(sandboxName);
   const agentVersionKnown = existingEntry?.agentVersion !== null;
@@ -4511,6 +5679,7 @@ function updateReusedSandboxMetadata(
     ...selectionUpdates,
     dashboardPort,
     ...getSandboxAgentRegistryFields(agent, agentVersionKnown),
+    ...(sandboxGpuConfig ? getSandboxRuntimeRegistryFields(sandboxGpuConfig) : {}),
   });
   registry.setDefault(sandboxName);
 }
@@ -4572,6 +5741,7 @@ type OnboardConfigSummary = {
   provider: string | null;
   model: string | null;
   credentialEnv?: string | null;
+  hermesAuthMethod?: HermesAuthMethod | string | null;
   webSearchConfig?: WebSearchConfig | null;
   enabledChannels?: string[] | null;
   sandboxName: string;
@@ -4614,6 +5784,7 @@ function formatOnboardConfigSummary({
   provider,
   model,
   credentialEnv = null,
+  hermesAuthMethod = null,
   webSearchConfig = null,
   enabledChannels = null,
   sandboxName,
@@ -4626,9 +5797,20 @@ function formatOnboardConfigSummary({
       : "none";
   const webSearch =
     webSearchConfig && webSearchConfig.fetchEnabled === true ? "enabled" : "disabled";
-  const apiKeyLine = credentialEnv
-    ? `  API key:       ${credentialEnv} (staged for OpenShell gateway registration)`
-    : `  API key:       (not required for ${provider ?? "this provider"})`;
+  const effectiveHermesAuthMethod =
+    normalizeHermesAuthMethod(hermesAuthMethod) ||
+    (provider === hermesProviderAuth.HERMES_PROVIDER_NAME &&
+    credentialEnv === HERMES_NOUS_API_KEY_CREDENTIAL_ENV
+      ? HERMES_AUTH_METHOD_API_KEY
+      : HERMES_AUTH_METHOD_OAUTH);
+  const apiKeyLine =
+    provider === hermesProviderAuth.HERMES_PROVIDER_NAME
+      ? effectiveHermesAuthMethod === HERMES_AUTH_METHOD_API_KEY
+        ? "  Nous API key: host-managed; sandbox receives inference placeholder only"
+        : "  Nous OAuth:    host-managed; sandbox receives inference placeholder only"
+      : credentialEnv
+        ? `  API key:       ${credentialEnv} (staged for OpenShell gateway registration)`
+        : `  API key:       (not required for ${provider ?? "this provider"})`;
   const noteLines = (Array.isArray(notes) ? notes : [])
     .filter((n) => typeof n === "string" && n.length > 0)
     .map((n) => `  Note:          ${n}`);
@@ -4659,7 +5841,7 @@ async function createSandbox(
   fromDockerfile: string | null = null,
   agent: AgentDefinition | null = null,
   controlUiPort: number | null = null,
-  gpuPassthrough: boolean = false,
+  sandboxGpuConfig: SandboxGpuConfig | null = null,
 ) {
   step(6, 8, "Creating sandbox");
 
@@ -4667,6 +5849,8 @@ async function createSandbox(
     sandboxNameOverride ?? (await promptValidatedSandboxName(agent)),
     "sandbox name",
   );
+  const effectiveSandboxGpuConfig =
+    sandboxGpuConfig ?? resolveSandboxGpuConfig(gpu, { flag: null, device: null });
 
   // Port priority: --control-ui-port > CHAT_UI_URL env > registry (resume) > agent.forwardPort > default
   // Pre-resolve port availability so CHAT_UI_URL baked into the Dockerfile,
@@ -4895,6 +6079,7 @@ async function createSandbox(
       messagingTokenDefs.some(({ name, token }) => token && !providerExistsInGateway(name));
     const selectionDrift = getSelectionDrift(sandboxName, provider, model);
     const confirmedSelectionDrift = selectionDrift.changed && !selectionDrift.unknown;
+    const sandboxGpuDrift = hasSandboxGpuDrift(sandboxName, effectiveSandboxGpuConfig);
 
     // Detect whether any messaging credential has been rotated since the
     // sandbox was created. Provider credentials are resolved once at sandbox
@@ -4907,6 +6092,7 @@ async function createSandbox(
       !isRecreateSandbox() &&
       !recreateForAgentDrift &&
       !needsProviderMigration &&
+      !sandboxGpuDrift &&
       !credentialRotation.changed
     ) {
       // Guard against reusing a CPU-only sandbox when GPU passthrough is enabled.
@@ -4917,7 +6103,7 @@ async function createSandbox(
       // The gateway Docker-inspect check (above) catches legacy CPU-only gateways
       // before we reach this point, so a legacy sandbox behind a verified GPU
       // gateway is safe to reuse — the sandbox will be recreated if needed.
-      if (gpuPassthrough) {
+      if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
         const entry = registry.getSandbox(sandboxName);
         if (entry && !entry.gpuEnabled) {
           console.error(`  Sandbox '${sandboxName}' exists but was created without GPU passthrough.`);
@@ -4959,6 +6145,7 @@ async function createSandbox(
               provider,
               reusedPort,
               !selectionDrift.unknown,
+              effectiveSandboxGpuConfig,
             );
             return sandboxName;
           }
@@ -4995,6 +6182,7 @@ async function createSandbox(
               provider,
               reusedPort2,
               !selectionDrift.unknown,
+              effectiveSandboxGpuConfig,
             );
             return sandboxName;
           }
@@ -5041,11 +6229,12 @@ async function createSandbox(
             sandboxName,
             agent,
             model,
-            provider,
-            reusedPort3,
-            !selectionDrift.unknown,
-          );
-          return sandboxName;
+          provider,
+          reusedPort3,
+          !selectionDrift.unknown,
+          effectiveSandboxGpuConfig,
+        );
+        return sandboxName;
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -5069,6 +6258,7 @@ async function createSandbox(
           provider,
           reusedPort4,
           !selectionDrift.unknown,
+          effectiveSandboxGpuConfig,
         );
         return sandboxName;
       }
@@ -5083,6 +6273,8 @@ async function createSandbox(
       console.log("  Recreating to ensure credentials flow through the provider pipeline.");
     } else if (confirmedSelectionDrift) {
       note(`  Sandbox '${sandboxName}' exists — recreating to apply model/provider change.`);
+    } else if (sandboxGpuDrift) {
+      note(`  Sandbox '${sandboxName}' exists — recreating to apply sandbox GPU settings.`);
     } else if (credentialRotation.changed) {
       // Message already printed above during backup.
     } else if (existingSandboxState === "ready") {
@@ -5248,6 +6440,7 @@ async function createSandbox(
   const initialSandboxPolicy = prepareInitialSandboxCreatePolicy(
     basePolicyPath,
     activeMessagingChannels,
+    { directGpu: effectiveSandboxGpuConfig.sandboxGpuEnabled },
   );
   if (initialSandboxPolicy.cleanup) {
     process.on("exit", initialSandboxPolicy.cleanup);
@@ -5257,6 +6450,9 @@ async function createSandbox(
       `  Including policy preset(s) at sandbox boot: ${initialSandboxPolicy.appliedPresets.join(", ")}`,
     );
   }
+  if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
+    console.log("  Direct sandbox GPU enabled; allowing only /proc task comm writes.");
+  }
   const createArgs = [
     "--from",
     `${buildCtx}/Dockerfile`,
@@ -5264,10 +6460,8 @@ async function createSandbox(
     sandboxName,
     "--policy",
     initialSandboxPolicy.policyPath,
+    ...buildSandboxGpuCreateArgs(effectiveSandboxGpuConfig),
   ];
-  if (gpuPassthrough) {
-    createArgs.push("--gpu");
-  }
 
   // Create OpenShell providers for messaging credentials so they flow through
   // the provider/placeholder system instead of raw env vars. The L7 proxy
@@ -5353,9 +6547,13 @@ async function createSandbox(
   // Pull the base image and resolve its digest so the Dockerfile is pinned to
   // exactly what we just fetched. This prevents stale :latest tags from
   // silently reusing a cached old image after NemoClaw upgrades (#1904).
-  const resolved = pullAndResolveBaseImageDigest();
-  if (resolved) {
+  const resolved = pullAndResolveBaseImageDigest({
+    requireOpenshellSandboxAbi: isLinuxDockerDriverGatewayEnabled(),
+  });
+  if (resolved?.digest) {
     console.log(`  Pinning base image to ${resolved.digest.slice(0, 19)}...`);
+  } else if (resolved) {
+    console.log(`  Using sandbox base image ${resolved.ref}`);
   } else {
     // Check if the image exists locally before falling back to unpinned :latest.
     // On a first-time install behind a firewall with no cached image, warn early
@@ -5572,6 +6770,21 @@ async function createSandbox(
     }
   }
 
+  if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
+    try {
+      verifyDirectSandboxGpu(sandboxName);
+    } catch (error) {
+      const delResult = runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
+      if (delResult.status === 0) {
+        console.error("  The sandbox with failed GPU access has been removed — you can retry safely.");
+      } else {
+        console.error("  Could not remove the sandbox with failed GPU access. Manual cleanup:");
+        console.error(`    openshell sandbox delete "${sandboxName}"`);
+      }
+      throw error;
+    }
+  }
+
   // Verify web search config was actually accepted by the agent runtime.
   // Hermes silently ignores unknown web.backend values (e.g. "brave" before
   // upstream support lands), so we exec into the sandbox and check for a
@@ -5626,7 +6839,7 @@ async function createSandbox(
     name: sandboxName,
     model: model || null,
     provider: provider || null,
-    gpuEnabled: gpuPassthrough,
+    ...getSandboxRuntimeRegistryFields(effectiveSandboxGpuConfig),
     ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
     imageTag: resolvedImageTag,
     providerCredentialHashes:
@@ -5659,10 +6872,12 @@ async function createSandbox(
 
   // DNS proxy — run a forwarder in the sandbox pod so the isolated
   // sandbox namespace can resolve hostnames (fixes #626).
-  console.log("  Setting up sandbox DNS proxy...");
-  runFile("bash", [path.join(SCRIPTS, "setup-dns-proxy.sh"), GATEWAY_NAME, sandboxName], {
-    ignoreError: true,
-  });
+  if (!isLinuxDockerDriverGatewayEnabled()) {
+    console.log("  Setting up sandbox DNS proxy...");
+    runFile("bash", [path.join(SCRIPTS, "setup-dns-proxy.sh"), GATEWAY_NAME, sandboxName], {
+      ignoreError: true,
+    });
+  }
 
   // Check that messaging providers exist in the gateway (sandbox attachment
   // cannot be verified via CLI yet — only gateway-level existence is checked).
@@ -5946,11 +7161,13 @@ async function selectAndValidateOllamaModel(
 async function setupNim(
   gpu: ReturnType<typeof nim.detectGpu>,
   sandboxName: string | null = null,
+  agent: AgentDefinition | null = null,
 ): Promise<{
   model: string | null;
   provider: string;
   endpointUrl: string | null;
   credentialEnv: string | null;
+  hermesAuthMethod: HermesAuthMethod | null;
   preferredInferenceApi: string | null;
   nimContainer: string | null;
 }> {
@@ -5961,6 +7178,7 @@ async function setupNim(
   let nimContainer: string | null = null;
   let endpointUrl: string | null = REMOTE_PROVIDER_CONFIG.build.endpointUrl;
   let credentialEnv: string | null = REMOTE_PROVIDER_CONFIG.build.credentialEnv;
+  let hermesAuthMethod: HermesAuthMethod | null = null;
   let preferredInferenceApi: string | null = null;
 
   // Detect local inference options. Bound curl with --connect-timeout/--max-time
@@ -6051,6 +7269,8 @@ async function setupNim(
   const requestedModel = isNonInteractive()
     ? getNonInteractiveModel(requestedProvider || "build")
     : null;
+  const agentProviderOptions = getAgentInferenceProviderOptions(agent);
+  const hermesProviderAvailable = agentProviderOptions.includes("hermesProvider");
   const options: Array<{ key: string; label: string }> = [];
   options.push({ key: "build", label: "NVIDIA Endpoints" });
   options.push({ key: "openai", label: "OpenAI" });
@@ -6146,6 +7366,11 @@ async function setupNim(
   if (blueprintRouterCfg && blueprintRouterCfg.router?.enabled === true) {
     options.push({ key: "routed", label: "Model Router (experimental)" });
   }
+  for (const providerKey of agentProviderOptions) {
+    const remoteConfig = REMOTE_PROVIDER_CONFIG[providerKey];
+    if (!remoteConfig || options.some((option) => option.key === providerKey)) continue;
+    options.push({ key: providerKey, label: remoteConfig.label });
+  }
 
   function checkOllamaPortsOrWarn(): boolean {
     const portValidation = validateOllamaPortConfiguration();
@@ -6168,6 +7393,7 @@ async function setupNim(
       // recorded model from the same recovery decision.
       let recoveredFromSandbox = false;
       let recoveredModel: string | null = null;
+      hermesAuthMethod = null;
 
       if (isNonInteractive()) {
         let providerKey = requestedProvider;
@@ -6247,6 +7473,13 @@ async function setupNim(
             selected = options.find((o) => o.key === "install-ollama");
           }
           if (!selected) {
+            if (providerKey === "hermesProvider" && !hermesProviderAvailable) {
+              console.error("  Hermes Provider is only available when onboarding Hermes Agent.");
+              console.error(
+                "  Re-run with `nemohermes onboard` or `nemoclaw onboard --agent hermes`.",
+              );
+              process.exit(1);
+            }
             console.error(
               `  Requested provider '${providerKey}' is not available in this environment.`,
             );
@@ -6290,6 +7523,9 @@ async function setupNim(
       if (!selected) {
         console.error("  No provider was selected.");
         process.exit(1);
+      }
+      if (selected.key !== "hermesProvider") {
+        hermesAuthMethod = null;
       }
 
       if (REMOTE_PROVIDER_CONFIG[selected.key]) {
@@ -6353,6 +7589,70 @@ async function setupNim(
             console.log("");
             continue selectionLoop;
           }
+        }
+
+        if (selected.key === "hermesProvider") {
+          const selectedHermesAuthMethod = await promptHermesAuthMethod();
+          if (selectedHermesAuthMethod === BACK_TO_SELECTION) {
+            hermesAuthMethod = null;
+            console.log("  Returning to provider selection.");
+            console.log("");
+            continue selectionLoop;
+          }
+          hermesAuthMethod = selectedHermesAuthMethod;
+          if (hermesAuthMethod === HERMES_AUTH_METHOD_API_KEY) {
+            credentialEnv = HERMES_NOUS_API_KEY_CREDENTIAL_ENV;
+            stageNousApiKeyProviderEnv();
+            if (isNonInteractive()) {
+              if (!resolveHermesNousApiKey()) {
+                console.error(
+                  `  ${HERMES_NOUS_API_KEY_CREDENTIAL_ENV} (or NEMOCLAW_PROVIDER_KEY) is required for Hermes Provider Nous API Key in non-interactive mode.`,
+                );
+                process.exit(1);
+              }
+            } else {
+              await ensureHermesNousApiKeyEnv();
+            }
+          } else {
+            credentialEnv = remoteConfig.credentialEnv;
+          }
+
+          const defaultModel =
+            requestedModel ||
+            (recoveredFromSandbox && recoveredModel) ||
+            remoteConfig.defaultModel;
+          if (isNonInteractive()) {
+            model = defaultModel;
+          } else {
+            let hermesProviderModels: string[] = [];
+            try {
+              hermesProviderModels = await nousModels.getHermesProviderModelOptions();
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              console.warn(
+                `  Warning: failed to load Nous model recommendations; falling back to the current/default model (${detail}).`,
+              );
+            }
+            model = await promptRemoteModel(
+              remoteConfig.label,
+              selected.key,
+              defaultModel,
+              null,
+              {
+                otherShowsFullList: true,
+                remoteModelOptions: { [selected.key]: hermesProviderModels },
+                topLevelModelLimit: 10,
+              },
+            );
+          }
+          if (model === BACK_TO_SELECTION) {
+            console.log("  Returning to provider selection.");
+            console.log("");
+            continue selectionLoop;
+          }
+          preferredInferenceApi = "openai-completions";
+          console.log(`  Using ${remoteConfig.label} with model: ${model}`);
+          break;
         }
 
         // Hydrate from credential env vars set earlier in this process
@@ -7089,7 +8389,15 @@ async function setupNim(
     }
   }
 
-  return { model, provider, endpointUrl, credentialEnv, preferredInferenceApi, nimContainer };
+  return {
+    model,
+    provider,
+    endpointUrl,
+    credentialEnv,
+    hermesAuthMethod,
+    preferredInferenceApi,
+    nimContainer,
+  };
 }
 
 // ── Step 4: Inference provider ───────────────────────────────────
@@ -7100,9 +8408,78 @@ async function setupInference(
   provider: string,
   endpointUrl: string | null = null,
   credentialEnv: string | null = null,
+  hermesAuthMethod: HermesAuthMethod | string | null = null,
 ): Promise<{ ok: true; retry?: undefined } | { retry: "selection" }> {
   step(4, 8, "Setting up inference provider");
   runOpenshell(["gateway", "select", GATEWAY_NAME], { ignoreError: true });
+
+  if (provider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
+    const targetSandbox = requireValue(sandboxName, "Hermes Provider requires a sandbox name");
+    const resolvedHermesAuthMethod =
+      normalizeHermesAuthMethod(hermesAuthMethod) ||
+      (credentialEnv === HERMES_NOUS_API_KEY_CREDENTIAL_ENV
+        ? HERMES_AUTH_METHOD_API_KEY
+        : HERMES_AUTH_METHOD_OAUTH);
+    const providerRegistered = hermesProviderAuth.isHermesProviderRegistered(runOpenshell);
+    const hasFreshNousApiKey =
+      resolvedHermesAuthMethod === HERMES_AUTH_METHOD_API_KEY && !!resolveHermesNousApiKey();
+    const shouldPrepareHermesCredentials =
+      !providerRegistered ||
+      hasFreshNousApiKey ||
+      (resolvedHermesAuthMethod === HERMES_AUTH_METHOD_OAUTH && !isNonInteractive());
+    if (shouldPrepareHermesCredentials) {
+      try {
+        const state =
+          resolvedHermesAuthMethod === HERMES_AUTH_METHOD_API_KEY
+            ? await hermesProviderAuth.ensureHermesProviderApiKeyCredentials(targetSandbox, {
+                apiKey: resolveHermesNousApiKey(),
+                runOpenshell,
+                baseUrl: endpointUrl || undefined,
+              })
+            : await hermesProviderAuth.ensureHermesProviderOAuthCredentials(targetSandbox, {
+                allowInteractiveLogin: !isNonInteractive(),
+                runOpenshell,
+                baseUrl: endpointUrl || undefined,
+              });
+        if (!state) {
+          const authLabel = hermesAuthMethodLabel(resolvedHermesAuthMethod);
+          console.error(`  ✗ Hermes Provider ${authLabel} is not available on the host.`);
+          console.error(
+            "    Re-run `nemoclaw onboard --agent hermes` interactively to configure credentials.",
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        console.error(
+          `  ✗ Failed to prepare Hermes Provider credentials: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        if (isNonInteractive()) process.exit(1);
+        return { retry: "selection" };
+      }
+    }
+
+    const applyResult = runOpenshell(
+      ["inference", "set", "--no-verify", "--provider", provider, "--model", model],
+      { ignoreError: true },
+    );
+    if (applyResult.status !== 0) {
+      const message =
+        compactText(redact(`${applyResult.stderr || ""} ${applyResult.stdout || ""}`)) ||
+        `Failed to configure inference provider '${provider}'.`;
+      console.error(`  ${message}`);
+      if (isNonInteractive()) process.exit(applyResult.status || 1);
+      return { retry: "selection" };
+    }
+
+    verifyInferenceRoute(provider, model);
+    if (sandboxName) {
+      registry.updateSandbox(sandboxName, { model, provider });
+    }
+    console.log(`  ✓ Inference route set: ${provider} / ${model}`);
+    return { ok: true };
+  }
 
   if (
     provider === "nvidia-prod" ||
@@ -7715,7 +9092,7 @@ async function setupMessagingChannels(): Promise<string[]> {
         const userId = (await prompt(`  ${ch.userIdLabel}: `)).trim();
         if (userId) {
           process.env[ch.userIdEnvKey] = userId;
-          console.log(`  ✓ ${ch.name} user ID saved`);
+          console.log(`  ✓ ${ch.name} allowed IDs saved`);
         } else {
           const skippedReason =
             ch.allowIdsMode === "guild"
@@ -8713,7 +10090,8 @@ function findForwardEntry(
   port: string,
 ): { sandboxName: string; status: string } | null {
   if (!forwardListOutput) return null;
-  for (const line of forwardListOutput.split("\n")) {
+  for (const rawLine of forwardListOutput.split("\n")) {
+    const line = rawLine.replace(ANSI_RE, "");
     if (/^\s*SANDBOX\s/i.test(line)) continue;
     const parts = line.trim().split(/\s+/);
     if (parts.length < 3 || parts[2] !== port) continue;
@@ -8732,7 +10110,8 @@ function isLiveForwardStatus(status: string): boolean {
 function getRunningForwardPorts(forwardListOutput: string | null | undefined): string[] {
   const ports = new Set<string>();
   if (!forwardListOutput) return [];
-  for (const line of forwardListOutput.split("\n")) {
+  for (const rawLine of forwardListOutput.split("\n")) {
+    const line = rawLine.replace(ANSI_RE, "");
     if (/^\s*SANDBOX\s/i.test(line)) continue;
     const parts = line.trim().split(/\s+/);
     if (parts.length < 5 || !/^\d+$/.test(parts[2])) continue;
@@ -8762,7 +10141,8 @@ function stopAllDashboardForwards(): void {
 function getOccupiedPorts(forwardListOutput: string | null): Map<string, string> {
   const occupied = new Map();
   if (!forwardListOutput) return occupied;
-  for (const line of forwardListOutput.split("\n")) {
+  for (const rawLine of forwardListOutput.split("\n")) {
+    const line = rawLine.replace(ANSI_RE, "");
     if (/^\s*SANDBOX\s/i.test(line)) continue;
     const parts = line.trim().split(/\s+/);
     // parts: [sandbox, bind, port, pid, status...]
@@ -9254,15 +10634,8 @@ function printDashboard(
   console.log("");
 }
 
-function toOptionalString(value: string | null | undefined): string | undefined {
-  return value ?? undefined;
-}
-
 // Preserve the nullable contract end-to-end: `null` means "clear this
 // field on the persisted session", `undefined` means "leave unchanged".
-// Collapsing `null`→`undefined` (as toOptionalString does) silently drops
-// explicit clears such as the credentialEnv reset during a remote→local
-// provider switch — the exact bug in GH #2625.
 function toNullableString(value: string | null | undefined): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -9276,6 +10649,7 @@ function toSessionUpdates(
     model?: string | null;
     endpointUrl?: string | null;
     credentialEnv?: string | null;
+    hermesAuthMethod?: HermesAuthMethod | string | null;
     preferredInferenceApi?: string | null;
     nimContainer?: string | null;
     webSearchConfig?: WebSearchConfig | null;
@@ -9293,6 +10667,8 @@ function toSessionUpdates(
     normalized.endpointUrl = toNullableString(updates.endpointUrl);
   if (updates.credentialEnv !== undefined)
     normalized.credentialEnv = toNullableString(updates.credentialEnv);
+  if (updates.hermesAuthMethod !== undefined)
+    normalized.hermesAuthMethod = normalizeHermesAuthMethod(updates.hermesAuthMethod);
   if (updates.preferredInferenceApi !== undefined) {
     normalized.preferredInferenceApi = toNullableString(updates.preferredInferenceApi);
   }
@@ -9651,14 +11027,21 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       }
     });
 
-    const agent = agentOnboard.resolveAgent({ agentFlag: opts.agent, session });
+    const agent = await selectOnboardAgent({
+      agentFlag: opts.agent,
+      session,
+      resume,
+      canPrompt: !cannotPrompt,
+    });
     setOnboardBrandingAgent(agent?.name || "openclaw");
-    if (agent) {
-      onboardSession.updateSession((s: Session) => {
-        s.agent = agent.name;
-        return s;
-      });
-    }
+    onboardSession.updateSession((s: Session) => {
+      s.agent = agent?.name ?? null;
+      return s;
+    });
+
+    const recordedSandboxName =
+      session?.steps?.sandbox?.status === "complete" ? session?.sandboxName || null : null;
+    const resumeSandboxNameForGpu = recordedSandboxName || requestedSandboxName || null;
 
     console.log("");
     console.log(`  ${cliDisplayName()} Onboarding`);
@@ -9666,8 +11049,23 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     if (resume) note("  (resume mode)");
     console.log("  ===================");
 
-    let gpu;
+    const explicitSandboxGpuFlag = resolveSandboxGpuFlagFromOptions(opts);
     const resumePreflight = resume && session?.steps?.preflight?.status === "complete";
+    const resumeHasResolvedGpuIntent =
+      resumePreflight &&
+      explicitSandboxGpuFlag === null &&
+      opts.sandboxGpuDevice == null &&
+      process.env.NEMOCLAW_SANDBOX_GPU === undefined &&
+      process.env.NEMOCLAW_SANDBOX_GPU_DEVICE === undefined;
+    const resumedSandboxGpuOverrides = resumeHasResolvedGpuIntent
+      ? getResumeSandboxGpuOverrides(
+          resumeSandboxNameForGpu ? registry.getSandbox(resumeSandboxNameForGpu) : null,
+          session?.gpuPassthrough,
+        )
+      : { flag: null, device: null };
+    const effectiveSandboxGpuFlag = explicitSandboxGpuFlag ?? resumedSandboxGpuOverrides.flag;
+    const effectiveSandboxGpuDevice = opts.sandboxGpuDevice ?? resumedSandboxGpuOverrides.device;
+    let gpu;
     if (resumePreflight) {
       skippedStepMessage("preflight", "cached");
       gpu = nim.detectGpu();
@@ -9682,34 +11080,29 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       const resumeOptedOutGpuPassthrough =
         opts.noGpu === true || (opts.gpu !== true && session?.gpuPassthrough === false);
       assertCdiNvidiaGpuSpecPresent(assessHost(), resumeOptedOutGpuPassthrough);
+      validateSandboxGpuPreflight(
+        resolveSandboxGpuConfig(gpu, {
+          flag: effectiveSandboxGpuFlag,
+          device: effectiveSandboxGpuDevice,
+        }),
+      );
     } else {
       startRecordedStep("preflight");
-      gpu = await preflight({ optedOutGpuPassthrough: opts.noGpu === true });
+      gpu = await preflight({ ...opts, optedOutGpuPassthrough: opts.noGpu === true });
       onboardSession.markStepComplete("preflight");
     }
+    const sandboxGpuConfig = resolveSandboxGpuConfig(gpu, {
+      flag: effectiveSandboxGpuFlag,
+      device: effectiveSandboxGpuDevice,
+    });
 
     const requestedGpuPassthrough = opts.gpu === true;
-    const optedOutGpuPassthrough = opts.noGpu === true;
-    const detectedNvidiaGpu = gpu?.type === "nvidia";
-    const resumeHasResolvedGpuIntent =
-      resume && session?.steps?.preflight?.status === "complete" && !requestedGpuPassthrough;
-    const gpuPassthrough = optedOutGpuPassthrough
-      ? false
-      : requestedGpuPassthrough
-        ? true
-        : resumeHasResolvedGpuIntent
-          ? session?.gpuPassthrough === true
-          : detectedNvidiaGpu;
-    if (gpuPassthrough && gpu?.type !== "nvidia") {
-      console.error("  GPU passthrough requires an NVIDIA GPU detected by nvidia-smi.");
-      console.error("  Install NVIDIA drivers and the Container Toolkit, or rerun with --no-gpu.");
-      process.exit(1);
-    }
+    const gpuPassthrough = sandboxGpuConfig.sandboxGpuEnabled;
     if (gpuPassthrough) {
       note(
         resumeHasResolvedGpuIntent && session?.gpuPassthrough === true
           ? "  [resume] Continuing GPU passthrough from the saved onboarding session."
-          : requestedGpuPassthrough
+          : requestedGpuPassthrough || sandboxGpuConfig.mode === "1"
             ? "  GPU passthrough requested; passing --gpu to OpenShell gateway and sandbox creation."
             : "  NVIDIA GPU detected; enabling OpenShell GPU passthrough. Use --no-gpu to opt out.",
       );
@@ -9735,10 +11128,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
 
     const gatewaySnapshot = selectNamedGatewayForReuseIfNeeded(getGatewayReuseSnapshot());
     let gatewayReuseState = gatewaySnapshot.gatewayReuseState;
+    gatewayReuseState = await refreshDockerDriverGatewayReuseState(gatewayReuseState);
 
     // Verify the gateway container is actually running — openshell CLI metadata
     // can be stale after a manual `docker rm`. See #2020.
-    if (gatewayReuseState === "healthy") {
+    if (gatewayReuseState === "healthy" && !isLinuxDockerDriverGatewayEnabled()) {
       const containerState = verifyGatewayContainerRunning();
       if (containerState === "missing") {
         console.log("  Gateway metadata is stale (container not running). Cleaning up...");
@@ -9791,9 +11185,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       resume && session?.steps?.gateway?.status === "complete" && canReuseHealthyGateway;
     if (resumeGateway) {
       skippedStepMessage("gateway", "running");
+      onboardSession.markStepComplete("gateway");
     } else if (!resume && canReuseHealthyGateway) {
       skippedStepMessage("gateway", "running", "reuse");
       note("  Reusing healthy NemoClaw gateway.");
+      onboardSession.markStepComplete("gateway");
     } else {
       if (resume && session?.steps?.gateway?.status === "complete") {
         if (gatewayReuseState === "active-unnamed") {
@@ -9806,6 +11202,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           note("  [resume] Recorded gateway state is unavailable; recreating it.");
         }
       }
+      if (isLinuxDockerDriverGatewayEnabled() && gatewayReuseState !== "missing") {
+        note("  Replacing legacy OpenShell gateway metadata with Docker-driver gateway.");
+        runOpenshell(["forward", "stop", String(DASHBOARD_PORT)], { ignoreError: true });
+        destroyGateway();
+        registry.clearAll();
+      }
       startRecordedStep("gateway");
       await startGateway(gpu, { gpuPassthrough });
       onboardSession.markStepComplete("gateway");
@@ -9816,8 +11218,6 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     // never completed; users supplying `--name` / NEMOCLAW_SANDBOX_NAME on
     // the resume run must win, otherwise the stale name silently overrides
     // their explicit recovery input.
-    const recordedSandboxName =
-      session?.steps?.sandbox?.status === "complete" ? session?.sandboxName || null : null;
     let sandboxName = recordedSandboxName || requestedSandboxName || null;
     if (sandboxName && RESERVED_SANDBOX_NAMES.has(sandboxName)) {
       console.error(
@@ -9830,6 +11230,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     let provider = session?.provider || null;
     let endpointUrl = session?.endpointUrl || null;
     let credentialEnv = session?.credentialEnv || null;
+    let hermesAuthMethod: HermesAuthMethod | null =
+      normalizeHermesAuthMethod(session?.hermesAuthMethod) ||
+      (provider === hermesProviderAuth.HERMES_PROVIDER_NAME &&
+      session?.credentialEnv === HERMES_NOUS_API_KEY_CREDENTIAL_ENV
+        ? HERMES_AUTH_METHOD_API_KEY
+        : null);
     let preferredInferenceApi = session?.preferredInferenceApi || null;
     let nimContainer = session?.nimContainer || null;
     let webSearchConfig = session?.webSearchConfig || null;
@@ -9851,11 +11257,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         // otherwise leave a phantom that `nemoclaw list` resurrects until
         // manually destroyed.
         startRecordedStep("provider_selection");
-        const selection = await setupNim(gpu, sandboxName);
+        const selection = await setupNim(gpu, sandboxName, agent);
         model = selection.model;
         provider = selection.provider;
         endpointUrl = selection.endpointUrl;
         credentialEnv = selection.credentialEnv;
+        hermesAuthMethod = selection.hermesAuthMethod;
         preferredInferenceApi = selection.preferredInferenceApi;
         nimContainer = selection.nimContainer;
         onboardSession.markStepComplete(
@@ -9865,6 +11272,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
             model,
             endpointUrl,
             credentialEnv,
+            hermesAuthMethod,
             preferredInferenceApi,
             nimContainer,
           }),
@@ -9879,6 +11287,26 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       const resumeInference =
         !forceProviderSelection && resume && isInferenceRouteReady(provider, model);
       if (resumeInference) {
+        if (provider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
+          startRecordedStep("inference", { provider, model });
+          const inferenceResult = await setupInference(
+            sandboxName,
+            model,
+            provider,
+            endpointUrl,
+            credentialEnv,
+            hermesAuthMethod,
+          );
+          if (inferenceResult?.retry === "selection") {
+            forceProviderSelection = true;
+            continue;
+          }
+          onboardSession.markStepComplete(
+            "inference",
+            toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer }),
+          );
+          break;
+        }
         if (isRoutedInferenceProvider(provider)) {
           try {
             await reconcileModelRouter();
@@ -9895,7 +11323,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         }
         onboardSession.markStepComplete(
           "inference",
-          toSessionUpdates({ provider, model, nimContainer }),
+          toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer }),
         );
         break;
       }
@@ -9917,6 +11345,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           provider,
           model,
           credentialEnv,
+          hermesAuthMethod,
           webSearchConfig,
           enabledChannels: selectedMessagingChannels.length > 0 ? selectedMessagingChannels : null,
           sandboxName,
@@ -9942,6 +11371,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         provider,
         endpointUrl,
         credentialEnv,
+        hermesAuthMethod,
       );
       delete process.env.NVIDIA_API_KEY;
       if (inferenceResult?.retry === "selection") {
@@ -9953,7 +11383,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       }
       onboardSession.markStepComplete(
         "inference",
-        toSessionUpdates({ provider, model, nimContainer }),
+        toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer }),
       );
       break;
     }
@@ -10006,10 +11436,14 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const effectiveCurrent = currentTelegramRequireMention ?? false;
     const effectiveRecorded = recordedTelegramRequireMention ?? false;
     const telegramConfigChanged = effectiveCurrent !== effectiveRecorded;
+    const sandboxGpuConfigChanged = sandboxName
+      ? hasSandboxGpuDrift(sandboxName, sandboxGpuConfig)
+      : false;
     const resumeSandbox =
       resume &&
       !webSearchConfigChanged &&
       !telegramConfigChanged &&
+      !sandboxGpuConfigChanged &&
       !messagingChannelConfigChanged &&
       session?.steps?.sandbox?.status === "complete" &&
       sandboxReuseState === "ready";
@@ -10028,6 +11462,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           }
         } else if (telegramConfigChanged) {
           note("  [resume] TELEGRAM_REQUIRE_MENTION changed; recreating sandbox.");
+          if (sandboxName) {
+            registry.removeSandbox(sandboxName);
+          }
+        } else if (sandboxGpuConfigChanged) {
+          note("  [resume] Sandbox GPU settings changed; recreating sandbox.");
           if (sandboxName) {
             registry.removeSandbox(sandboxName);
           }
@@ -10092,7 +11531,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         fromDockerfile,
         agent,
         opts.controlUiPort || null,
-        gpuPassthrough,
+        sandboxGpuConfig,
       );
       webSearchConfig = nextWebSearchConfig;
       // Persist model and provider after the sandbox entry exists in the registry.
@@ -10146,14 +11585,14 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         skippedStepMessage("openclaw", sandboxName);
         onboardSession.markStepComplete(
           "openclaw",
-          toSessionUpdates({ sandboxName, provider, model }),
+          toSessionUpdates({ sandboxName, provider, model, hermesAuthMethod }),
         );
       } else {
         startRecordedStep("openclaw", { sandboxName, provider, model });
         await setupOpenclaw(sandboxName, model, provider);
         onboardSession.markStepComplete(
           "openclaw",
-          toSessionUpdates({ sandboxName, provider, model }),
+          toSessionUpdates({ sandboxName, provider, model, hermesAuthMethod }),
         );
       }
       onboardSession.markStepSkipped("agent_setup");
@@ -10237,7 +11676,9 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       ensureAgentDashboardForward(sandboxName, agent);
     }
 
-    onboardSession.completeSession(toSessionUpdates({ sandboxName, provider, model }));
+    onboardSession.completeSession(
+      toSessionUpdates({ sandboxName, provider, model, hermesAuthMethod }),
+    );
     completed = true;
     // Onboarding finished successfully. Delete the legacy plaintext
     // credentials.json only when every staged *value* was actually pushed
@@ -10315,6 +11756,9 @@ module.exports = {
   buildCompatibleEndpointSandboxSmokeCommand,
   buildCompatibleEndpointSandboxSmokeScript,
   buildSandboxConfigSyncScript,
+  buildSandboxGpuCreateArgs,
+  buildDirectGpuPolicyYaml,
+  buildDirectSandboxGpuProofCommands,
   compactText,
   copyBuildContextDir,
   classifySandboxCreateFailure,
@@ -10326,15 +11770,24 @@ module.exports = {
   getGatewayBootstrapRepairPlan,
   getGatewayLocalEndpoint,
   getGatewayStartEnv,
+  getDockerDriverGatewayEnv,
+  getDockerDriverGatewayRuntimeDriftFromSnapshot,
   getGatewayClusterContainerState,
   getGatewayHealthWaitConfig,
   getGatewayReuseState,
+  isDockerDriverGatewayPortListener,
   handleFinalGatewayStartFailure,
   getNavigationChoice,
   getSandboxInferenceConfig,
   getInstalledOpenshellVersion,
   getBlueprintMinOpenshellVersion,
   getBlueprintMaxOpenshellVersion,
+  isLinuxDockerDriverGatewayEnabled,
+  findReadableNvidiaCdiSpecFiles,
+  parseDockerCdiSpecDirs,
+  getResumeSandboxGpuOverrides,
+  resolveSandboxGpuConfig,
+  shouldAllowOpenshellAboveBlueprintMax,
   pullAndResolveBaseImageDigest,
   SANDBOX_BASE_IMAGE,
   SANDBOX_BASE_TAG,
@@ -10376,6 +11829,7 @@ module.exports = {
   setupInference,
   setupMessagingChannels,
   MESSAGING_CHANNELS,
+  selectOnboardAgent,
   setupNim,
   providerNameToOptionKey,
   readRecordedProvider,
@@ -10402,6 +11856,7 @@ module.exports = {
   hasChatCompletionsToolCall,
   hasChatCompletionsToolCallLeak,
   upsertProvider,
+  normalizeHermesAuthMethod,
   hashCredential,
   detectMessagingCredentialRotation,
   getDefaultSandboxNameForAgent,
