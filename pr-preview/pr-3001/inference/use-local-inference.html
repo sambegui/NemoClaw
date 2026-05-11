@@ -834,10 +834,10 @@ Changing it after onboarding requires re-running <code class="docutils literal n
 <p>You can change the model without re-running onboard.
 Refer to <a class="reference internal" href="switch-inference-providers.html"><span class="std std-doc">Switch Inference Models</span></a> for the full procedure.</p>
 <p>For compatible endpoints, the command is:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
 </pre></div>
 </div>
-<p>If the provider itself needs to change (for example, switching from vLLM to a cloud API), rerun <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code>.</p>
+<p>If the provider itself needs to change (for example, switching from vLLM to a cloud API), pass the new provider to <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code>.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
