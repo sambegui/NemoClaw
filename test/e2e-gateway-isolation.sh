@@ -207,33 +207,75 @@ fi
 
 # ── Test 14: Dangerous capabilities are dropped by entrypoint ────
 
-info "14. Entrypoint drops dangerous capabilities from bounding set"
+info "14. Entrypoint drops the issue #3280 dangerous-cap inventory from bounding set"
 # Run capsh directly with the same --drop flags as the entrypoint, then
-# check CapBnd. This avoids running the full entrypoint which starts
-# gateway services that fail in CI without a running OpenShell environment.
-# Extract the --drop list from the shared sandbox-init library to stay in sync.
-# The drop_capabilities() function lives in sandbox-init.sh (not the entrypoint).
-DROP_LIST=$(run_as_root "grep -oP '(?<=--drop=)[^ \\\\]+' /usr/local/lib/nemoclaw/sandbox-init.sh")
+# decode every dangerous cap named in issue #3280 from CapBnd in
+# /proc/self/status. This catches both an incomplete drop list and a
+# silent skip of the drop step (CAP_SETPCAP missing) — the original test
+# only checked CAP_NET_RAW and would pass either failure mode.
+#
+# IMPORTANT: docker's default bounding set already excludes CAP_SYS_ADMIN
+# and CAP_SYS_PTRACE, so a plain "docker run" cannot reproduce the issue
+# #3280 condition (permissive OpenShell runtime). We --cap-add those two
+# caps here so the bounding set entering capsh resembles the runtime that
+# triggered the original report. If the entrypoint's --drop list omits
+# either cap, this test will see it PRESENT and fail — matching the
+# T6002104 failure mode.
+#
+# The drop list is extracted from the shared sandbox-init library to stay
+# in sync with drop_capabilities(); each entry below is "bit:name".
+# Caps documented as load-bearing in sandbox-init.sh (CAP_FOWNER,
+# CAP_SETUID, CAP_SETGID) are inventoried but do not fail the test — see
+# the kept-caps comment in sandbox-init.sh and the follow-up tracked
+# under issue #3280.
+DROP_LIST=$(docker run --rm --entrypoint "" "$IMAGE" \
+  bash -c "grep -oP '(?<=--drop=)[^ \\\\]+' /usr/local/lib/nemoclaw/sandbox-init.sh" 2>&1)
 if [ -z "$DROP_LIST" ]; then
   fail "could not extract --drop list from entrypoint"
 else
-  OUT=$(run_as_root "capsh --drop=${DROP_LIST} -- -c '
-    CAP_BND=\$(grep \"^CapBnd:\" /proc/self/status | awk \"{print \\\$2}\")
+  OUT=$(docker run --rm --entrypoint "" \
+    --cap-add=CAP_SYS_ADMIN --cap-add=CAP_SYS_PTRACE \
+    "$IMAGE" \
+    bash -c "capsh --drop=${DROP_LIST} -- -c '
+    CAP_BND=\$(awk \"/^CapBnd:/{print \\\$2}\" /proc/self/status)
     echo \"CapBnd=\$CAP_BND\"
-    BND_DEC=\$((16#\$CAP_BND))
-    NET_RAW_BIT=\$((1 << 13))
-    if [ \$((BND_DEC & NET_RAW_BIT)) -ne 0 ]; then
-      echo \"DANGEROUS: cap_net_raw present\"
-    else
-      echo \"SAFE: cap_net_raw dropped\"
-    fi
+    val=\$((16#\$CAP_BND))
+    for entry in \
+      21:CAP_SYS_ADMIN:must-drop \
+      19:CAP_SYS_PTRACE:must-drop \
+      13:CAP_NET_RAW:must-drop \
+      10:CAP_NET_BIND_SERVICE:must-drop \
+      1:CAP_DAC_OVERRIDE:must-drop \
+      3:CAP_FOWNER:allowed \
+      7:CAP_SETUID:allowed \
+      6:CAP_SETGID:allowed; do
+      bit=\${entry%%:*}
+      rest=\${entry#*:}
+      name=\${rest%%:*}
+      class=\${rest#*:}
+      if [ \$(( (val >> bit) & 1 )) -ne 0 ]; then
+        echo \"\$name:\$class:PRESENT\"
+      else
+        echo \"\$name:\$class:ABSENT\"
+      fi
+    done
   '")
-  if echo "$OUT" | grep -q "SAFE: cap_net_raw dropped"; then
-    pass "entrypoint drops dangerous capabilities (cap_net_raw not in bounding set)"
-  elif echo "$OUT" | grep -q "DANGEROUS"; then
-    fail "cap_net_raw still present after capsh drop: $OUT"
-  else
-    fail "could not verify capability state: $OUT"
+  echo "$OUT"
+
+  bad=0
+  while IFS= read -r line; do
+    case "$line" in
+      *:must-drop:PRESENT)
+        bad=$((bad + 1))
+        fail "${line%%:*} still present in CapBnd after capsh drop"
+        ;;
+    esac
+  done <<EOF
+$OUT
+EOF
+
+  if [ "$bad" -eq 0 ]; then
+    pass "entrypoint drops the issue #3280 dangerous-cap inventory (5 must-drop caps absent from CapBnd; 3 documented load-bearing caps allowed)"
   fi
 fi
 
