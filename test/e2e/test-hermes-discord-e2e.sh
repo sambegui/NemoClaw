@@ -97,7 +97,7 @@ dump_hermes_discord_diagnostics() {
   diag_script+='; echo "== hermes health =="; curl -sf http://localhost:8642/health 2>&1 || true'
   diag_script+='; echo "== hermes-related processes =="'
   # shellcheck disable=SC2016  # script is intentionally evaluated inside the sandbox
-  diag_script+='; for p in /proc/[0-9]*; do cmd=$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true); case "$cmd" in *hermes*|*socat*|*nemoclaw-decode-proxy*) echo "$(basename "$p") $cmd" ;; esac; done'
+  diag_script+='; for p in /proc/[0-9]*; do cmd=$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true); case "$cmd" in *hermes*|*socat*) echo "$(basename "$p") $cmd" ;; esac; done'
   diag_script+='; echo "== /tmp/nemoclaw-start.log tail =="; tail -n 80 /tmp/nemoclaw-start.log 2>&1 || true'
   diag_script+='; echo "== /tmp/gateway.log tail =="; tail -n 120 /tmp/gateway.log 2>&1 || true'
   diag_output=$(openshell sandbox exec -n "$SANDBOX_NAME" -- sh -lc "$diag_script" 2>&1 || true)
@@ -388,7 +388,6 @@ text = Path("/sandbox/.hermes/.env").read_text(encoding="utf-8")
 errors = []
 required = [
     "DISCORD_BOT_TOKEN=openshell:resolve:env:DISCORD_BOT_TOKEN",
-    "DISCORD_PROXY=http://127.0.0.1:3129",
     f"NEMOCLAW_DISCORD_GUILD_IDS={os.environ['EXPECTED_GUILD_IDS']}",
     f"DISCORD_ALLOWED_USERS={os.environ['EXPECTED_ALLOWED_USERS']}",
 ]
@@ -405,16 +404,9 @@ PY
 )
 
 if [ "$env_probe" = "OK" ]; then
-  pass ".hermes/.env contains Discord placeholder, proxy bridge, and allowed users"
+  pass ".hermes/.env contains Discord placeholder and allowed users"
 else
   fail ".hermes/.env check failed: ${env_probe:0:400}"
-fi
-
-gateway_proxy_log=$(sandbox_exec "grep -F 'Using proxy for Discord: http://127.0.0.1:3129' /tmp/gateway.log 2>/dev/null | tail -1 || true")
-if [ -n "$gateway_proxy_log" ]; then
-  info "Hermes Discord proxy diagnostic: ${gateway_proxy_log:0:200}"
-else
-  info "Hermes Discord proxy diagnostic log line not present; relying on env and native Gateway checks"
 fi
 
 fake_gateway_ready=0
@@ -474,10 +466,10 @@ if [ -z "$sandbox_env_all" ]; then
   skip "Sandbox environment dump is empty"
 elif echo "$sandbox_env_all" | grep -qF "$DISCORD_TOKEN"; then
   fail "Raw Discord token found in sandbox environment"
-elif ! echo "$sandbox_env_all" | grep -qx "DISCORD_PROXY=http://127.0.0.1:3129"; then
-  fail "Sandbox environment missing DISCORD_PROXY bridge setting"
+elif echo "$sandbox_env_all" | grep -q "^DISCORD_PROXY="; then
+  fail "Sandbox environment still contains DISCORD_PROXY bridge setting"
 else
-  pass "Raw Discord token absent from sandbox environment; Discord proxy setting is present"
+  pass "Raw Discord token absent from sandbox environment; no DISCORD_PROXY bridge setting"
 fi
 
 sandbox_ps=$(sandbox_exec 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" "\n"')
@@ -554,15 +546,20 @@ else
   fail "Unexpected Discord API response: ${dc_api:0:300}"
 fi
 
-section "Phase 7: No local Discord facade"
+section "Phase 7: No local Discord bridge"
 
 # shellcheck disable=SC2016  # Remote script is intentionally single-quoted for sandbox execution.
 facade_residue=$(sandbox_exec 'set +e
 env_needle="$(printf "%s%s" "NEMOCLAW_DISCORD_" "FACADE_URL")"
 name_needle="$(printf "%s%s" "nemoclaw-discord-" "facade")"
+proxy_needle="$(printf "%s" "DISCORD_PROXY")"
+decode_needle="$(printf "%s%s%s" "nemoclaw-" "decode" "-proxy")"
 if env | grep -q "$env_needle"; then echo ENV_FACADE; fi
+if env | grep -q "^${proxy_needle}="; then echo ENV_DISCORD_PROXY; fi
 if grep -Fq "$env_needle" /sandbox/.hermes/.env /sandbox/.hermes/config.yaml /tmp/nemoclaw-proxy-env.sh /tmp/gateway.env 2>/dev/null; then echo FILE_FACADE; fi
+if grep -Fq "$proxy_needle" /sandbox/.hermes/.env /sandbox/.hermes/config.yaml /tmp/nemoclaw-proxy-env.sh /tmp/gateway.env 2>/dev/null; then echo FILE_DISCORD_PROXY; fi
 if find /tmp -maxdepth 1 -type f \( -name "discord-facade.log" -o -name "nemoclaw-discord-facade*" \) 2>/dev/null | grep -q .; then echo FILE_FACADE; fi
+if command -v "$decode_needle" >/dev/null 2>&1; then echo BIN_DECODE_PROXY; fi
 current_pid="$$"
 for p in /proc/[0-9]*; do
   pid=$(basename "$p")
@@ -570,11 +567,12 @@ for p in /proc/[0-9]*; do
   cmd=$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)
   case "$cmd" in *"name_needle="*|*"for p in /proc/"*) continue ;; esac
   case "$cmd" in *"$name_needle"*) echo PROCESS_FACADE ;; esac
+  case "$cmd" in *"$decode_needle"*) echo PROCESS_DECODE_PROXY ;; esac
 done')
 if [ -z "$facade_residue" ]; then
-  pass "Hermes Discord proof used native WebSocket policy with no local Discord facade residue"
+  pass "Hermes Discord proof used native WebSocket policy with no local facade, decode proxy, or DISCORD_PROXY residue"
 else
-  fail "Local Discord facade residue found after native Gateway proof: ${facade_residue:0:300}"
+  fail "Local Discord bridge residue found after native Gateway proof: ${facade_residue:0:300}"
   dump_hermes_discord_diagnostics
 fi
 

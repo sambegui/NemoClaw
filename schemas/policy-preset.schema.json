@@ -52,6 +52,7 @@
         "tls": { "type": "string", "enum": ["terminate", "passthrough", "skip"] },
         "access": { "type": "string", "enum": ["full"] },
         "websocket_credential_rewrite": { "type": "boolean" },
+        "request_body_credential_rewrite": { "type": "boolean" },
         "allowed_ips": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

@@ -506,10 +506,9 @@ else
 fi
 
 # ── Slack credential isolation (#2085) ────────────────────────────
-# Mirrors M5a/M5e/M5g for Slack now that the apply_slack_token_override
-# carve-out has been replaced by the in-process slack-token-rewriter +
-# L7-proxy substitution. The host-side fake token must never appear on
-# any observable surface inside the sandbox.
+# Mirrors M5a/M5e/M5g for Slack now that provider-shaped aliases are resolved
+# directly by OpenShell. The host-side fake token must never appear on any
+# observable surface inside the sandbox.
 
 # M-S5a: Full environment dump must not contain the real Slack bot token.
 if [ -z "$sandbox_env_all" ]; then
@@ -562,8 +561,7 @@ if [ -n "$SLACK_APP" ]; then
 fi
 
 # M-S5f: openclaw.json must contain the Bolt-shape placeholder, not the
-# real token. The placeholder is what nemoclaw-slack-token-rewriter.js
-# translates to the canonical openshell:resolve:env:VAR form on egress.
+# real token. OpenShell resolves the provider-shaped alias directly on egress.
 config_slack=$(sandbox_exec "cat /sandbox/.openclaw/openclaw.json 2>/dev/null | grep -E '\"(bot|app)Token\"'" 2>/dev/null || true)
 if [ -n "$config_slack" ] && {
   echo "$config_slack" | grep -qF "$SLACK_TOKEN" \
@@ -578,74 +576,13 @@ else
   skip "M-S5f: Could not extract Slack token fields from openclaw.json"
 fi
 
-# M-S5g: The rewriter preload was actually installed. NODE_OPTIONS in the
-# sandbox shell should reference the rewriter path.
+# M-S5g: No Slack transport bridge should be installed. NODE_OPTIONS may still
+# include non-transport resilience guards, but not the removed token rewriter.
 sandbox_node_opts=$(openshell sandbox exec --name "$SANDBOX_NAME" -- bash -lc 'echo "$NODE_OPTIONS"' 2>/dev/null || echo "")
 if echo "$sandbox_node_opts" | grep -q "nemoclaw-slack-token-rewriter.js"; then
-  pass "M-S5g: Slack token rewriter preload present in sandbox NODE_OPTIONS"
+  fail "M-S5g: removed Slack token rewriter preload still present in NODE_OPTIONS"
 else
-  fail "M-S5g: rewriter preload missing from NODE_OPTIONS (got: ${sandbox_node_opts:0:200})"
-fi
-
-# M-S5h: The rewriter actually wraps http.request at runtime. NODE_OPTIONS
-# pointing at an empty file (or a syntax-error file) would still make
-# M-S5g pass and a subsequent fake Slack round-trip would fail later at the
-# L7 proxy boundary. This loopback probe forces a
-# definitive answer: send a Bolt-shape Authorization header and urlencoded
-# token body to a 127.0.0.1 listener (loopback bypasses the L7 proxy), have
-# the listener echo what it actually received, then assert the placeholder is
-# gone. If the rewriter is loaded and wrapping http.request/write/end, the
-# listener sees the canonical openshell:resolve:env:VAR form. If the rewriter
-# is a no-op, the listener sees the raw Bolt-shape placeholder.
-info "Probing rewriter via loopback listener (proves http.request is wrapped)..."
-sl_loopback=$(sandbox_exec 'node -e "
-const http = require(\"http\");
-const server = http.createServer((req, res) => {
-  let body = \"\";
-  req.setEncoding(\"utf8\");
-  req.on(\"data\", (d) => body += d);
-  req.on(\"end\", () => {
-    res.writeHead(200, { \"Content-Type\": \"application/json\" });
-    res.end(JSON.stringify({ headers: req.headers, body }));
-  });
-});
-server.listen(0, \"127.0.0.1\", () => {
-  const port = server.address().port;
-  const data = \"token=xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN\";
-  const r = http.request({
-    hostname: \"127.0.0.1\",
-    port: port,
-    path: \"/probe\",
-    method: \"POST\",
-    headers: {
-      \"Authorization\": \"Bearer xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN\",
-      \"Content-Type\": \"application/x-www-form-urlencoded\",
-      \"Content-Length\": Buffer.byteLength(data),
-    },
-  }, (res) => {
-    let body = \"\";
-    res.on(\"data\", (d) => body += d);
-    res.on(\"end\", () => { console.log(body); server.close(); });
-  });
-  r.on(\"error\", (e) => { console.log(\"ERROR: \" + e.message); server.close(); });
-  r.setTimeout(10000, () => { r.destroy(); console.log(\"TIMEOUT\"); server.close(); });
-  r.write(data);
-  r.end();
-});
-"' 2>/dev/null || true)
-
-info "Loopback echoed request: ${sl_loopback:0:300}"
-if echo "$sl_loopback" | grep -qF 'OPENSHELL-RESOLVE-ENV-'; then
-  fail "M-S5h: rewriter did NOT translate Bolt-shape on http.request/write/end — the preload is loaded but incomplete or a no-op"
-elif echo "$sl_loopback" | grep -qE '"authorization"\s*:\s*"Bearer openshell:resolve:env:SLACK_BOT_TOKEN' \
-  && echo "$sl_loopback" | grep -qE '"body"\s*:\s*"token=openshell:resolve:env:SLACK_BOT_TOKEN'; then
-  pass "M-S5h: rewriter wraps http.request/write/end — Bolt-shape header and body were translated before egress"
-elif echo "$sl_loopback" | grep -q "ERROR"; then
-  fail "M-S5h: loopback probe errored: ${sl_loopback:0:200}"
-elif echo "$sl_loopback" | grep -q "TIMEOUT"; then
-  skip "M-S5h: loopback probe timed out"
-else
-  fail "M-S5h: loopback probe returned unexpected output: ${sl_loopback:0:200}"
+  pass "M-S5g: Slack token rewriter preload absent from NODE_OPTIONS"
 fi
 
 # ══════════════════════════════════════════════════════════════════
@@ -944,7 +881,7 @@ info "Native fake Discord Gateway negative probe: ${dc_ws_negative:0:300}"
 
 if [ "$fake_gateway_ready" = "1" ] \
   && ! echo "$dc_ws_negative" | grep -q "^READY$" \
-  && ! tail -n "$((capture_after_negative - capture_before_negative + 1))" "$FAKE_DISCORD_GATEWAY_CAPTURE_FILE" 2>/dev/null | grep -Fq "DEFINITELY_NOT_REGISTERED"; then
+  && ! tail -n "$((capture_after_negative - capture_before_negative))" "$FAKE_DISCORD_GATEWAY_CAPTURE_FILE" 2>/dev/null | grep -Fq "DEFINITELY_NOT_REGISTERED"; then
   pass "M13g: Unregistered Discord WebSocket placeholder is rejected before upstream token exposure"
 else
   fail "M13g: Unregistered Discord WebSocket placeholder reached READY or leaked upstream"
@@ -1045,11 +982,11 @@ else
   fail "M17: Unexpected Discord response (status=$dc_status): ${dc_api:0:200}"
 fi
 
-# ── Slack: rewriter + L7 proxy chain (#2085) ─────────────────────
+# ── Slack: OpenShell alias/body rewrite chain (#2085) ─────────────
 # Verifies the full chain hermetically: Bolt-shape placeholder in the
-# Authorization header → slack-token-rewriter translates it to canonical
-# form → OpenShell L7 proxy substitutes the real env value → a host-side fake
-# Slack API receives the resolved token and returns Slack-shaped invalid_auth.
+# Authorization header → OpenShell resolves the provider-shaped alias and
+# substitutes the real env value → a host-side fake Slack API receives the
+# resolved token and returns Slack-shaped invalid_auth.
 
 fake_slack_ready=0
 if start_fake_slack_api "$SLACK_TOKEN" "$SLACK_APP"; then
@@ -1066,6 +1003,42 @@ else
   fail "M-S14b: Failed to apply fake Slack API policy: $(tail -20 /tmp/nemoclaw-fake-slack-policy.log 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
 fi
 
+check_fake_slack_capture_token() {
+  local path="$1"
+  local expected_token="$2"
+  node - "$FAKE_SLACK_API_CAPTURE_FILE" "$path" "$expected_token" <<'NODE'
+const fs = require("fs");
+const [file, path, expectedToken] = process.argv.slice(2);
+const rows = fs
+  .readFileSync(file, "utf8")
+  .trim()
+  .split(/\n+/)
+  .filter(Boolean)
+  .map((line) => JSON.parse(line))
+  .filter((row) => row.event === "request" && row.path === path);
+const last = rows.at(-1);
+if (!last) {
+  console.log(`NO_REQUEST ${path}`);
+  process.exit(2);
+}
+const expectedAuthorization = `Bearer ${expectedToken}`;
+const expectedBody = `token=${encodeURIComponent(expectedToken)}`;
+if (last.authorization !== expectedAuthorization) {
+  console.log(`BAD_AUTH ${last.authorization}`);
+  process.exit(3);
+}
+if (last.body !== expectedBody) {
+  console.log(`BAD_BODY ${last.body}`);
+  process.exit(4);
+}
+if (last.tokenLooksPlaceholder) {
+  console.log("PLACEHOLDER_LEAK");
+  process.exit(5);
+}
+console.log("OK");
+NODE
+}
+
 info "Calling fake Slack /api/auth.test from inside sandbox with Bolt-shape placeholder..."
 sl_api=""
 if [ "$fake_slack_ready" = "1" ]; then
@@ -1078,13 +1051,19 @@ sl_status=$(echo "$sl_api" | grep -E '^[0-9]' | head -1 | awk '{print $1}')
 if [ "$sl_status" = "200" ] && echo "$sl_api" | grep -q '"ok":true'; then
   pass "M-S15: Slack auth.test returned ok:true — real token round-trip verified!"
 elif [ "$sl_status" = "200" ] && echo "$sl_api" | grep -qE 'invalid_auth|not_authed'; then
-  pass "M-S15: Slack auth.test returned invalid_auth — full chain verified (rewriter → L7 proxy → fake Slack)"
+  pass "M-S15: Slack auth.test returned invalid_auth — full chain verified (OpenShell alias rewrite → fake Slack)"
+  sl_capture=$(check_fake_slack_capture_token "/api/auth.test" "$SLACK_TOKEN" || true)
+  if [ "$sl_capture" = "OK" ]; then
+    pass "M-S15a: fake Slack saw host-side bot token in header and urlencoded body"
+  else
+    fail "M-S15a: fake Slack capture did not prove bot header/body rewrite: ${sl_capture:0:300}"
+  fi
 elif echo "$sl_api" | grep -q "TIMEOUT"; then
   skip "M-S15: fake Slack API timed out"
 elif echo "$sl_api" | grep -q "ERROR"; then
   fail "M-S15: Slack API call failed with error: ${sl_api:0:200}"
 elif echo "$sl_api" | grep -qF 'OPENSHELL-RESOLVE-ENV-'; then
-  fail "M-S15: rewriter did not translate the Bolt-shape placeholder — preload not loaded?"
+  fail "M-S15: OpenShell did not resolve the Bolt-shape alias"
 elif echo "$sl_api" | grep -qF 'openshell:resolve:env:'; then
   fail "M-S15: L7 proxy did not substitute the canonical placeholder — substitution chain broken"
 else
@@ -1092,9 +1071,8 @@ else
 fi
 
 # M-S15b: L7 proxy substitution for SLACK_BOT_TOKEN, isolated from the
-# rewriter. Sends the canonical openshell:resolve:env:SLACK_BOT_TOKEN
-# placeholder directly (no Bolt-shape, so the rewriter is a no-op for
-# this request). If the L7 proxy substitutes correctly, the fake Slack API
+# alias path. Sends the canonical openshell:resolve:env:SLACK_BOT_TOKEN
+# placeholder directly. If the L7 proxy substitutes correctly, the fake Slack API
 # receives the host-side xoxb token and returns invalid_auth.
 #
 # Mirrors the proof technique already used by Telegram M15 and Discord
@@ -1169,18 +1147,24 @@ sl_app_status=$(echo "$sl_app_api" | grep -E '^[0-9]' | head -1 | awk '{print $1
 if [ "$sl_app_status" = "200" ] && echo "$sl_app_api" | grep -q '"ok":true'; then
   pass "M-S16: apps.connections.open returned ok:true — real xapp token round-trip verified!"
 elif [ "$sl_app_status" = "200" ] && echo "$sl_app_api" | grep -qE 'invalid_auth|not_authed|not_allowed_token_type'; then
-  pass "M-S16: apps.connections.open auth-rejected — Socket Mode HTTPS leg verified (rewriter → L7 proxy → fake Slack)"
+  pass "M-S16: apps.connections.open auth-rejected — Socket Mode HTTPS leg verified (OpenShell alias rewrite → fake Slack)"
+  sl_app_capture=$(check_fake_slack_capture_token "/api/apps.connections.open" "$SLACK_APP" || true)
+  if [ "$sl_app_capture" = "OK" ]; then
+    pass "M-S16a: fake Slack saw host-side app token in header and urlencoded body"
+  else
+    fail "M-S16a: fake Slack capture did not prove app header/body rewrite: ${sl_app_capture:0:300}"
+  fi
 elif echo "$sl_app_api" | grep -q "TIMEOUT"; then
   skip "M-S16: apps.connections.open timed out"
 elif echo "$sl_app_api" | grep -qF 'OPENSHELL-RESOLVE-ENV-'; then
-  fail "M-S16: rewriter did not translate xapp- placeholder — preload not loaded for Socket Mode path?"
+  fail "M-S16: OpenShell did not resolve the xapp- alias for Socket Mode path"
 else
   fail "M-S16: Unexpected apps.connections.open response (status=$sl_app_status): ${sl_app_api:0:200}"
 fi
 
 # M-S16b: L7 proxy substitution for SLACK_APP_TOKEN, isolated. Same
-# rationale as M-S15b — sends the canonical placeholder directly so the
-# rewriter is a no-op and only the L7 proxy substitution is exercised.
+# rationale as M-S15b — sends the canonical placeholder directly so only
+# the L7 proxy substitution is exercised.
 info "Probing L7 proxy substitution for SLACK_APP_TOKEN (canonical placeholder)..."
 sl_app_canonical=""
 if [ "$fake_slack_ready" = "1" ]; then
@@ -1290,10 +1274,10 @@ fi
 # Phase 7: Slack channel guard (#2340)
 #
 # The sandbox was installed with fake Slack tokens. After the
-# slack-token-rewriter refactor (#2085) the failure mode is:
+# OpenShell alias rewrite change (#2085 follow-up) the failure mode is:
 #   1. Bolt accepts the xoxb-OPENSHELL-RESOLVE-ENV-… placeholder
 #      (matches its prefix regex).
-#   2. The rewriter translates to canonical form on egress.
+#   2. OpenShell resolves the alias at egress.
 #   3. The L7 proxy substitutes the fake xoxb-fake-… token from env.
 #   4. The Slack API rejects the fake token.
 #   5. @slack/web-api emits an unhandled rejection — the guard catches it.

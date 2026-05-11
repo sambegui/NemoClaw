@@ -50,7 +50,9 @@ const server = http.createServer((req, res) => {
       tokenLooksPlaceholder:
         typeof authorization === "string" &&
         (authorization.includes("openshell:resolve:env:") ||
-          authorization.includes("OPENSHELL-RESOLVE-ENV-")),
+          authorization.includes("OPENSHELL-RESOLVE-ENV-") ||
+          body.includes("openshell:resolve:env:") ||
+          body.includes("OPENSHELL-RESOLVE-ENV-")),
     });
 
     res.writeHead(tokenMatchesExpected ? 200 : 401, {

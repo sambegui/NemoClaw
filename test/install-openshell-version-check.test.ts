@@ -16,10 +16,12 @@ function writeExecutable(target: string, contents: string) {
 /**
  * Run install-openshell.sh with a fake `openshell` binary that reports the
  * given version. The download/install code path is never reached because we
- * either exit early (version ok / too high) or hit the upgrade warn and then
- * the script tries to download — so we stub curl and gh to fail fast.
+ * either exit early (version + capability ok / too high / missing capability)
+ * or hit the upgrade warn and then the script tries to download — so we stub
+ * curl and gh to fail fast.
  */
-function runWithInstalledVersion(version: string) {
+function runWithInstalledVersion(version: string, options: { capability?: boolean } = {}) {
+  const capability = options.capability ?? true;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openshell-ver-"));
   try {
     const fakeBin = path.join(tmp, "bin");
@@ -30,6 +32,7 @@ function runWithInstalledVersion(version: string) {
       path.join(fakeBin, "openshell"),
       `#!/usr/bin/env bash
 if [ "\${1:-}" = "--version" ]; then echo "openshell ${version}"; exit 0; fi
+${capability ? "# request-body-credential-rewrite websocket-credential-rewrite" : ""}
 exit 99`,
     );
 
@@ -58,14 +61,20 @@ exit 1`,
 }
 
 describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
-  it("exits cleanly when openshell 0.0.32 is already installed", () => {
-    const result = runWithInstalledVersion("0.0.32");
+  it("exits cleanly when openshell 0.0.38 is already installed", () => {
+    const result = runWithInstalledVersion("0.0.38");
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/already installed.*0\.0\.32/);
+    expect(result.stdout).toMatch(/already installed.*0\.0\.38/);
   });
 
-  it("triggers upgrade when openshell 0.0.28 is installed (below MIN_VERSION)", () => {
-    const result = runWithInstalledVersion("0.0.28");
+  it("fails closed when openshell 0.0.38 lacks required messaging rewrite support", () => {
+    const result = runWithInstalledVersion("0.0.38", { capability: false });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toMatch(/missing required messaging credential rewrite support/);
+  });
+
+  it("triggers upgrade when openshell 0.0.37 is installed (below MIN_VERSION)", () => {
+    const result = runWithInstalledVersion("0.0.37");
     // Script should warn about upgrade then fail at the download step (curl stub fails)
     expect(result.status).not.toBe(0);
     expect(result.stdout).toMatch(/below minimum.*upgrading/);
@@ -84,7 +93,7 @@ describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
   });
 
   it("fails with a clear error when openshell is above MAX_VERSION", () => {
-    const result = runWithInstalledVersion("0.0.37");
+    const result = runWithInstalledVersion("0.0.39");
     expect(result.status).toBe(1);
     expect(result.stdout).toMatch(/above the maximum/);
   });

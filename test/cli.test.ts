@@ -394,10 +394,21 @@ describe("CLI dispatch", () => {
   });
 
   it("bare unknown name surfaces sandbox-not-found (#2164)", testTimeoutOptions(35_000), () => {
-    // Longer timeout: when openshell is installed but the gateway is down,
-    // the CLI probes the gateway before reporting "not found" and the
-    // default 10s is not enough for the connection to time out.
-    const r = runWithEnv("boguscmd", {}, execTimeout(30_000));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-unknown-sandbox-"));
+    const localBin = path.join(home, "bin");
+    fs.mkdirSync(localBin, { recursive: true });
+    fs.writeFileSync(path.join(localBin, "openshell"), "#!/usr/bin/env bash\nexit 1\n", {
+      mode: 0o755,
+    });
+
+    const r = runWithEnv(
+      "boguscmd",
+      {
+        HOME: home,
+        PATH: `${localBin}:${process.env.PATH || ""}`,
+      },
+      execTimeout(30_000),
+    );
     expect(r.code).toBe(1);
     expect(r.out.includes("Sandbox 'boguscmd' does not exist")).toBeTruthy();
   });

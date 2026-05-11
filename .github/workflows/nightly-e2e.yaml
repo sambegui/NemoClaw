@@ -6,8 +6,7 @@
 #   cloud-e2e                Cloud inference (NVIDIA Endpoint API) on ubuntu-latest.
 #   messaging-providers-e2e  Validates messaging credential provider/placeholder/L7-proxy chain
 #                            for Telegram + Discord + Slack. Uses fake tokens. Slack additionally
-#                            exercises the slack-token-rewriter Bolt-shape → canonical placeholder
-#                            translation (#2085). See PR #1081.
+#                            exercises OpenShell provider-shaped alias resolution (#2085 follow-up).
 #   messaging-compatible-endpoint-e2e
 #                            Validates Telegram + OpenAI-compatible endpoint inference routing
 #                            through inference.local with a hermetic local mock (#2766).
@@ -23,8 +22,8 @@
 #                            probe → live inference. Validates the multi-agent architecture.
 #   hermes-discord-e2e       Hermes Discord onboarding — validates the top-level Hermes
 #                            Discord schema plus OpenShell placeholder/token isolation.
-#   hermes-slack-e2e         Hermes Slack onboarding — validates the Hermes Slack policy,
-#                            Slack providers, and Python placeholder egress path.
+  #   hermes-slack-e2e         Hermes Slack onboarding — validates the Hermes Slack policy,
+  #                            Slack providers, and OpenShell credential rewrite path.
 #   credential-migration-e2e Validates legacy ~/.nemoclaw/credentials.json migration to the
 #                            OpenShell gateway, secure zero-fill on unlink, allowlist filter
 #                            on non-credential env keys, and symlink-safe deletion.

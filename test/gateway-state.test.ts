@@ -42,6 +42,13 @@ Server: https://127.0.0.1:8080/
 Error: Connection refused (os error 61)
 `;
 
+const STATUS_SERVER_STATUS_REFUSED_ANSI = `\x1b[1mServer Status\x1b[0m
+
+\x1b[2mGateway:\x1b[0m nemoclaw
+\x1b[2mServer:\x1b[0m https://127.0.0.1:8080/
+\x1b[31mError: Connection refused (os error 61)\x1b[0m
+`;
+
 const GW_INFO_BASE = `
 Gateway Info
 
@@ -149,6 +156,10 @@ describe("isGatewayConnected", () => {
 
   it("does not treat Server Status with connection errors as connected", () => {
     expect(isGatewayConnected(STATUS_SERVER_STATUS_REFUSED)).toBe(false);
+  });
+
+  it("does not treat ANSI-wrapped Server Status refusals as connected", () => {
+    expect(isGatewayConnected(STATUS_SERVER_STATUS_REFUSED_ANSI)).toBe(false);
   });
 
   it("returns false for empty string", () => {

@@ -29,26 +29,20 @@ RUN (apt-get remove --purge -y gcc gcc-12 g++ g++-12 cpp cpp-12 make \
     && rm -rf /var/lib/apt/lists/*
 
 # Hermes v2026.4.13+ auto-detects HTTPS_PROXY and skips fallback-IP
-# transport when a proxy is present. The sandbox proxy chain
-# (decode-proxy -> OpenShell L7 proxy) handles REST credential placeholder
-# rewriting and hostname-based policy enforcement. Discord Gateway traffic uses
-# OpenShell's native WebSocket L7 path.
+# transport when a proxy is present. OpenShell handles REST credential
+# placeholder rewriting, hostname-based policy enforcement, and native
+# WebSocket credential rewrite at the egress boundary.
 ENV HERMES_TELEGRAM_DISABLE_FALLBACK_IPS=1
 
 # Copy NemoClaw plugin for Hermes (Python-based)
 COPY agents/hermes/plugin/ /opt/nemoclaw-hermes-plugin/
 RUN chmod -R a+rX /opt/nemoclaw-hermes-plugin/
 
-# Copy config generator, messaging preload, and URL-decode proxy
+# Copy config generator
 COPY agents/hermes/generate-config.ts /opt/nemoclaw-hermes-config/generate-config.ts
 COPY agents/hermes/config/ /opt/nemoclaw-hermes-config/config/
 RUN find /opt/nemoclaw-hermes-config -type d -exec chmod 755 {} + \
     && find /opt/nemoclaw-hermes-config -type f -exec chmod 444 {} +
-COPY agents/hermes/decode-proxy.py /usr/local/bin/nemoclaw-decode-proxy
-COPY agents/hermes/discord-preload/ /opt/nemoclaw-hermes-discord-preload/
-RUN chmod 755 /usr/local/bin/nemoclaw-decode-proxy \
-    && find /opt/nemoclaw-hermes-discord-preload -type d -exec chmod 755 {} + \
-    && find /opt/nemoclaw-hermes-discord-preload -type f -exec chmod 444 {} +
 
 # Copy blueprint (shared infrastructure)
 COPY nemoclaw-blueprint/ /opt/nemoclaw-blueprint/

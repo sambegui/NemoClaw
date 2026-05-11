@@ -269,7 +269,6 @@ describe("nemoclaw-start non-root fallback", () => {
       'lock_rc_files() { :; }',
       'configure_messaging_channels() { echo "SHOULD_NOT_CONFIGURE"; exit 70; }',
       'install_telegram_diagnostics() { echo "SHOULD_NOT_INSTALL"; exit 71; }',
-      'install_slack_token_rewriter() { echo "SHOULD_NOT_INSTALL"; exit 72; }',
       'install_slack_channel_guard() { echo "SHOULD_NOT_INSTALL"; exit 73; }',
       'verify_no_slack_secrets_on_disk() { echo "SHOULD_NOT_VERIFY"; exit 74; }',
       '_SANDBOX_HOME=/sandbox',
@@ -422,7 +421,6 @@ describe("nemoclaw-start gateway token export (#1114)", () => {
         '_SECCOMP_GUARD_SCRIPT="/tmp/seccomp-guard.js"',
         '_CIAO_GUARD_SCRIPT="/tmp/ciao-guard.js"',
         '_SLACK_GUARD_SCRIPT="/nonexistent/slack-guard.js"',
-        '_SLACK_REWRITER_SCRIPT="/nonexistent/slack-rewriter.js"',
         "_TOOL_REDIRECTS=()",
         "set +u",
         "export_gateway_token",
@@ -499,7 +497,6 @@ describe("nemoclaw-start configure guard behavior", () => {
       '_SECCOMP_GUARD_SCRIPT="/tmp/seccomp-guard.js"',
       '_CIAO_GUARD_SCRIPT="/tmp/ciao-guard.js"',
       '_SLACK_GUARD_SCRIPT="/nonexistent/slack-guard.js"',
-      '_SLACK_REWRITER_SCRIPT="/nonexistent/slack-rewriter.js"',
       "_TOOL_REDIRECTS=()",
       "set +u",
       runtimeBlock,
@@ -1392,7 +1389,7 @@ describe("NC-2227-01: legacy migration behavior", () => {
   });
 });
 
-describe("Slack token rewriter (#2085)", () => {
+describe("Slack secrets-on-disk tripwire (#2085)", () => {
   const src = fs.readFileSync(START_SCRIPT, "utf-8");
 
   function extractFunction(name: string): string {
@@ -1402,69 +1399,6 @@ describe("Slack token rewriter (#2085)", () => {
     }
     return `${name}() {${match[1]}\n}`;
   }
-
-  function slackRewriterSection(rewriterPath: string, configPath: string): string {
-    const start = src.indexOf("# ── Slack token rewriter");
-    const end = src.indexOf("# ── Slack secrets-on-disk tripwire", start);
-    if (start === -1 || end === -1 || end <= start) {
-      throw new Error("Expected Slack token rewriter section in scripts/nemoclaw-start.sh");
-    }
-    return src
-      .slice(start, end)
-      .replace(
-        '_SLACK_REWRITER_SCRIPT="/tmp/nemoclaw-slack-token-rewriter.js"',
-        `_SLACK_REWRITER_SCRIPT=${JSON.stringify(rewriterPath)}`,
-      )
-      .replace(
-        '_SLACK_REWRITER_SOURCE="/usr/local/lib/nemoclaw/preloads/slack-token-rewriter.js"',
-        `_SLACK_REWRITER_SOURCE=${JSON.stringify(path.join(PRELOAD_SCRIPTS, "slack-token-rewriter.js"))}`,
-      )
-      .replace(
-        'local config_file="/sandbox/.openclaw/openclaw.json"',
-        `local config_file=${JSON.stringify(configPath)}`,
-      );
-  }
-
-  it("installs the rewriter only when a Slack placeholder is present", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-slack-rewriter-start-"));
-    const configPath = path.join(tmpDir, "openclaw.json");
-    const rewriterPath = path.join(tmpDir, "slack-token-rewriter.js");
-    const scriptPath = path.join(tmpDir, "run.sh");
-    const run = (config: string) => {
-      fs.writeFileSync(configPath, config);
-      fs.rmSync(rewriterPath, { force: true });
-      fs.writeFileSync(
-        scriptPath,
-        [
-          "#!/usr/bin/env bash",
-          "set -euo pipefail",
-          'emit_sandbox_sourced_file() { local target="$1"; cat > "$target"; chmod 444 "$target"; }',
-          "NODE_OPTIONS='--require /already-loaded.js'",
-          slackRewriterSection(rewriterPath, configPath),
-          "install_slack_token_rewriter",
-          'printf "NODE_OPTIONS=%s\\n" "$NODE_OPTIONS"',
-        ].join("\n"),
-        { mode: 0o700 },
-      );
-      return spawnSync("bash", [scriptPath], { encoding: "utf-8", timeout: 5000 });
-    };
-
-    try {
-      const noSlack = run('{"channels":{}}\n');
-      expect(noSlack.status).toBe(0);
-      expect(fs.existsSync(rewriterPath)).toBe(false);
-      expect(noSlack.stdout).not.toContain(rewriterPath);
-
-      const withSlack = run('{"botToken":"xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN"}\n');
-      expect(withSlack.status).toBe(0);
-      expect(fs.existsSync(rewriterPath)).toBe(true);
-      expect((fs.statSync(rewriterPath).mode & 0o777).toString(8)).toBe("444");
-      expect(withSlack.stdout).toContain("--require /already-loaded.js");
-      expect(withSlack.stdout).toContain(`--require ${rewriterPath}`);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
 
   it("refuses to serve when real Slack tokens leak to disk", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-slack-secret-"));
@@ -1570,7 +1504,6 @@ describe("Telegram diagnostics (#2766)", () => {
         'ensure_runtime_shell_env_shim() { :; }',
         'lock_rc_files() { :; }',
         'configure_messaging_channels() { echo "ORDER:configure"; }',
-        'install_slack_token_rewriter() { :; }',
         'install_slack_channel_guard() { :; }',
         'verify_no_slack_secrets_on_disk() { :; }',
         'write_auth_profile() { :; }',
@@ -1587,7 +1520,6 @@ describe("Telegram diagnostics (#2766)", () => {
         `_SECCOMP_GUARD_SCRIPT=${JSON.stringify(path.join(tmpDir, "seccomp-guard.js"))}`,
         `_CIAO_GUARD_SCRIPT=${JSON.stringify(path.join(tmpDir, "ciao-guard.js"))}`,
         `_SLACK_GUARD_SCRIPT=${JSON.stringify(path.join(tmpDir, "slack-guard.js"))}`,
-        `_SLACK_REWRITER_SCRIPT=${JSON.stringify(path.join(tmpDir, "slack-rewriter.js"))}`,
         "NEMOCLAW_CMD=()",
         telegramDiagnosticsSection(preloadPath, configPath),
         preGatewaySetupBlock(kind, gatewayLog, autoPairLog),
@@ -1742,7 +1674,6 @@ process.stderr.write('FailoverError: token=123456:LATER\\n');
         `_CIAO_GUARD_SCRIPT=${JSON.stringify(path.join(tmpDir, "ciao-guard.js"))}`,
         `_TELEGRAM_DIAGNOSTICS_SCRIPT=${JSON.stringify(preloadPath)}`,
         `_SLACK_GUARD_SCRIPT=${JSON.stringify(path.join(tmpDir, "slack-guard.js"))}`,
-        `_SLACK_REWRITER_SCRIPT=${JSON.stringify(path.join(tmpDir, "slack-rewriter.js"))}`,
         "_TOOL_REDIRECTS=()",
         "set +u",
         runtimeBlock,

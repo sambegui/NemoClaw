@@ -477,12 +477,12 @@ describe("Hermes sandbox provisioning", () => {
     expect(permissivePolicySrc).toContain("- /opt/hermes");
   });
 
-  it("allowlists the Discord sitecustomize preload dir so Python can load placeholder normalization", () => {
+  it("does not allowlist removed Hermes placeholder-normalization preload dirs", () => {
     const policySrc = fs.readFileSync(HERMES_POLICY, "utf-8");
     const permissivePolicySrc = fs.readFileSync(HERMES_POLICY_PERMISSIVE, "utf-8");
 
-    expect(policySrc).toContain("- /opt/nemoclaw-hermes-discord-preload");
-    expect(permissivePolicySrc).toContain("- /opt/nemoclaw-hermes-discord-preload");
+    expect(policySrc).not.toContain("- /opt/nemoclaw-hermes-discord-preload");
+    expect(permissivePolicySrc).not.toContain("- /opt/nemoclaw-hermes-discord-preload");
   });
 });
 

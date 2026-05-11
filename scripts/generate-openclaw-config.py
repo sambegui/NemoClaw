@@ -407,9 +407,8 @@ def build_config(env: dict | None = None) -> dict:
     # Slack's Bolt SDK validates token shape at App construction (^xoxb-…$ /
     # ^xapp-…$) before any HTTP call leaves the process, so the canonical
     # openshell:resolve:env:VAR placeholder is rejected synchronously. Emit a
-    # Bolt-regex-compatible placeholder instead; the slack-token-rewriter
-    # Node preload translates it to canonical form on outbound HTTP, where
-    # OpenShell's L7 proxy substitutes the real token from env.
+    # Bolt-regex-compatible placeholder instead; OpenShell resolves the
+    # provider-shaped alias directly at the egress boundary.
     def _placeholder(channel: str, env_key: str) -> str:
         if channel == "slack" and env_key == "SLACK_BOT_TOKEN":
             return f"xoxb-OPENSHELL-RESOLVE-ENV-{env_key}"

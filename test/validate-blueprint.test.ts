@@ -51,6 +51,7 @@ type Endpoint = {
   access?: string;
   tls?: string;
   websocket_credential_rewrite?: boolean;
+  request_body_credential_rewrite?: boolean;
   rules?: Rule[];
   binaries?: Array<{ path: string }>;
 };
@@ -513,14 +514,14 @@ describe("messaging WebSocket presets", () => {
       name: "slack",
       policyKey: "slack",
       host: "wss-primary.slack.com",
-      credentialRewrite: false,
+      credentialRewrite: true,
       data: loadYaml<PolicyPreset>(SLACK_PRESET_PATH),
     },
     {
       name: "slack",
       policyKey: "slack",
       host: "wss-backup.slack.com",
-      credentialRewrite: false,
+      credentialRewrite: true,
       data: loadYaml<PolicyPreset>(SLACK_PRESET_PATH),
     },
   ];
@@ -540,6 +541,28 @@ describe("messaging WebSocket presets", () => {
           { allow: { method: "WEBSOCKET_TEXT", path: "/**" } },
         ]),
       );
+    });
+  }
+});
+
+describe("Slack REST credential rewrite", () => {
+  const SLACK_PRESET_PATH = new URL(
+    "../nemoclaw-blueprint/policies/presets/slack.yaml",
+    import.meta.url,
+  );
+  const data = loadYaml<PolicyPreset>(SLACK_PRESET_PATH);
+  const slackRestHosts = ["slack.com", "api.slack.com", "hooks.slack.com"];
+
+  for (const host of slackRestHosts) {
+    it(`${host} enables request-body credential rewrite`, () => {
+      const endpoints = data.network_policies?.slack?.endpoints ?? [];
+      const endpoint = endpoints.find((candidate) => candidate.host === host);
+      expect(endpoint).toBeDefined();
+      expect(endpoint).toMatchObject({
+        protocol: "rest",
+        enforcement: "enforce",
+        request_body_credential_rewrite: true,
+      });
     });
   }
 });

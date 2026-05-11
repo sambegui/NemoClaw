@@ -3259,8 +3259,10 @@ function destroyGateway() {
     : runOpenshell(["gateway", "remove", GATEWAY_NAME], {
         ignoreError: true,
       });
-  // Clear the local registry so `nemoclaw list` stays consistent with OpenShell state. (#532)
-  if (destroyResult.status === 0) {
+  // Clear the local registry only when NemoClaw actually destroyed the gateway
+  // runtime. Package-managed OpenShell CLIs use `gateway remove`, which removes
+  // only local metadata and must not erase NemoClaw's sandbox registry.
+  if (hasLifecycleCommands && destroyResult.status === 0) {
     registry.clearAll();
   }
   if (hasLifecycleCommands) {
@@ -4512,6 +4514,14 @@ async function recoverGatewayRuntime() {
     return true;
   }
 
+  if (!gatewayCliSupportsLifecycleCommands()) {
+    console.error("  OpenShell no longer exposes 'gateway start'.");
+    console.error("  Start and register the local OpenShell gateway service first, then retry:");
+    console.error(`    openshell gateway add http://127.0.0.1:${GATEWAY_PORT} --local --name ${GATEWAY_NAME}`);
+    console.error(`    openshell gateway select ${GATEWAY_NAME}`);
+    return false;
+  }
+
   const startResult = runOpenshell(
     ["gateway", "start", "--name", GATEWAY_NAME, "--port", String(GATEWAY_PORT)],
     {
@@ -5602,16 +5612,6 @@ async function createSandbox(
       getCredential(webSearch.BRAVE_API_KEY_ENV) || process.env[webSearch.BRAVE_API_KEY_ENV];
     if (braveKey) {
       envArgs.push(formatEnvAssignment(webSearch.BRAVE_API_KEY_ENV, braveKey));
-    }
-  }
-  // Slack Socket Mode requires both tokens in the container env so the baked
-  // openshell:resolve:env: placeholders in openclaw.json are substituted.
-  // The provider registration above handles L7 proxy auth header rewriting;
-  // the --env args here ensure the container env vars hold the real values.
-  if (tokensByEnvKey["SLACK_BOT_TOKEN"]) {
-    envArgs.push(formatEnvAssignment("SLACK_BOT_TOKEN", tokensByEnvKey["SLACK_BOT_TOKEN"]));
-    if (tokensByEnvKey["SLACK_APP_TOKEN"]) {
-      envArgs.push(formatEnvAssignment("SLACK_APP_TOKEN", tokensByEnvKey["SLACK_APP_TOKEN"]));
     }
   }
   const sandboxEnv = buildSubprocessEnv();

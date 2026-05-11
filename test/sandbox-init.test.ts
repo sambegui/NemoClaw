@@ -577,25 +577,23 @@ EOF
       expect(src).not.toContain("_PROXY_MARKER_BEGIN");
     });
 
-    it("hermes start.sh routes Discord through the local decode proxy without a facade", () => {
+    it("hermes start.sh routes messaging directly through OpenShell without local bridges", () => {
       const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
-      expect(src).toContain('export DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
-      expect(src).toContain('DISCORD_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
-      expect(src).toContain("OpenShell policy; no local Discord facade is started");
+      expect(src).toContain("OpenShell owns credential alias/body/WebSocket rewrite");
+      expect(src).not.toContain("DISCORD_PROXY=");
+      expect(src).not.toContain("DECODE_PROXY_PORT");
       expect(src).not.toContain("start_discord_facade");
       expect(src).not.toContain("NEMOCLAW_DISCORD_FACADE_URL");
       expect(src).not.toContain("nemoclaw-discord-facade");
+      expect(src).not.toContain("nemoclaw-decode-proxy");
     });
 
-    it("hermes start.sh launches the decode proxy under the Hermes venv interpreter", () => {
+    it("hermes start.sh does not install Python placeholder-normalization preloads", () => {
       const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
-      expect(src).toContain('HERMES_VENV_PYTHON="/opt/hermes/.venv/bin/python"');
-
-      const decodeFn = src.match(/start_decode_proxy\(\) \{([\s\S]*?)^}/m);
-      expect(decodeFn).toBeTruthy();
-      const decodeBody = decodeFn![1];
-      expect(decodeBody).toContain('"$HERMES_VENV_PYTHON" /usr/local/bin/nemoclaw-decode-proxy');
-      expect(decodeBody).not.toMatch(/(?<![\w/"])python3 \/usr\/local\/bin\/nemoclaw-decode-proxy/);
+      expect(src).not.toContain("HERMES_VENV_PYTHON");
+      expect(src).not.toContain("start_decode_proxy");
+      expect(src).not.toContain("/opt/nemoclaw-hermes-discord-preload");
+      expect(src).not.toMatch(/(?<![\w/"])python3 \/usr\/local\/bin\/nemoclaw-decode-proxy/);
       expect(src).not.toMatch(/(?<![\w/"])python3 \/usr\/local\/bin\/nemoclaw-discord-facade/);
     });
 
@@ -604,14 +602,14 @@ EOF
       expect(src).toContain("validate_tmp_permissions");
     });
 
-    it("hermes start.sh routes gateway traffic through the decode proxy", () => {
+    it("hermes start.sh launches the gateway without a NemoClaw-owned decode proxy", () => {
       const src = readFileSync(join(import.meta.dirname, "../agents/hermes/start.sh"), "utf-8");
-      expect(src).toContain("DECODE_PROXY_PORT=3129");
-      expect(src).toContain('"$HERMES_VENV_PYTHON" /usr/local/bin/nemoclaw-decode-proxy');
-      expect(src).toContain('HTTPS_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
-      expect(src).toContain('HTTP_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
-      expect(src).toContain('PYTHONPATH="/opt/nemoclaw-hermes-discord-preload${PYTHONPATH:+:${PYTHONPATH}}"');
-      expect(src).toContain("start_decode_proxy");
+      expect(src).toContain('HERMES_HOME="${HERMES_DIR}"');
+      expect(src).toContain("Messaging egress goes directly through OpenShell");
+      expect(src).not.toContain("DECODE_PROXY_PORT=3129");
+      expect(src).not.toContain("/usr/local/bin/nemoclaw-decode-proxy");
+      expect(src).not.toContain('HTTPS_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
+      expect(src).not.toContain('HTTP_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}"');
     });
 
     it("hermes start.sh checks immutable bits before legacy migration mutates files", () => {

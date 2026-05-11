@@ -5051,14 +5051,14 @@ const { createSandbox } = require(${onboardPath});
       assert.match(createCommand.policyContent || "", /slack:/);
       assert.match(createCommand.policyContent || "", /wss-primary\.slack\.com/);
 
-      // Discord and Telegram tokens must NOT appear in the sandbox create command
+      // Messaging tokens must NOT appear in the sandbox create command
       // (they flow exclusively through the openshell provider credential system).
       assert.doesNotMatch(createCommand.command, /test-discord-token-value/);
       assert.doesNotMatch(createCommand.command, /123456:ABC-test-telegram-token/);
-      // Slack tokens ARE injected as --env args so the baked openclaw.json
-      // openshell:resolve:env: placeholders resolve inside the container.
-      assert.match(createCommand.command, /SLACK_BOT_TOKEN=xoxb-test-slack-token-value/);
-      assert.match(createCommand.command, /SLACK_APP_TOKEN=xapp-test-slack-app-token-value/);
+      assert.doesNotMatch(createCommand.command, /xoxb-test-slack-token-value/);
+      assert.doesNotMatch(createCommand.command, /xapp-test-slack-app-token-value/);
+      assert.doesNotMatch(createCommand.command, /SLACK_BOT_TOKEN=/);
+      assert.doesNotMatch(createCommand.command, /SLACK_APP_TOKEN=/);
 
       // Verify blocked credentials are NOT in the sandbox spawn environment
       assert.ok(createCommand.env, "expected env to be captured from spawn call");

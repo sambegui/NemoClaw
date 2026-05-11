@@ -9,8 +9,6 @@ const CHANNEL_TOKEN_ENVS: Record<string, string[]> = {
   slack: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
 };
 
-const HERMES_DISCORD_PROXY = "http://127.0.0.1:3129";
-
 export function buildMessagingEnvLines(
   enabledChannels: Set<string>,
   allowedIds: MessagingAllowedIds,
@@ -24,7 +22,6 @@ export function buildMessagingEnvLines(
       envLines.push(`${envKey}=${buildTokenPlaceholder(channel, envKey)}`);
     }
     if (channel === "discord") {
-      envLines.push(`DISCORD_PROXY=${HERMES_DISCORD_PROXY}`);
       const guildIds = Object.keys(discordGuilds).filter(Boolean);
       if (guildIds.length > 0) {
         envLines.push(`NEMOCLAW_DISCORD_GUILD_IDS=${guildIds.join(",")}`);

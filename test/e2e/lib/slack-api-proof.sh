@@ -86,7 +86,7 @@ apply_fake_slack_api_policy() {
   local allowed_ip_options
   allowed_ip_options="$(fake_slack_api_allowed_ip_options)"
   openshell policy update "$sandbox_name" \
-    --add-endpoint "${host}:${port}:read-write:rest:enforce:${allowed_ip_options}" \
+    --add-endpoint "${host}:${port}:read-write:rest:enforce:request-body-credential-rewrite,${allowed_ip_options}" \
     --add-allow "${host}:${port}:GET:/**" \
     --add-allow "${host}:${port}:POST:/**" \
     --binary /usr/local/bin/node \
@@ -102,14 +102,16 @@ run_fake_slack_api_node_request() {
   sandbox_exec_stdin "FAKE_SLACK_API_HOST='$host' FAKE_SLACK_API_PORT='$port' FAKE_SLACK_API_PATH='$path' FAKE_SLACK_API_AUTH='$authorization' node - 2>&1" <<'NODE'
 const http = require("http");
 
-const data = "";
+const authorization = process.env.FAKE_SLACK_API_AUTH || "";
+const token = authorization.replace(/^Bearer\s+/, "");
+const data = `token=${encodeURIComponent(token)}`;
 const options = {
   hostname: process.env.FAKE_SLACK_API_HOST || "host.openshell.internal",
   port: Number(process.env.FAKE_SLACK_API_PORT),
   path: process.env.FAKE_SLACK_API_PATH,
   method: "POST",
   headers: {
-    Authorization: process.env.FAKE_SLACK_API_AUTH,
+    Authorization: authorization,
     "Content-Type": "application/x-www-form-urlencoded",
     "Content-Length": data.length,
   },

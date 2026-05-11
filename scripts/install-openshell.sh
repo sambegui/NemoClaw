@@ -33,13 +33,18 @@ esac
 
 info "Detected $OS_LABEL ($ARCH_LABEL)"
 
-# Minimum version required for native WebSocket policy and credential rewrite.
+# Minimum version required for native messaging credential rewrite:
+# WebSocket text frames plus provider-shaped aliases and REST request bodies.
 MIN_VERSION="0.0.38"
 # Maximum version validated for this NemoClaw release. Newer OpenShell builds
 # may change sandbox semantics; upgrade NemoClaw before upgrading past this.
 MAX_VERSION="0.0.38"
-# Pin fresh installs to this version instead of pulling "latest".
-PIN_VERSION="$MAX_VERSION"
+# Pin fresh installs to this version instead of pulling "latest". The override
+# is intentionally explicit so temporary patched OpenShell builds can be tested
+# without weakening the runtime feature gate below.
+PIN_VERSION="${NEMOCLAW_OPENSHELL_PIN_VERSION:-$MAX_VERSION}"
+PIN_TAG="${NEMOCLAW_OPENSHELL_PIN_TAG:-v${PIN_VERSION}}"
+PIN_REPO="${NEMOCLAW_OPENSHELL_PIN_REPO:-NVIDIA/OpenShell}"
 
 version_gte() {
   # Returns 0 (true) if $1 >= $2 — portable, no sort -V (BSD compat)
@@ -55,6 +60,21 @@ version_gte() {
   return 0
 }
 
+openshell_has_required_messaging_features() {
+  local openshell_bin
+  openshell_bin="${1:-$(command -v openshell 2>/dev/null || true)}"
+  [ -n "$openshell_bin" ] || return 1
+  command -v strings >/dev/null 2>&1 || return 1
+
+  # Keep this independent of a live gateway. `policy update --dry-run` still
+  # needs gateway metadata, but the CLI binary must contain the endpoint-option
+  # parser for the OpenShell #1286 request-body/WebSocket rewrite support.
+  local binary_strings
+  binary_strings="$(strings "$openshell_bin" 2>/dev/null || true)"
+  [[ "$binary_strings" == *"request-body-credential-rewrite"* ]] \
+    && [[ "$binary_strings" == *"websocket-credential-rewrite"* ]]
+}
+
 if command -v openshell >/dev/null 2>&1; then
   INSTALLED_VERSION="$(openshell --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   [ -n "$INSTALLED_VERSION" ] || INSTALLED_VERSION="0.0.0"
@@ -62,7 +82,10 @@ if command -v openshell >/dev/null 2>&1; then
     if ! version_gte "$MAX_VERSION" "$INSTALLED_VERSION"; then
       fail "openshell $INSTALLED_VERSION is above the maximum ($MAX_VERSION) supported by this NemoClaw release. Upgrade NemoClaw first."
     fi
-    info "openshell already installed: $INSTALLED_VERSION (>= $MIN_VERSION, <= $MAX_VERSION)"
+    if ! openshell_has_required_messaging_features; then
+      fail "openshell $INSTALLED_VERSION is missing required messaging credential rewrite support. Install OpenShell PR #1286 or a release that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
+    fi
+    info "openshell already installed: $INSTALLED_VERSION (>= $MIN_VERSION, <= $MAX_VERSION, messaging rewrite capable)"
     exit 0
   fi
   warn "openshell $INSTALLED_VERSION is below minimum $MIN_VERSION — upgrading..."
@@ -90,16 +113,16 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 CHECKSUM_FILE="openshell-checksums-sha256.txt"
 download_with_curl() {
-  curl -fsSL "https://github.com/NVIDIA/OpenShell/releases/download/v${PIN_VERSION}/$ASSET" \
+  curl -fsSL "https://github.com/${PIN_REPO}/releases/download/${PIN_TAG}/$ASSET" \
     -o "$tmpdir/$ASSET"
-  curl -fsSL "https://github.com/NVIDIA/OpenShell/releases/download/v${PIN_VERSION}/$CHECKSUM_FILE" \
+  curl -fsSL "https://github.com/${PIN_REPO}/releases/download/${PIN_TAG}/$CHECKSUM_FILE" \
     -o "$tmpdir/$CHECKSUM_FILE"
 }
 
 if command -v gh >/dev/null 2>&1; then
-  if GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "v${PIN_VERSION}" --repo NVIDIA/OpenShell \
+  if GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$PIN_TAG" --repo "$PIN_REPO" \
     --pattern "$ASSET" --dir "$tmpdir" 2>/dev/null \
-    && GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "v${PIN_VERSION}" --repo NVIDIA/OpenShell \
+    && GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$PIN_TAG" --repo "$PIN_REPO" \
       --pattern "$CHECKSUM_FILE" --dir "$tmpdir" 2>/dev/null; then
     : # gh succeeded
   else
@@ -130,6 +153,10 @@ elif [ "${NEMOCLAW_NON_INTERACTIVE:-}" = "1" ] || [ ! -t 0 ]; then
   warn "Add that export to your shell profile, or open a new shell before using openshell directly."
 else
   sudo install -m 755 "$tmpdir/openshell" "$target_dir/openshell"
+fi
+
+if ! openshell_has_required_messaging_features "$target_dir/openshell"; then
+  fail "installed openshell is missing required messaging credential rewrite support. Install OpenShell PR #1286 or a release that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
 fi
 
 info "$("$target_dir/openshell" --version 2>&1 || echo openshell) installed"
