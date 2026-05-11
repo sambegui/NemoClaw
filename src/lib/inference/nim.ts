@@ -359,9 +359,13 @@ export function startNimContainerByName(
   // returns "Authentication Error" and the container exits 0 a few seconds in.
   // Regression of #210 — see #3333.
   const ngcApiKey = opts.ngcApiKey ?? process.env.NGC_API_KEY ?? process.env.NVIDIA_API_KEY ?? "";
-  const envFlags = ngcApiKey
-    ? ["-e", `NGC_API_KEY=${ngcApiKey}`, "-e", `NIM_NGC_API_KEY=${ngcApiKey}`]
-    : [];
+  // Use `-e KEY` (no value) so the secret never appears in argv; pass the
+  // value through the spawn env instead. Docker reads each named var from
+  // its own process env and forwards it to the container.
+  const envFlags = ngcApiKey ? ["-e", "NGC_API_KEY", "-e", "NIM_NGC_API_KEY"] : [];
+  const runEnv = ngcApiKey
+    ? { NGC_API_KEY: ngcApiKey, NIM_NGC_API_KEY: ngcApiKey }
+    : undefined;
   if (!ngcApiKey) {
     console.warn(
       "  No NGC API key available; NIM will fail to download model weights. " +
@@ -372,18 +376,21 @@ export function startNimContainerByName(
   dockerForceRm(name, { ignoreError: true });
 
   console.log(`  Starting NIM container: ${name}`);
-  dockerRunDetached([
-    "--gpus",
-    "all",
-    "-p",
-    `${Number(port)}:8000`,
-    "--name",
-    name,
-    "--shm-size",
-    "16g",
-    ...envFlags,
-    image,
-  ]);
+  dockerRunDetached(
+    [
+      "--gpus",
+      "all",
+      "-p",
+      `${Number(port)}:8000`,
+      "--name",
+      name,
+      "--shm-size",
+      "16g",
+      ...envFlags,
+      image,
+    ],
+    runEnv ? { env: runEnv } : {},
+  );
   return name;
 }
 

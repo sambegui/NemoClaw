@@ -6819,11 +6819,23 @@ async function setupNim(
             ngcApiKey = ngcKey;
           } else {
             // Docker is already logged in, but NIM still needs the key in its
-            // container env to download model manifests. Reuse an env-provided
-            // key when present; otherwise let startNimContainerByName surface
-            // the warning so we don't double-prompt or fail before the
-            // container had a chance to load.
-            ngcApiKey = getCredential("NGC_API_KEY") || getCredential("NVIDIA_API_KEY");
+            // container env to download model manifests. Users hit by the
+            // original #3333 bug typically have a cached docker login from
+            // the earlier broken attempt while the NGC key was never saved
+            // anywhere, so a passive lookup would silently reproduce the
+            // failure. Try env first, then prompt interactively; an empty
+            // answer falls through to startNimContainerByName's warning so
+            // we don't double-fail in non-interactive callers.
+            ngcApiKey =
+              hydrateCredentialEnv("NGC_API_KEY") || hydrateCredentialEnv("NVIDIA_API_KEY");
+            if (!ngcApiKey && !isNonInteractive()) {
+              console.log("");
+              console.log("  NGC API Key required to download NIM model weights at runtime.");
+              console.log("  (Docker is logged in to nvcr.io, but the key was not saved.)");
+              ngcApiKey = normalizeCredentialValue(
+                await prompt("  NGC API Key: ", { secret: true }),
+              );
+            }
           }
 
           console.log(`  Pulling NIM image for ${model}...`);
