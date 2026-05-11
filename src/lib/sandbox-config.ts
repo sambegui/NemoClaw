@@ -19,6 +19,7 @@ const path = require("path");
 const { promises: dnsPromises } = require("node:dns");
 const { isIP } = require("node:net");
 const { validateName } = require("./runner");
+const { shellQuote } = require("./core/shell-quote");
 const { dockerExecFileSync } = require("./adapters/docker/exec");
 const credentialFilter: typeof import("./security/credential-filter") = require("./security/credential-filter");
 const { stripCredentials, isConfigObject, isConfigValue, isCredentialField } = credentialFilter;
@@ -311,10 +312,6 @@ function serializeConfig(config: ConfigObject, format: string): string {
     return YAML.stringify(config);
   }
   return JSON.stringify(config, null, 2);
-}
-
-function shellQuote(value: string): string {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 /**
