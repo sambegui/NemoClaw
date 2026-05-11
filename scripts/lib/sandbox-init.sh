@@ -200,9 +200,22 @@ lock_config_after_write() {
 # at startup using capsh. The bounding set limits what caps any child process
 # (gateway, sandbox, agent) can ever acquire.
 #
-# Kept: cap_chown, cap_setuid, cap_setgid, cap_fowner, cap_kill
-#   — required by the entrypoint for gosu privilege separation and chown.
+# Dropped (issue #3280): cap_sys_admin, cap_sys_ptrace plus the historical
+# set (cap_net_raw, cap_dac_override, cap_sys_chroot, cap_fsetid,
+# cap_setfcap, cap_mknod, cap_audit_write, cap_net_bind_service).
+# Dashboard listens on a high port (default 18789, validated >=1024 in
+# nemoclaw-start.sh), so cap_net_bind_service is unconditionally unused.
+#
+# Kept (each load-bearing — do not drop without an entrypoint refactor):
+#   cap_chown, cap_fowner — needed to chown/chmod files we did not create
+#     after dropping cap_dac_override (see #2659).
+#   cap_setuid, cap_setgid — required by gosu to step down from root into
+#     the sandbox/gateway UIDs during entrypoint privilege separation.
+#   cap_kill — sandbox user signals gateway-user processes via the UID
+#     separation enforced by the entrypoint (see test 13 in
+#     e2e-gateway-isolation.sh).
 # Ref: https://github.com/NVIDIA/NemoClaw/issues/797
+#      https://github.com/NVIDIA/NemoClaw/issues/3280
 #
 # Usage:
 #   drop_capabilities /usr/local/bin/nemoclaw-start "$@"
@@ -219,13 +232,48 @@ drop_capabilities() {
     if capsh --has-p=cap_setpcap 2>/dev/null; then
       export NEMOCLAW_CAPS_DROPPED=1
       exec capsh \
-        --drop=cap_net_raw,cap_dac_override,cap_sys_chroot,cap_fsetid,cap_setfcap,cap_mknod,cap_audit_write,cap_net_bind_service \
+        --drop=cap_sys_admin,cap_sys_ptrace,cap_net_raw,cap_dac_override,cap_sys_chroot,cap_fsetid,cap_setfcap,cap_mknod,cap_audit_write,cap_net_bind_service \
         -- -c "exec $entrypoint \"\$@\"" -- "$@"
     else
-      echo "[SECURITY] CAP_SETPCAP not available — runtime already restricts capabilities" >&2
+      report_residual_capabilities
     fi
   elif [ "${NEMOCLAW_CAPS_DROPPED:-}" != "1" ]; then
     echo "[SECURITY WARNING] capsh not available — running with default capabilities" >&2
+  fi
+}
+
+# Emit a loud diagnostic when capsh-based dropping is unavailable so that
+# residual dangerous bounding-set caps surface in logs instead of being
+# silently inherited from the container runtime. Called from the
+# CAP_SETPCAP-missing fallback path of drop_capabilities() (issue #3280).
+report_residual_capabilities() {
+  echo "[SECURITY] CAP_SETPCAP not available — cannot drop bounding-set caps via capsh" >&2
+
+  local cap_bnd_hex val name bit present_caps=""
+  if ! cap_bnd_hex=$(awk '/^CapBnd:/{print $2}' /proc/self/status 2>/dev/null) \
+    || [ -z "$cap_bnd_hex" ]; then
+    echo "[SECURITY] Could not read /proc/self/status — residual caps unknown" >&2
+    return 0
+  fi
+  echo "[SECURITY] Residual CapBnd=${cap_bnd_hex}" >&2
+
+  # Bash arithmetic handles 64-bit ints on 64-bit platforms; CAP_LAST_CAP
+  # is ~41 today, well within range. Avoids a gawk-strtonum dependency.
+  val=$((16#$cap_bnd_hex))
+  for entry in \
+    "21:cap_sys_admin" \
+    "19:cap_sys_ptrace" \
+    "13:cap_net_raw" \
+    "1:cap_dac_override" \
+    "10:cap_net_bind_service"; do
+    bit="${entry%%:*}"
+    name="${entry#*:}"
+    if [ $(((val >> bit) & 1)) -ne 0 ]; then
+      present_caps="${present_caps:+$present_caps,}$name"
+    fi
+  done
+  if [ -n "$present_caps" ]; then
+    echo "[SECURITY] Dangerous caps remain in bounding set: ${present_caps}" >&2
   fi
 }
 
