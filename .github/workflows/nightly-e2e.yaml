@@ -80,7 +80,8 @@ on:
           onboard-repair-e2e, onboard-resume-e2e, runtime-overrides-e2e,
           credential-sanitization-e2e, telegram-injection-e2e,
           overlayfs-autofix-e2e, device-auth-health-e2e,
-          launchable-smoke-e2e, gpu-e2e, gpu-double-onboard-e2e
+          launchable-smoke-e2e, gpu-e2e, gpu-double-onboard-e2e,
+          brave-search-e2e
         required: false
         type: string
         default: ""
@@ -328,6 +329,49 @@ jobs:
         with:
           name: install-log-messaging-compatible-endpoint
           path: /tmp/nemoclaw-e2e-messaging-compatible-endpoint-install.log
+          if-no-files-found: ignore
+
+  # ── Brave Search E2E (#2687) ─────────────────────────────────
+  # Validates the full Brave Search path with a real BRAVE_API_KEY:
+  # non-interactive onboard auto-enables web search, the brave network
+  # policy preset is applied, the real key never lands on disk in the
+  # sandbox-readable openclaw.json (placeholder only), and the openclaw
+  # agent + a placeholder-header curl each return real Brave results.
+  # ~3 Brave queries per run (1 onboard validation + 1 agent + 1 curl).
+  brave-search-e2e:
+    if: >-
+      github.repository == 'NVIDIA/NemoClaw' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.jobs == '' ||
+       contains(format(',{0},', inputs.jobs), ',brave-search-e2e,'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run Brave Search E2E test
+        env:
+          # secrets.BRAVE_API_KEY is the only place the real key appears
+          # in this file. GitHub auto-masks any string matching it in
+          # workflow logs; the script also pipes diagnostic output
+          # through redact_stream "$BRAVE_API_KEY" as defence in depth.
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NEMOCLAW_NON_INTERACTIVE: "1"
+          NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+          NEMOCLAW_SANDBOX_NAME: "e2e-brave-search"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash test/e2e/test-brave-search-e2e.sh
+
+      - name: Upload onboard log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-log-brave-search
+          # The script scrubs $BRAVE_API_KEY from this log in place
+          # before the artifact is uploaded.
+          path: /tmp/nemoclaw-e2e-brave-search-onboard.log
           if-no-files-found: ignore
 
   # ── Kimi inference compatibility regression (#2620) ───────────
@@ -1796,6 +1840,7 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         messaging-compatible-endpoint-e2e,
+        brave-search-e2e,
         kimi-inference-compat-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,
@@ -1886,6 +1931,7 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         messaging-compatible-endpoint-e2e,
+        brave-search-e2e,
         kimi-inference-compat-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,
@@ -2024,6 +2070,7 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         messaging-compatible-endpoint-e2e,
+        brave-search-e2e,
         kimi-inference-compat-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,

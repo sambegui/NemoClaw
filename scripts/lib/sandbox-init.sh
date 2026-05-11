@@ -277,6 +277,78 @@ report_residual_capabilities() {
   fi
 }
 
+# ── Privilege step-down (issue #3280 follow-up) ──────────────────
+# Replaces direct `gosu <user>` invocations with `setpriv` so the load-
+# bearing caps (cap_setuid, cap_setgid, cap_fowner, cap_chown, cap_kill)
+# are stripped from the bounding set *atomically with* the setuid
+# transition. gosu cannot do this: dropping those caps before gosu
+# breaks its setuid() syscall, and after gosu we are non-root and have
+# already lost CAP_SETPCAP. setpriv performs reuid + bounding-set drop
+# in a single process, in the correct order, before exec.
+#
+# Two prefix arrays are populated at source time:
+#   STEP_DOWN_PREFIX_SANDBOX  — step down to the 'sandbox' user
+#   STEP_DOWN_PREFIX_GATEWAY  — step down to the 'gateway' user
+#
+# Callers use them like the old `gosu <user>` prefix:
+#   exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"
+#   "${STEP_DOWN_PREFIX_SANDBOX[@]}" bash -c "..."
+#   nohup "${STEP_DOWN_PREFIX_GATEWAY[@]}" gateway run --port "$port" &
+#
+# Fallback: if setpriv is missing or CAP_SETPCAP isn't available, the
+# arrays fall back to plain `gosu <user>` and a warning is logged so the
+# residual bounding-set caps surface in the entrypoint log (matches the
+# residual-surface design of report_residual_capabilities).
+# File-scope array declarations: bash 3.2 (macOS) does not accept `declare -g`,
+# but plain assignment at file scope is global by default. Inside
+# init_step_down_prefixes() we re-assign these without `local`, which targets
+# the globals in both bash 3.2 and 4+.
+#
+# Initialize to the gosu fallback (NOT empty) so callers cannot accidentally
+# `exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"` with an unset
+# array — which would expand to nothing and run NEMOCLAW_CMD as root (privesc
+# regression). init_step_down_prefixes() below upgrades to setpriv when
+# CAP_SETPCAP is available; otherwise these stay at the gosu defaults.
+# shellcheck disable=SC2034  # consumed by scripts/nemoclaw-start.sh and agents/hermes/start.sh
+STEP_DOWN_PREFIX_SANDBOX=(gosu sandbox)
+# shellcheck disable=SC2034  # consumed by scripts/nemoclaw-start.sh and agents/hermes/start.sh
+STEP_DOWN_PREFIX_GATEWAY=(gosu gateway)
+
+init_step_down_prefixes() {
+  if command -v setpriv >/dev/null 2>&1 \
+    && command -v capsh >/dev/null 2>&1 \
+    && capsh --has-p=cap_setpcap 2>/dev/null; then
+    # setpriv cap names are unprefixed (per `setpriv --list`); capsh uses
+    # cap_* names. Keep them in sync but format-distinct.
+    #
+    # --init-groups (NOT --clear-groups): gateway is a member of the sandbox
+    # group via `usermod -aG sandbox gateway` in Dockerfile.base so it can
+    # write the chmod 660 /sandbox/.openclaw/openclaw.json (setgid'd
+    # config dir, see #2681). --clear-groups would strip that membership
+    # and break mutateConfigFile / control-UI config edits with EACCES.
+    # --init-groups matches gosu's setgroups+initgroups behavior and
+    # restores exactly the groups defined in /etc/group for the target user.
+    local drop="-setuid,-setgid,-fowner,-chown,-kill"
+    # shellcheck disable=SC2034  # consumed by entrypoint scripts (cross-file)
+    STEP_DOWN_PREFIX_SANDBOX=(
+      setpriv --reuid=sandbox --regid=sandbox --init-groups
+      --bounding-set="$drop" --
+    )
+    # shellcheck disable=SC2034  # consumed by entrypoint scripts (cross-file)
+    STEP_DOWN_PREFIX_GATEWAY=(
+      setpriv --reuid=gateway --regid=gateway --init-groups
+      --bounding-set="$drop" --
+    )
+  else
+    echo "[SECURITY WARNING] setpriv or CAP_SETPCAP unavailable — falling back to gosu (bounding set will retain cap_setuid/setgid/fowner/chown/kill — issue #3280)" >&2
+    # shellcheck disable=SC2034  # consumed by entrypoint scripts (cross-file)
+    STEP_DOWN_PREFIX_SANDBOX=(gosu sandbox)
+    # shellcheck disable=SC2034  # consumed by entrypoint scripts (cross-file)
+    STEP_DOWN_PREFIX_GATEWAY=(gosu gateway)
+  fi
+}
+init_step_down_prefixes
+
 # ── Config integrity check ──────────────────────────────────────
 # The config hash was pinned at build time. If it doesn't match,
 # someone (or something) has tampered with the config.

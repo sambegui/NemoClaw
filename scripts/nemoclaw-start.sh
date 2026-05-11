@@ -987,10 +987,13 @@ start_persistent_gateway_log_mirror() {
 start_auto_pair() {
   # Run auto-pair as sandbox user (it talks to the gateway via CLI)
   # SECURITY: Pass resolved openclaw path to prevent PATH hijacking
-  # When running as non-root, skip gosu (we're already the sandbox user)
+  # When running as non-root, skip privilege step-down (we're already
+  # the sandbox user). When root, step down via STEP_DOWN_PREFIX_SANDBOX
+  # which uses setpriv to drop load-bearing caps from the bounding set
+  # atomically with reuid (issue #3280 follow-up).
   local run_prefix=()
   if [ "$(id -u)" -eq 0 ]; then
-    run_prefix=(gosu sandbox)
+    run_prefix=("${STEP_DOWN_PREFIX_SANDBOX[@]}")
   fi
   OPENCLAW_BIN="$OPENCLAW" nohup "${run_prefix[@]}" python3 - <<'PYAUTOPAIR' >>/tmp/auto-pair.log 2>&1 &
 import json
@@ -1858,7 +1861,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit $?
 fi
 
-# ── Root path (full privilege separation via gosu) ─────────────
+# ── Root path (full privilege separation via setpriv) ──────────
 
 # Verify locked config integrity before starting anything. Mutable-default
 # config is intentionally writable and is not a trust anchor until shields-up.
@@ -1885,11 +1888,11 @@ verify_no_slack_secrets_on_disk
 
 # Write auth profile as sandbox user and recursively re-tighten any
 # auth-profiles.json files under ~/.openclaw.
-gosu sandbox bash -c "$(declare -f write_auth_profile harden_auth_profiles); write_auth_profile; harden_auth_profiles"
+"${STEP_DOWN_PREFIX_SANDBOX[@]}" bash -c "$(declare -f write_auth_profile harden_auth_profiles); write_auth_profile; harden_auth_profiles"
 
 # If a command was passed (e.g., "openclaw agent ..."), run it as sandbox user
 if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
-  exec gosu sandbox "${NEMOCLAW_CMD[@]}"
+  exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"
 fi
 
 # Gateway log: owned by gateway user, world-readable for diagnostics.
@@ -2001,7 +2004,7 @@ validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON
 # SECURITY: The sandbox user cannot kill this process because it runs
 # under a different UID. The fake-HOME attack no longer works because
 # the agent cannot restart the gateway with a tampered config.
-nohup gosu gateway "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
+nohup "${STEP_DOWN_PREFIX_GATEWAY[@]}" "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
 GATEWAY_PID=$!
 echo "[gateway] openclaw gateway launched as 'gateway' user (pid $GATEWAY_PID)" >&2
 

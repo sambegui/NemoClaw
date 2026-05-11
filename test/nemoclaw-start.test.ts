@@ -1211,6 +1211,13 @@ describe("nemoclaw-start gateway launch signal handling", () => {
         "start_persistent_gateway_log_mirror() { sleep 30 & GATEWAY_LOG_PERSIST_PID=$!; }",
         "start_auto_pair() { sleep 30 & AUTO_PAIR_PID=$!; }",
         "cleanup_on_signal() { :; }",
+        // STEP_DOWN_PREFIX_* are normally populated by init_step_down_prefixes
+        // in sandbox-init.sh; the launch block uses STEP_DOWN_PREFIX_GATEWAY
+        // for the gateway exec. Initialize to the gosu fallback so the
+        // stubbed gosu() in fakeBin still receives the call (issue #3280
+        // follow-up).
+        "STEP_DOWN_PREFIX_SANDBOX=(gosu sandbox)",
+        "STEP_DOWN_PREFIX_GATEWAY=(gosu gateway)",
         launchBlock(kind, gatewayLog),
         kind === "root"
           ? `for _ in ${waitForLaunchLogIterations}; do [ -s ${JSON.stringify(gosuLog)} ] && [ -s ${JSON.stringify(openclawLog)} ] && break; sleep 0.1; done`
@@ -1775,6 +1782,12 @@ describe("Telegram diagnostics (#2766)", () => {
         'chown_tree_no_symlink_follow() { :; }',
         'start_persistent_gateway_log_mirror() { :; }',
         'gosu() { shift; "$@"; }',
+        // STEP_DOWN_PREFIX_* are normally populated by init_step_down_prefixes
+        // in sandbox-init.sh; the test scaffolding doesn't source that, so
+        // initialize them here in their fallback form so the gosu() stub still
+        // gets invoked (issue #3280 follow-up).
+        "STEP_DOWN_PREFIX_SANDBOX=(gosu sandbox)",
+        "STEP_DOWN_PREFIX_GATEWAY=(gosu gateway)",
         'validate_tmp_permissions() { printf "VALIDATE:%s\\n" "$*"; }',
         '_SANDBOX_HOME=/sandbox',
         `_SANDBOX_SAFETY_NET=${JSON.stringify(path.join(tmpDir, "safety.js"))}`,

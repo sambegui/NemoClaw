@@ -291,9 +291,9 @@ start_discord_facade() {
     "NEMOCLAW_DISCORD_FACADE_PORT=${DISCORD_FACADE_PORT}"
   )
 
-  if [ "$(id -u)" -eq 0 ] && command -v gosu >/dev/null 2>&1 && id gateway >/dev/null 2>&1; then
+  if [ "$(id -u)" -eq 0 ] && id gateway >/dev/null 2>&1; then
     prepare_restricted_log "$log_path" gateway:gateway 600
-    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" gosu gateway sh -c 'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1' sh "$HERMES_VENV_PYTHON" /usr/local/bin/nemoclaw-discord-facade &
+    nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" "${STEP_DOWN_PREFIX_GATEWAY[@]}" sh -c 'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1' sh "$HERMES_VENV_PYTHON" /usr/local/bin/nemoclaw-discord-facade &
   else
     prepare_restricted_log "$log_path" "" 600
     nohup env -u NEMOCLAW_DISCORD_FACADE_URL -u PYTHONPATH "${launch_env[@]}" sh -c 'umask 0007; exec "$@" >/tmp/discord-facade.log 2>&1' sh "$HERMES_VENV_PYTHON" /usr/local/bin/nemoclaw-discord-facade &
@@ -693,7 +693,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit $?
 fi
 
-# ── Root path (full privilege separation via gosu) ─────────────
+# ── Root path (full privilege separation via setpriv) ──────────
 
 verify_config_integrity "${HERMES_DIR}" "${HERMES_HASH_FILE}"
 refresh_hermes_provider_placeholders
@@ -701,7 +701,7 @@ install_configure_guard
 configure_messaging_channels
 
 if [ ${#NEMOCLAW_CMD[@]} -gt 0 ]; then
-  exec gosu sandbox "${NEMOCLAW_CMD[@]}"
+  exec "${STEP_DOWN_PREFIX_SANDBOX[@]}" "${NEMOCLAW_CMD[@]}"
 fi
 
 # SECURITY: Protect gateway log from sandbox user tampering
@@ -722,7 +722,7 @@ HERMES_HOME="${HERMES_DIR}" \
   HTTP_PROXY="http://127.0.0.1:${DECODE_PROXY_PORT}" \
   https_proxy="http://127.0.0.1:${DECODE_PROXY_PORT}" \
   http_proxy="http://127.0.0.1:${DECODE_PROXY_PORT}" \
-  nohup gosu gateway sh -c 'umask 0007; exec "$@" >/tmp/gateway.log 2>&1' sh "$HERMES" gateway run &
+  nohup "${STEP_DOWN_PREFIX_GATEWAY[@]}" sh -c 'umask 0007; exec "$@" >/tmp/gateway.log 2>&1' sh "$HERMES" gateway run &
 GATEWAY_PID=$!
 echo "[gateway] hermes gateway launched as 'gateway' user (pid $GATEWAY_PID)" >&2
 start_gateway_log_stream
