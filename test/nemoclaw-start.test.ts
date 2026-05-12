@@ -520,8 +520,9 @@ describe("nemoclaw-start configure guard behavior", () => {
     return spawnSync(
       "bash",
       [
+        "--noprofile",
         "--norc",
-        "-lc",
+        "-c",
         [
           `source ${JSON.stringify(setup.proxyEnv)}`,
           ["openclaw", ...args.map((arg) => JSON.stringify(arg))].join(" "),
