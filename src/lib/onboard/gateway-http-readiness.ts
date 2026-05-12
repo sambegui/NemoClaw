@@ -14,6 +14,7 @@ import http from "node:http";
 
 import { GATEWAY_PORT } from "../core/ports";
 import { sleepSeconds } from "../core/wait";
+import { envInt } from "./env";
 
 /**
  * HTTP status codes that indicate the gateway dispatcher is healthy.
@@ -32,13 +33,6 @@ export type WaitForGatewayHttpReadyOpts = {
   maxAttempts?: number;
   intervalSeconds?: number;
 };
-
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : fallback;
-}
 
 /**
  * Resolve raw poll count and interval (seconds) for the reuse-time gateway
