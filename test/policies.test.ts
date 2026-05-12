@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import type { Interface as ReadlineInterface } from "node:readline";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import policies from "../dist/lib/policies";
+import policies from "../dist/lib/policy";
 import { execTimeout } from "./helpers/timeouts";
 
 const requireForTest = createRequire(import.meta.url);
@@ -18,7 +18,7 @@ const YAML = requireForTest("yaml");
 const REPO_ROOT = path.join(import.meta.dirname, "..");
 const CLI_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "nemoclaw.js"));
 const CREDENTIALS_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "credentials", "store.js"));
-const POLICIES_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "policies.js"));
+const POLICIES_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "policy", "index.js"));
 const REGISTRY_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "state", "registry.js"));
 const SELECT_FROM_LIST_ITEMS = [
   { name: "npm", description: "npm and Yarn registry access" },
@@ -806,7 +806,10 @@ describe("policies", () => {
 
     it("Slack REST endpoints opt into OpenShell request-body credential rewrite", () => {
       const policySources = [
-        requirePresetContent(policies.loadPreset("slack")),
+        fs.readFileSync(
+          path.join(REPO_ROOT, "nemoclaw-blueprint/policies/presets/slack.yaml"),
+          "utf8",
+        ),
         fs.readFileSync(path.join(REPO_ROOT, "agents/hermes/policy-additions.yaml"), "utf8"),
         fs.readFileSync(path.join(REPO_ROOT, "agents/hermes/policy-permissive.yaml"), "utf8"),
         fs.readFileSync(
