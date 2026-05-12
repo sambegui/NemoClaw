@@ -36,6 +36,23 @@ if [ "$actual_commit" != "$OPENSHELL_PR1286_COMMIT" ]; then
   exit 1
 fi
 
+if ! command -v cmake >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y cmake
+  elif command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = "0" ]; then
+    apt-get update
+    apt-get install -y cmake
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -m pip install --user cmake
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "cmake is required to build OpenShell PR #1286 with bundled Z3" >&2
+  exit 1
+fi
+
 if ! command -v rustup >/dev/null 2>&1; then
   curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
   # shellcheck source=/dev/null
