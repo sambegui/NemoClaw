@@ -560,17 +560,22 @@ NemoClaw uses provider-specific local tokens for those routes, and rebuilds of l
 <td><p>OpenAI-compatible</p></td>
 <td><p>Uses Google’s OpenAI-compatible endpoint</p></td>
 </tr>
-<tr class="row-even"><td><p>Local Ollama</p></td>
+<tr class="row-even"><td><p>Hermes Provider</p></td>
+<td><p>Hermes only</p></td>
+<td><p>OpenAI-compatible route</p></td>
+<td><p>Available when onboarding Hermes Agent through <code class="docutils literal notranslate"><span class="pre">nemohermes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Local Ollama</p></td>
 <td><p>Caveated</p></td>
 <td><p>Local Ollama API</p></td>
 <td><p>Available when Ollama is installed or running on the host</p></td>
 </tr>
-<tr class="row-odd"><td><p>Local NVIDIA NIM</p></td>
+<tr class="row-even"><td><p>Local NVIDIA NIM</p></td>
 <td><p>Experimental</p></td>
 <td><p>Local OpenAI-compatible</p></td>
 <td><p>Requires <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_EXPERIMENTAL=1</span></code> and a NIM-capable GPU</p></td>
 </tr>
-<tr class="row-even"><td><p>Local vLLM</p></td>
+<tr class="row-odd"><td><p>Local vLLM</p></td>
 <td><p>Experimental</p></td>
 <td><p>Local OpenAI-compatible</p></td>
 <td><p>Requires <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_EXPERIMENTAL=1</span></code> and a server already running on <code class="docutils literal notranslate"><span class="pre">localhost:8000</span></code></p></td>
@@ -618,11 +623,15 @@ Experimental local vLLM appears when you opt in and NemoClaw detects either a ru
 <td><p>Routes to Google’s OpenAI-compatible endpoint. NemoClaw prefers <code class="docutils literal notranslate"><span class="pre">/responses</span></code> only when the endpoint proves it can handle tool calling in a way OpenClaw uses; otherwise it falls back to <code class="docutils literal notranslate"><span class="pre">/chat/completions</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GEMINI_API_KEY</span></code>.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">gemini-3.1-pro-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-3.1-flash-lite-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-3-flash-preview</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-2.5-pro</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-2.5-flash</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-2.5-flash-lite</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>Local Ollama</p></td>
+<tr class="row-even"><td><p>Hermes Provider</p></td>
+<td><p>Routes Hermes Agent through the host OpenShell provider registered by NemoClaw when onboarding Hermes Agent.</p></td>
+<td><p>Curated Hermes Provider models such as <code class="docutils literal notranslate"><span class="pre">moonshotai/kimi-k2.6</span></code>, <code class="docutils literal notranslate"><span class="pre">openai/gpt-5.4-mini</span></code>, and <code class="docutils literal notranslate"><span class="pre">z-ai/glm-5.1</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Local Ollama</p></td>
 <td><p>Routes to a local Ollama instance on <code class="docutils literal notranslate"><span class="pre">localhost:11434</span></code>. NemoClaw detects installed models, offers starter models if none are present, pulls and warms the selected model, and validates it.</p></td>
 <td><p>Selected during onboarding. For more information, refer to <a class="reference internal" href="use-local-inference.html"><span class="std std-doc">Use a Local Inference Server</span></a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p>Model Router</p></td>
+<tr class="row-even"><td><p>Model Router</p></td>
 <td><p>Starts a host-side router on port <code class="docutils literal notranslate"><span class="pre">4000</span></code>, registers it as an OpenAI-compatible provider, and keeps the sandbox pointed at <code class="docutils literal notranslate"><span class="pre">inference.local</span></code>. Set <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROVIDER=routed</span></code> for non-interactive setup.</p></td>
 <td><p>The router pool defines the model names.</p></td>
 </tr>

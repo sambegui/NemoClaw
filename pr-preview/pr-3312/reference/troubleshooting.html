@@ -1345,6 +1345,71 @@ Force a larger context length:</p>
 OpenShell officially documents Docker-based runtimes only.
 If you encounter issues with Podman, switch to a tested runtime (Docker Engine, Docker Desktop, or Colima) and rerun onboarding.</p>
 </section>
+<section id="brev">
+<h2>Brev<a class="headerlink" href="#brev" title="Link to this heading">#</a></h2>
+<p>For Brev setup instructions, refer to <a class="reference internal" href="../deployment/brev-web-ui.html"><span class="std std-doc">Brev Web UI</span></a>.</p>
+<section id="most-openclaw-skills-show-as-blocked">
+<h3>Most OpenClaw skills show as blocked<a class="headerlink" href="#most-openclaw-skills-show-as-blocked" title="Link to this heading">#</a></h3>
+<p>After deploying NemoClaw on Brev, the Skills page in the OpenClaw gateway dashboard shows most bundled skills with a <code class="docutils literal notranslate"><span class="pre">blocked</span></code> status.
+Only three skills are available by default: <code class="docutils literal notranslate"><span class="pre">healthcheck</span></code>, <code class="docutils literal notranslate"><span class="pre">skill-creator</span></code>, and <code class="docutils literal notranslate"><span class="pre">weather</span></code>.</p>
+<p>Skills are blocked for one of three reasons.</p>
+<ul class="simple">
+<li><p>The skill requires a macOS-only binary (<code class="docutils literal notranslate"><span class="pre">memo</span></code>, <code class="docutils literal notranslate"><span class="pre">remindctl</span></code>, <code class="docutils literal notranslate"><span class="pre">grizzly</span></code>, and similar) that is not available on the Linux (GCP) instance Brev provisions.</p></li>
+<li><p>The skill requires a CLI binary that is not pre-installed in the sandbox image, such as <code class="docutils literal notranslate"><span class="pre">gh</span></code> for the GitHub skill.</p></li>
+<li><p>The skill requires API credentials that have not been configured, such as a Notion API key or Discord bot token.</p></li>
+</ul>
+<p>Skills that require macOS-only binaries cannot be enabled on Brev.
+Skills that require additional CLI binaries require a custom sandbox image rebuild.</p>
+<p>For credentials, use the supported host-side setup flow. Re-run onboarding for inference or Brave Search credentials, or use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">add</span> <span class="pre">&lt;telegram|discord|slack&gt;</span></code> for messaging channels.
+To add a binary to the sandbox image, update the sandbox <code class="docutils literal notranslate"><span class="pre">Dockerfile.base</span></code> to install the required package, then rebuild:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>&lt;name&gt;<span class="w"> </span>rebuild
+</pre></div>
+</div>
+<p>After the rebuild completes, return to the Skills page to confirm the skill status has changed from <code class="docutils literal notranslate"><span class="pre">blocked</span></code> to <code class="docutils literal notranslate"><span class="pre">ready</span></code>.</p>
+</section>
+<section id="openclaw-config-set-fails-with-a-permission-error-on-brev-shields-up">
+<h3><code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">set</span></code> fails with a permission error on Brev (Shields Up)<a class="headerlink" href="#openclaw-config-set-fails-with-a-permission-error-on-brev-shields-up" title="Link to this heading">#</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">shields</span> <span class="pre">up</span></code> has been run, <code class="docutils literal notranslate"><span class="pre">openclaw.json</span></code> is owned by root and mounted read-only inside the sandbox.
+Running <code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">set</span></code> inside the sandbox then returns:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>EACCES: permission denied, open &#39;/sandbox/.openclaw/openclaw.json&#39;
+</pre></div>
+</div>
+<p>In the default sandbox state (before <code class="docutils literal notranslate"><span class="pre">shields</span> <span class="pre">up</span></code>), <code class="docutils literal notranslate"><span class="pre">openclaw.json</span></code> is writable by the sandbox user.
+If you see this error, use the host-side config command instead:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>&lt;name&gt;<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--key<span class="w"> </span>&lt;dotpath&gt;<span class="w"> </span>--value<span class="w"> </span><span class="s1">&#39;&lt;json-or-string&gt;&#39;</span><span class="w"> </span>--restart
+</pre></div>
+</div>
+<p>Refer to <a class="reference internal" href="commands.html"><span class="std std-doc">Commands</span></a> for the full list of supported configuration keys.</p>
+</section>
+<section id="openclaw-dashboard-is-unreachable-after-extended-uptime-on-brev">
+<h3>OpenClaw dashboard is unreachable after extended uptime on Brev<a class="headerlink" href="#openclaw-dashboard-is-unreachable-after-extended-uptime-on-brev" title="Link to this heading">#</a></h3>
+<p>After leaving NemoClaw running for an extended period on Brev, the OpenClaw dashboard may return <code class="docutils literal notranslate"><span class="pre">ERR_CONNECTION_RESET</span></code> or fail to load in the browser.
+The agent may still respond on messaging channels such as Telegram or Slack while the dashboard is unreachable.</p>
+<div class="warning admonition">
+<p class="admonition-title">Back up your workspace first</p>
+<p>Take a snapshot before running onboard to protect your workspace files.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>&lt;name&gt;<span class="w"> </span>snapshot<span class="w"> </span>create
+</pre></div>
+</div>
+</div>
+<p>Re-run onboarding to restore dashboard connectivity:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>onboard
+</pre></div>
+</div>
+<p>Depending on current sandbox state, onboarding may prompt before recreating resources.</p>
+</section>
+<section id="skill-install-buttons-do-not-work-on-brev">
+<h3>Skill install buttons do not work on Brev<a class="headerlink" href="#skill-install-buttons-do-not-work-on-brev" title="Link to this heading">#</a></h3>
+<p>Clicking <strong>Install</strong> on a skill in the OpenClaw gateway dashboard on Brev shows no response or fails silently.</p>
+<p>Skill installation runs against the sandbox environment.
+Installing packages on the Brev host does not make them available inside the sandbox.
+To install a skill dependency, add it to the sandbox image and rebuild:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>&lt;name&gt;<span class="w"> </span>rebuild
+</pre></div>
+</div>
+<p>After the rebuild completes, return to the Skills page to confirm the skill is ready.</p>
+</section>
+</section>
 </section>
 
 
@@ -1470,6 +1535,13 @@ If you encounter issues with Podman, switch to a tested runtime (Docker Engine, 
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#podman">Podman</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#brev">Brev</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#most-openclaw-skills-show-as-blocked">Most OpenClaw skills show as blocked</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openclaw-config-set-fails-with-a-permission-error-on-brev-shields-up"><code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">set</span></code> fails with a permission error on Brev (Shields Up)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openclaw-dashboard-is-unreachable-after-extended-uptime-on-brev">OpenClaw dashboard is unreachable after extended uptime on Brev</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-install-buttons-do-not-work-on-brev">Skill install buttons do not work on Brev</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

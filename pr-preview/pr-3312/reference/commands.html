@@ -557,7 +557,7 @@ Running <code class="docutils literal notranslate"><span class="pre">nemoclaw</s
 <p>Run the interactive setup wizard (recommended for new installs).
 The wizard creates an OpenShell gateway, registers inference providers, builds the sandbox image, and creates the sandbox.
 Use this command for new installs and for recreating a sandbox after changes to policy or configuration.</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>onboard<span class="w"> </span><span class="o">[</span>--non-interactive<span class="o">]</span><span class="w"> </span><span class="o">[</span>--resume<span class="w"> </span><span class="p">|</span><span class="w"> </span>--fresh<span class="o">]</span><span class="w"> </span><span class="o">[</span>--recreate-sandbox<span class="o">]</span><span class="w"> </span><span class="o">[</span>--gpu<span class="w"> </span><span class="p">|</span><span class="w"> </span>--no-gpu<span class="o">]</span><span class="w"> </span><span class="o">[</span>--from<span class="w"> </span>&lt;Dockerfile&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--name<span class="w"> </span>&lt;sandbox&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--agent<span class="w"> </span>&lt;name&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--control-ui-port<span class="w"> </span>&lt;N&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes<span class="w"> </span><span class="p">|</span><span class="w"> </span>-y<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes-i-accept-third-party-software<span class="o">]</span>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>onboard<span class="w"> </span><span class="o">[</span>--non-interactive<span class="o">]</span><span class="w"> </span><span class="o">[</span>--resume<span class="w"> </span><span class="p">|</span><span class="w"> </span>--fresh<span class="o">]</span><span class="w"> </span><span class="o">[</span>--recreate-sandbox<span class="o">]</span><span class="w"> </span><span class="o">[</span>--gpu<span class="w"> </span><span class="p">|</span><span class="w"> </span>--no-gpu<span class="o">]</span><span class="w"> </span><span class="o">[</span>--from<span class="w"> </span>&lt;Dockerfile&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--name<span class="w"> </span>&lt;sandbox&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--sandbox-gpu<span class="w"> </span><span class="p">|</span><span class="w"> </span>--no-sandbox-gpu<span class="o">]</span><span class="w"> </span><span class="o">[</span>--sandbox-gpu-device<span class="w"> </span>&lt;device&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--agent<span class="w"> </span>&lt;name&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--control-ui-port<span class="w"> </span>&lt;N&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes<span class="w"> </span><span class="p">|</span><span class="w"> </span>-y<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes-i-accept-third-party-software<span class="o">]</span>
 </pre></div>
 </div>
 <div class="admonition warning">
@@ -735,7 +735,9 @@ This variant of <code class="docutils literal notranslate"><span class="pre">nem
 <h3>GPU passthrough<a class="headerlink" href="#gpu-passthrough" title="Link to this heading">#</a></h3>
 <p>When <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> detects an NVIDIA GPU on the host (<code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code> succeeds), it enables OpenShell GPU passthrough at both the gateway and sandbox level by default.
 Use <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code> to opt out when you want host-side inference providers only and do not need direct GPU access inside the sandbox.
-Use <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> to require GPU passthrough and fail fast if an NVIDIA GPU is not detected.</p>
+Use <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> to require GPU passthrough and fail fast if an NVIDIA GPU is not detected.
+Use <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu</span></code> or <code class="docutils literal notranslate"><span class="pre">--no-sandbox-gpu</span></code> to control only direct NVIDIA GPU access inside the sandbox.
+Use <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu-device</span> <span class="pre">&lt;device&gt;</span></code> to pass a specific OpenShell GPU device selector to <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">create</span></code>.</p>
 <p>Prerequisites:</p>
 <ul class="simple">
 <li><p>NVIDIA GPU drivers installed and working (<code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code> must succeed).</p></li>
@@ -1010,6 +1012,55 @@ If the preset is unknown or not currently applied, the command exits non-zero wi
 </table>
 </div>
 <p>Unchecking a preset in the onboard TUI checkbox also removes it from the sandbox.</p>
+</section>
+<section id="nemoclaw-name-hosts-add">
+<h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-add</span></code><a class="headerlink" href="#nemoclaw-name-hosts-add" title="Link to this heading">#</a></h3>
+<p>Add a host alias to the sandbox pod template.
+Use this when a sandbox needs a stable LAN-only name, such as a local SearXNG or internal model endpoint, without dropping to <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">exec</span></code> and <code class="docutils literal notranslate"><span class="pre">kubectl</span> <span class="pre">patch</span></code>.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>my-assistant<span class="w"> </span>hosts-add<span class="w"> </span>searxng.local<span class="w"> </span><span class="m">192</span>.168.1.105
+</pre></div>
+</div>
+<p>The command validates the hostname and IP address, rejects duplicate hostnames, and patches <code class="docutils literal notranslate"><span class="pre">spec.podTemplate.spec.hostAliases</span></code> on the sandbox resource.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Flag</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code></p></td>
+<td><p>Print the JSON patch for the resulting <code class="docutils literal notranslate"><span class="pre">hostAliases</span></code> list without applying it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="nemoclaw-name-hosts-list">
+<h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-list</span></code><a class="headerlink" href="#nemoclaw-name-hosts-list" title="Link to this heading">#</a></h3>
+<p>List host aliases configured on the sandbox resource.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>my-assistant<span class="w"> </span>hosts-list
+</pre></div>
+</div>
+</section>
+<section id="nemoclaw-name-hosts-remove">
+<h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-remove</span></code><a class="headerlink" href="#nemoclaw-name-hosts-remove" title="Link to this heading">#</a></h3>
+<p>Remove a hostname from the sandbox <code class="docutils literal notranslate"><span class="pre">hostAliases</span></code> list.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>my-assistant<span class="w"> </span>hosts-remove<span class="w"> </span>searxng.local
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Flag</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code></p></td>
+<td><p>Print the JSON patch for the resulting <code class="docutils literal notranslate"><span class="pre">hostAliases</span></code> list without applying it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="nemoclaw-name-channels-list">
 <h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">list</span></code><a class="headerlink" href="#nemoclaw-name-channels-list" title="Link to this heading">#</a></h3>
@@ -1425,6 +1476,19 @@ Pass <code class="docutils literal notranslate"><span class="pre">--json</span><
 </pre></div>
 </div>
 </section>
+<section id="nemoclaw-inference-set">
+<h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code><a class="headerlink" href="#nemoclaw-inference-set" title="Link to this heading">#</a></h3>
+<p>Switch the active inference provider or model for a NemoClaw-managed OpenClaw or Hermes sandbox.
+The command updates the OpenShell gateway route, patches the selected running agent config so it matches the route, recomputes the config hash, and updates the NemoClaw registry.
+For Hermes, the patch updates <code class="docutils literal notranslate"><span class="pre">/sandbox/.hermes/config.yaml</span></code> (<code class="docutils literal notranslate"><span class="pre">model.default</span></code>, <code class="docutils literal notranslate"><span class="pre">model.base_url</span></code>, and <code class="docutils literal notranslate"><span class="pre">model.provider:</span> <span class="pre">custom</span></code>) and does not rebuild or restart the gateway.</p>
+<p>By default, the command syncs the default registered sandbox.
+Under the <code class="docutils literal notranslate"><span class="pre">nemohermes</span></code> alias, it uses the registered Hermes sandbox when exactly one exists; otherwise pass <code class="docutils literal notranslate"><span class="pre">--sandbox</span> <span class="pre">&lt;name&gt;</span></code> to target one explicitly.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>&lt;provider&gt;<span class="w"> </span>--model<span class="w"> </span>&lt;model&gt;<span class="w"> </span><span class="o">[</span>--sandbox<span class="w"> </span>&lt;name&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--no-verify<span class="o">]</span>
+</pre></div>
+</div>
+<p>Supported provider names are <code class="docutils literal notranslate"><span class="pre">nvidia-prod</span></code>, <code class="docutils literal notranslate"><span class="pre">nvidia-nim</span></code>, <code class="docutils literal notranslate"><span class="pre">nvidia-router</span></code>, <code class="docutils literal notranslate"><span class="pre">openai-api</span></code>, <code class="docutils literal notranslate"><span class="pre">anthropic-prod</span></code>, <code class="docutils literal notranslate"><span class="pre">compatible-anthropic-endpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini-api</span></code>, <code class="docutils literal notranslate"><span class="pre">compatible-endpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">hermes-provider</span></code>, <code class="docutils literal notranslate"><span class="pre">ollama-local</span></code>, and <code class="docutils literal notranslate"><span class="pre">vllm-local</span></code>.
+Use <code class="docutils literal notranslate"><span class="pre">--no-verify</span></code> only when OpenShell cannot verify the provider at switch time but you have already confirmed the provider and credential.</p>
+</section>
 <section id="nemoclaw-setup">
 <h3><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">setup</span></code><a class="headerlink" href="#nemoclaw-setup" title="Link to this heading">#</a></h3>
 <div class="admonition warning">
@@ -1432,7 +1496,7 @@ Pass <code class="docutils literal notranslate"><span class="pre">--json</span><
 <p>The <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">setup</span></code> command is deprecated.
 Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> instead.</p>
 </div>
-<p>This command remains as a compatibility alias to <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> and accepts the same flags: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>, <code class="docutils literal notranslate"><span class="pre">--resume</span></code>, <code class="docutils literal notranslate"><span class="pre">--fresh</span></code>, <code class="docutils literal notranslate"><span class="pre">--recreate-sandbox</span></code>, <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--from</span></code>, <code class="docutils literal notranslate"><span class="pre">--name</span></code>, <code class="docutils literal notranslate"><span class="pre">--agent</span></code>, <code class="docutils literal notranslate"><span class="pre">--control-ui-port</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code> / <code class="docutils literal notranslate"><span class="pre">-y</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes-i-accept-third-party-software</span></code>.</p>
+<p>This command remains as a compatibility alias to <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> and accepts the same flags: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>, <code class="docutils literal notranslate"><span class="pre">--resume</span></code>, <code class="docutils literal notranslate"><span class="pre">--fresh</span></code>, <code class="docutils literal notranslate"><span class="pre">--recreate-sandbox</span></code>, <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--from</span></code>, <code class="docutils literal notranslate"><span class="pre">--name</span></code>, <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-sandbox-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu-device</span></code>, <code class="docutils literal notranslate"><span class="pre">--agent</span></code>, <code class="docutils literal notranslate"><span class="pre">--control-ui-port</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code> / <code class="docutils literal notranslate"><span class="pre">-y</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes-i-accept-third-party-software</span></code>.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>setup
 </pre></div>
 </div>
@@ -1444,7 +1508,7 @@ Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span>
 <p>The <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">setup-spark</span></code> command is deprecated.
 Use the standard installer and run <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> instead, because current OpenShell releases handle the older DGX Spark cgroup behavior.</p>
 </div>
-<p>This command remains as a compatibility alias to <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> and accepts the same flags: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>, <code class="docutils literal notranslate"><span class="pre">--resume</span></code>, <code class="docutils literal notranslate"><span class="pre">--fresh</span></code>, <code class="docutils literal notranslate"><span class="pre">--recreate-sandbox</span></code>, <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--from</span></code>, <code class="docutils literal notranslate"><span class="pre">--name</span></code>, <code class="docutils literal notranslate"><span class="pre">--agent</span></code>, <code class="docutils literal notranslate"><span class="pre">--control-ui-port</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code> / <code class="docutils literal notranslate"><span class="pre">-y</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes-i-accept-third-party-software</span></code>.</p>
+<p>This command remains as a compatibility alias to <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> and accepts the same flags: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>, <code class="docutils literal notranslate"><span class="pre">--resume</span></code>, <code class="docutils literal notranslate"><span class="pre">--fresh</span></code>, <code class="docutils literal notranslate"><span class="pre">--recreate-sandbox</span></code>, <code class="docutils literal notranslate"><span class="pre">--gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--from</span></code>, <code class="docutils literal notranslate"><span class="pre">--name</span></code>, <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-sandbox-gpu</span></code>, <code class="docutils literal notranslate"><span class="pre">--sandbox-gpu-device</span></code>, <code class="docutils literal notranslate"><span class="pre">--agent</span></code>, <code class="docutils literal notranslate"><span class="pre">--control-ui-port</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code> / <code class="docutils literal notranslate"><span class="pre">-y</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes-i-accept-third-party-software</span></code>.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>setup-spark
 </pre></div>
 </div>
@@ -1670,63 +1734,75 @@ Set them before running <code class="docutils literal notranslate"><span class="
 <td><p>provider key (e.g. <code class="docutils literal notranslate"><span class="pre">nvidia</span></code>, <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, <code class="docutils literal notranslate"><span class="pre">compatible</span></code>)</p></td>
 <td><p>Selects the inference provider in non-interactive onboarding. Must match one of the keys the wizard would prompt for.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_ENDPOINT_URL</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_HERMES_AUTH_METHOD</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">oauth</span></code></p></td>
+<td><p>Selects Hermes Provider authentication in non-interactive onboarding. Valid values: <code class="docutils literal notranslate"><span class="pre">oauth</span></code>, <code class="docutils literal notranslate"><span class="pre">nous-portal-oauth</span></code>, <code class="docutils literal notranslate"><span class="pre">api-key</span></code>, <code class="docutils literal notranslate"><span class="pre">nous-api-key</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_HERMES_AUTH</span></code></p></td>
+<td><p>same as <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_HERMES_AUTH_METHOD</span></code></p></td>
+<td><p>Back-compatible alias for Hermes Provider authentication selection.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_NOUS_AUTH_METHOD</span></code></p></td>
+<td><p>same as <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_HERMES_AUTH_METHOD</span></code></p></td>
+<td><p>Nous-specific alias for Hermes Provider authentication selection.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_ENDPOINT_URL</span></code></p></td>
 <td><p>URL</p></td>
 <td><p>Custom OpenAI-compatible endpoint URL. Used together with <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROVIDER=compatible</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PREFERRED_API</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PREFERRED_API</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">completions</span></code> (currently the only honored value)</p></td>
 <td><p>Forces the validation probe to use the <code class="docutils literal notranslate"><span class="pre">/v1/chat/completions</span></code> API path instead of the newer <code class="docutils literal notranslate"><span class="pre">/v1/responses</span></code> API.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INFERENCE_INPUTS</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INFERENCE_INPUTS</span></code></p></td>
 <td><p>comma-separated list of <code class="docutils literal notranslate"><span class="pre">text</span></code> and/or <code class="docutils literal notranslate"><span class="pre">image</span></code></p></td>
 <td><p>Declares model input modalities for vision-capable models. Validated strictly; unknown tokens are ignored.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_AGENT_TIMEOUT</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_AGENT_TIMEOUT</span></code></p></td>
 <td><p>positive integer (seconds)</p></td>
 <td><p>Overrides <code class="docutils literal notranslate"><span class="pre">agents.defaults.timeoutSeconds</span></code> in the built OpenClaw config. Raise for slow inference.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_CONTEXT_WINDOW</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_CONTEXT_WINDOW</span></code></p></td>
 <td><p>positive integer (tokens)</p></td>
 <td><p>Overrides the model’s context-window value in the built OpenClaw config.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_MAX_TOKENS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_MAX_TOKENS</span></code></p></td>
 <td><p>positive integer (tokens)</p></td>
 <td><p>Overrides the model’s <code class="docutils literal notranslate"><span class="pre">maxTokens</span></code> in the built OpenClaw config.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_REASONING</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_REASONING</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p>Overrides the model’s reasoning-mode flag in the built OpenClaw config.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_AGENT_HEARTBEAT_EVERY</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_AGENT_HEARTBEAT_EVERY</span></code></p></td>
 <td><p>duration with <code class="docutils literal notranslate"><span class="pre">s</span></code>, <code class="docutils literal notranslate"><span class="pre">m</span></code>, or <code class="docutils literal notranslate"><span class="pre">h</span></code> suffix (for example <code class="docutils literal notranslate"><span class="pre">30m</span></code>, <code class="docutils literal notranslate"><span class="pre">1h</span></code>, or <code class="docutils literal notranslate"><span class="pre">0m</span></code>)</p></td>
 <td><p>Overrides <code class="docutils literal notranslate"><span class="pre">agents.defaults.heartbeat.every</span></code> in the built OpenClaw config. Set <code class="docutils literal notranslate"><span class="pre">0m</span></code> to disable periodic agent turns.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OLLAMA_REQUIRE_TOOLS</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OLLAMA_REQUIRE_TOOLS</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0</span></code> to disable, anything else to keep the default</p></td>
 <td><p>When set to <code class="docutils literal notranslate"><span class="pre">0</span></code>, skips the Ollama tool-calling capability check during local-inference onboarding.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROXY_HOST</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROXY_HOST</span></code></p></td>
 <td><p>hostname or IP</p></td>
 <td><p>Overrides the sandbox-side outbound HTTP proxy host. Defaults to <code class="docutils literal notranslate"><span class="pre">10.200.0.1</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROXY_PORT</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_PROXY_PORT</span></code></p></td>
 <td><p>integer port</p></td>
 <td><p>Overrides the sandbox-side outbound HTTP proxy port. Defaults to <code class="docutils literal notranslate"><span class="pre">3128</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_BIN</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_BIN</span></code></p></td>
 <td><p>path</p></td>
 <td><p>Overrides the <code class="docutils literal notranslate"><span class="pre">openshell</span></code> binary the CLI invokes. Defaults to <code class="docutils literal notranslate"><span class="pre">openshell</span></code> (resolved via <code class="docutils literal notranslate"><span class="pre">PATH</span></code>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX</span></code></p></td>
 <td><p>sandbox name</p></td>
 <td><p>Alternate spelling of <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_NAME</span></code>; used by <code class="docutils literal notranslate"><span class="pre">services</span></code> and <code class="docutils literal notranslate"><span class="pre">debug</span></code> lookups when neither a flag nor <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_NAME</span></code> is set.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INSTALL_REF</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INSTALL_REF</span></code></p></td>
 <td><p>git ref</p></td>
 <td><p>For internal installer commands: the git ref to install from. Overridden by the <code class="docutils literal notranslate"><span class="pre">--install-ref</span></code> flag.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INSTALL_TAG</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INSTALL_TAG</span></code></p></td>
 <td><p>release tag</p></td>
 <td><p>For internal installer commands: the release tag to install. Overridden by the <code class="docutils literal notranslate"><span class="pre">--install-tag</span></code> flag.</p></td>
 </tr>
@@ -1772,6 +1848,26 @@ Set them before running <code class="docutils literal notranslate"><span class="
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_CONFIG_ACCEPT_NEW_PATH</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code> to enable</p></td>
 <td><p>Accepts a new sandbox config path without an interactive prompt when the stored path differs from the discovered one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_GPU</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code>, or <code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>Controls sandbox GPU passthrough during onboarding. <code class="docutils literal notranslate"><span class="pre">auto</span></code> enables GPU passthrough when an NVIDIA GPU is detected, <code class="docutils literal notranslate"><span class="pre">1</span></code> requires GPU passthrough, and <code class="docutils literal notranslate"><span class="pre">0</span></code> forces CPU-only sandbox creation.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_GPU_DEVICE</span></code></p></td>
+<td><p>OpenShell GPU device selector</p></td>
+<td><p>Selects the GPU device passed with <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">create</span> <span class="pre">--gpu-device</span></code>. Setting this value enables sandbox GPU passthrough unless <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_GPU=0</span></code> is also set, which is rejected.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_BIN</span></code></p></td>
+<td><p>path</p></td>
+<td><p>Advanced override for the <code class="docutils literal notranslate"><span class="pre">openshell-gateway</span></code> binary used by the Linux Docker-driver gateway. Defaults to the binary next to <code class="docutils literal notranslate"><span class="pre">openshell</span></code>, then common install paths.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_SANDBOX_BIN</span></code></p></td>
+<td><p>path</p></td>
+<td><p>Advanced override for the <code class="docutils literal notranslate"><span class="pre">openshell-sandbox</span></code> binary passed to the Linux Docker-driver gateway supervisor. Defaults to the binary next to <code class="docutils literal notranslate"><span class="pre">openshell</span></code>, then common install paths.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR</span></code></p></td>
+<td><p>path</p></td>
+<td><p>Advanced override for the Linux Docker-driver gateway pid file and SQLite state directory. Defaults to <code class="docutils literal notranslate"><span class="pre">~/.local/state/nemoclaw/openshell-docker-gateway</span></code>.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1948,6 +2044,9 @@ Running <code class="docutils literal notranslate"><span class="pre">nemoclaw</s
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-policy-add"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-add</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-policy-list"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-list</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-policy-remove"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">policy-remove</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-hosts-add"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-add</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-hosts-list"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-list</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-hosts-remove"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">hosts-remove</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-channels-list"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">list</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-channels-add-channel"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">add</span> <span class="pre">&lt;channel&gt;</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-name-channels-remove-channel"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">remove</span> <span class="pre">&lt;channel&gt;</span></code></a></li>
@@ -1972,6 +2071,7 @@ Running <code class="docutils literal notranslate"><span class="pre">nemoclaw</s
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-start"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">start</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-stop"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">stop</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-status"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">status</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-inference-set"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-setup"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">setup</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-setup-spark"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">setup-spark</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#nemoclaw-debug"><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">debug</span></code></a></li>

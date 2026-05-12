@@ -622,8 +622,9 @@ The <code class="docutils literal notranslate"><span class="pre">nemohermes</spa
 <span class="gp">$ </span>nemohermes<span class="w"> </span>my-hermes<span class="w"> </span>rebuild
 </pre></div>
 </div>
-<p>To change the active model or provider without rebuilding the sandbox, use the OpenShell inference route.</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-g<span class="w"> </span>nemoclaw<span class="w"> </span>--model<span class="w"> </span>&lt;model&gt;<span class="w"> </span>--provider<span class="w"> </span>&lt;provider&gt;
+<p>To change the active model or provider without rebuilding the sandbox, use <code class="docutils literal notranslate"><span class="pre">nemohermes</span> <span class="pre">inference</span> <span class="pre">set</span></code>.
+It updates the OpenShell inference route and patches <code class="docutils literal notranslate"><span class="pre">/sandbox/.hermes/config.yaml</span></code> without restarting Hermes.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemohermes<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--model<span class="w"> </span>&lt;model&gt;<span class="w"> </span>--provider<span class="w"> </span>&lt;provider&gt;
 </pre></div>
 </div>
 <p>To remove the sandbox when you are done, destroy it explicitly.</p>

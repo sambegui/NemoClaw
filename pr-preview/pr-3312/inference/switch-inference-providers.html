@@ -516,43 +516,52 @@ No restart is required.</p>
 </section>
 <section id="switch-to-a-different-model">
 <h2>Switch to a Different Model<a class="headerlink" href="#switch-to-a-different-model" title="Link to this heading">#</a></h2>
-<p>Switching happens through the OpenShell inference route.
-Use the provider and model that match the upstream you want to use.
-This is one of the cases where a NemoClaw workflow intentionally uses <code class="docutils literal notranslate"><span class="pre">openshell</span></code>; see <a class="reference internal" href="../reference/cli-selection-guide.html"><span class="std std-doc">CLI Selection Guide</span></a> for the general boundary.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code> with the provider and model that match the upstream you want to use.
+The command updates the OpenShell inference route and synchronizes the running agent config.
+For OpenClaw, it updates <code class="docutils literal notranslate"><span class="pre">agents.defaults.model.primary</span></code> and the matching provider namespace.
+For Hermes, it updates <code class="docutils literal notranslate"><span class="pre">/sandbox/.hermes/config.yaml</span></code> (<code class="docutils literal notranslate"><span class="pre">model.default</span></code>, <code class="docutils literal notranslate"><span class="pre">model.base_url</span></code>, and <code class="docutils literal notranslate"><span class="pre">model.provider:</span> <span class="pre">custom</span></code>) without rebuilding or restarting Hermes.</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">--sandbox</span> <span class="pre">&lt;name&gt;</span></code> when you do not want to use the default registered sandbox.
+Under <code class="docutils literal notranslate"><span class="pre">nemohermes</span></code>, pass <code class="docutils literal notranslate"><span class="pre">--sandbox</span> <span class="pre">&lt;name&gt;</span></code> when more than one Hermes sandbox is registered.</p>
 <section id="nvidia-endpoints">
 <h3>NVIDIA Endpoints<a class="headerlink" href="#nvidia-endpoints" title="Link to this heading">#</a></h3>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>nvidia-prod<span class="w"> </span>--model<span class="w"> </span>nvidia/nemotron-3-super-120b-a12b
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>nvidia-prod<span class="w"> </span>--model<span class="w"> </span>nvidia/nemotron-3-super-120b-a12b
 </pre></div>
 </div>
 </section>
 <section id="openai">
 <h3>OpenAI<a class="headerlink" href="#openai" title="Link to this heading">#</a></h3>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>openai-api<span class="w"> </span>--model<span class="w"> </span>gpt-5.4
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>openai-api<span class="w"> </span>--model<span class="w"> </span>gpt-5.4
 </pre></div>
 </div>
 </section>
 <section id="anthropic">
 <h3>Anthropic<a class="headerlink" href="#anthropic" title="Link to this heading">#</a></h3>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>anthropic-prod<span class="w"> </span>--model<span class="w"> </span>claude-sonnet-4-6
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>anthropic-prod<span class="w"> </span>--model<span class="w"> </span>claude-sonnet-4-6
 </pre></div>
 </div>
 </section>
 <section id="google-gemini">
 <h3>Google Gemini<a class="headerlink" href="#google-gemini" title="Link to this heading">#</a></h3>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>gemini-api<span class="w"> </span>--model<span class="w"> </span>gemini-2.5-flash
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>gemini-api<span class="w"> </span>--model<span class="w"> </span>gemini-2.5-flash
 </pre></div>
 </div>
 </section>
 <section id="compatible-endpoints">
 <h3>Compatible Endpoints<a class="headerlink" href="#compatible-endpoints" title="Link to this heading">#</a></h3>
 <p>If you onboarded a custom compatible endpoint, switch models with the provider created for that endpoint:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
 </pre></div>
 </div>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-anthropic-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>compatible-anthropic-endpoint<span class="w"> </span>--model<span class="w"> </span>&lt;model-name&gt;
 </pre></div>
 </div>
-<p>If the provider itself needs to change, rerun <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code>.</p>
+</section>
+<section id="hermes-provider">
+<h3>Hermes Provider<a class="headerlink" href="#hermes-provider" title="Link to this heading">#</a></h3>
+<p>For a NemoClaw-managed Hermes sandbox, use the Hermes alias with the registered Hermes Provider route:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemohermes<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>hermes-provider<span class="w"> </span>--model<span class="w"> </span>openai/gpt-5.4-mini
+</pre></div>
+</div>
 <section id="switching-from-responses-api-to-chat-completions">
 <h4>Switching from Responses API to Chat Completions<a class="headerlink" href="#switching-from-responses-api-to-chat-completions" title="Link to this heading">#</a></h4>
 <p>If onboarding selected <code class="docutils literal notranslate"><span class="pre">/v1/responses</span></code> but the agent fails at runtime (for
@@ -586,22 +595,12 @@ session and the baked image.</p>
 </section>
 <section id="cross-provider-switching">
 <h2>Cross-Provider Switching<a class="headerlink" href="#cross-provider-switching" title="Link to this heading">#</a></h2>
-<p>Switching to a different provider family (for example, from NVIDIA Endpoints to Anthropic) requires updating both the gateway route and the sandbox config.</p>
-<p>Set the gateway route on the host:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>openshell<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>anthropic-prod<span class="w"> </span>--model<span class="w"> </span>claude-sonnet-4-6<span class="w"> </span>--no-verify
+<p>Switching to a different provider family (for example, from NVIDIA Endpoints to Anthropic) also uses <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code>.
+The command updates both the gateway route and the OpenClaw provider namespace in the running sandbox config.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>inference<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--provider<span class="w"> </span>anthropic-prod<span class="w"> </span>--model<span class="w"> </span>claude-sonnet-4-6<span class="w"> </span>--no-verify
 </pre></div>
 </div>
-<p>Then set the override env vars and recreate the sandbox so they take effect at startup:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">NEMOCLAW_MODEL_OVERRIDE</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
-<span class="gp">$ </span><span class="nb">export</span><span class="w"> </span><span class="nv">NEMOCLAW_INFERENCE_API_OVERRIDE</span><span class="o">=</span><span class="s2">&quot;anthropic-messages&quot;</span>
-<span class="gp">$ </span>nemoclaw<span class="w"> </span>onboard<span class="w"> </span>--resume<span class="w"> </span>--recreate-sandbox
-</pre></div>
-</div>
-<p>The entrypoint patches <code class="docutils literal notranslate"><span class="pre">openclaw.json</span></code> at container startup with the override values.
-You do not need to rebuild the image.
-Remove the env vars and recreate the sandbox to revert to the original model.</p>
-<p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INFERENCE_API_OVERRIDE</span></code> accepts <code class="docutils literal notranslate"><span class="pre">openai-completions</span></code> (for NVIDIA, OpenAI, Gemini, compatible endpoints) or <code class="docutils literal notranslate"><span class="pre">anthropic-messages</span></code> (for Anthropic and Anthropic-compatible endpoints).
-This variable is only needed when switching between provider families.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-verify</span></code> only when OpenShell cannot verify the provider at switch time but you have already confirmed the provider and credential.</p>
 </section>
 <section id="tune-model-metadata">
 <h2>Tune Model Metadata<a class="headerlink" href="#tune-model-metadata" title="Link to this heading">#</a></h2>
@@ -689,9 +688,8 @@ If you change them on an existing sandbox, recreate the sandbox so the new value
 <ul class="simple">
 <li><p>The host keeps provider credentials.</p></li>
 <li><p>The sandbox continues to use <code class="docutils literal notranslate"><span class="pre">inference.local</span></code>.</p></li>
-<li><p>Same-provider model switches take effect immediately via the gateway route alone.</p></li>
-<li><p>Cross-provider switches also require <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_MODEL_OVERRIDE</span></code> (and <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_INFERENCE_API_OVERRIDE</span></code>) plus a sandbox recreate so the entrypoint patches the config at startup.</p></li>
-<li><p>Overrides are applied at container startup. Changing or removing env vars requires a sandbox recreate to take effect.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">inference</span> <span class="pre">set</span></code> patches the selected running OpenClaw or Hermes sandbox config and recomputes its config hash.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span> <span class="pre">--resume</span> <span class="pre">--recreate-sandbox</span></code> for build-time settings such as context window, max tokens, reasoning mode, heartbeat cadence, or image contents.</p></li>
 <li><p>Local Ollama and local vLLM routes use local provider tokens rather than <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code>. Rebuilds of older local-inference sandboxes clear the stale OpenAI credential requirement automatically.</p></li>
 </ul>
 </section>
@@ -758,7 +756,8 @@ If you change them on an existing sandbox, recreate the sandbox so the new value
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#openai">OpenAI</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#anthropic">Anthropic</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#google-gemini">Google Gemini</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compatible-endpoints">Compatible Endpoints</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#compatible-endpoints">Compatible Endpoints</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hermes-provider">Hermes Provider</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-from-responses-api-to-chat-completions">Switching from Responses API to Chat Completions</a></li>
 </ul>
 </li>
