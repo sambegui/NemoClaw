@@ -253,8 +253,8 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] \
   && [ "${GITHUB_REPOSITORY:-}" = "NVIDIA/NemoClaw" ] \
   && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ] \
   && [ -n "${NEMOCLAW_OPENSHELL_BIN:-}" ]; then
-  pr1286_openshell_dir="$(dirname "$NEMOCLAW_OPENSHELL_BIN")"
-  export PATH="$pr1286_openshell_dir:$PATH"
+  main_openshell_dir="$(dirname "$NEMOCLAW_OPENSHELL_BIN")"
+  export PATH="$main_openshell_dir:$PATH"
 fi
 hash -r 2>/dev/null || true
 

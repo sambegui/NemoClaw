@@ -46,7 +46,7 @@ PIN_VERSION="${NEMOCLAW_OPENSHELL_PIN_VERSION:-$MAX_VERSION}"
 PIN_TAG="${NEMOCLAW_OPENSHELL_PIN_TAG:-v${PIN_VERSION}}"
 PIN_REPO="${NEMOCLAW_OPENSHELL_PIN_REPO:-NVIDIA/OpenShell}"
 DEV_MIN_VERSION="0.0.38"
-NIGHTLY_PR1286_COMMIT="4e689703d0d4e78d6d6277c5d6a770726bf2957d"
+NIGHTLY_OPENSHELL_MAIN_COMMIT="9ea94b645ddad445650ad0bcbee093beeaeb1451"
 
 CHANNEL="${NEMOCLAW_OPENSHELL_CHANNEL:-auto}"
 case "$CHANNEL" in
@@ -95,7 +95,7 @@ openshell_has_required_messaging_features() {
 
   # Keep this independent of a live gateway. `policy update --dry-run` still
   # needs gateway metadata, but the CLI binary must contain the endpoint-option
-  # parser for the OpenShell #1286 request-body/WebSocket rewrite support.
+  # parser for request-body/WebSocket rewrite support now merged to OpenShell main.
   local binary_strings
   binary_strings="$(strings "$openshell_bin" 2>/dev/null || true)"
   [[ "$binary_strings" == *"request-body-credential-rewrite"* ]] \
@@ -108,15 +108,15 @@ is_native_messaging_websocket_nightly_branch() {
     && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ]
 }
 
-require_pr1286_nightly_binary() {
+require_main_nightly_binary() {
   local binary_name="$1"
   local expected_path="$2"
   local resolved_path
   resolved_path="$(command -v "$binary_name" 2>/dev/null || true)"
-  [ -n "$resolved_path" ] || fail "$binary_name is required on PATH for the temporary PR #1286 nightly branch path."
+  [ -n "$resolved_path" ] || fail "$binary_name is required on PATH for the temporary OpenShell main nightly branch path."
   [ -x "$resolved_path" ] || fail "$binary_name is not executable at $resolved_path."
   if [ -n "$expected_path" ] && [ "$expected_path" != "$resolved_path" ]; then
-    fail "$binary_name resolved to $resolved_path, but the PR #1286 nightly helper exported $expected_path."
+    fail "$binary_name resolved to $resolved_path, but the OpenShell main nightly helper exported $expected_path."
   fi
   info "$binary_name resolved to $resolved_path" >&2
   "$resolved_path" --version >&2 || fail "$binary_name --version failed for $resolved_path."
@@ -124,17 +124,17 @@ require_pr1286_nightly_binary() {
 }
 
 if is_native_messaging_websocket_nightly_branch; then
-  info "Using prebuilt OpenShell PR #1286 binaries for fix/native-messaging-websocket nightly validation."
-  [ "${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-}" = "$NIGHTLY_PR1286_COMMIT" ] \
-    || fail "NEMOCLAW_OPENSHELL_PR1286_COMMIT must be $NIGHTLY_PR1286_COMMIT for this branch, got '${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-unset}'."
+  info "Using prebuilt OpenShell main binaries for fix/native-messaging-websocket nightly validation."
+  [ "${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-}" = "$NIGHTLY_OPENSHELL_MAIN_COMMIT" ] \
+    || fail "NEMOCLAW_OPENSHELL_MAIN_COMMIT must be $NIGHTLY_OPENSHELL_MAIN_COMMIT for this branch, got '${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-unset}'."
 
-  openshell_path="$(require_pr1286_nightly_binary openshell "${NEMOCLAW_OPENSHELL_BIN:-}")"
-  require_pr1286_nightly_binary openshell-gateway "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" >/dev/null
-  require_pr1286_nightly_binary openshell-sandbox "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" >/dev/null
+  openshell_path="$(require_main_nightly_binary openshell "${NEMOCLAW_OPENSHELL_BIN:-}")"
+  require_main_nightly_binary openshell-gateway "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" >/dev/null
+  require_main_nightly_binary openshell-sandbox "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" >/dev/null
 
   openshell_has_required_messaging_features "$openshell_path" \
-    || fail "OpenShell PR #1286 nightly binary is missing request-body-credential-rewrite or websocket-credential-rewrite."
-  info "OpenShell PR #1286 binary feature strings verified."
+    || fail "OpenShell main nightly binary is missing request-body-credential-rewrite or websocket-credential-rewrite."
+  info "OpenShell main binary feature strings verified."
   exit 0
 fi
 
@@ -158,7 +158,7 @@ if command -v openshell >/dev/null 2>&1; then
       if ! linux_driver_bins_present; then
         warn "openshell $INSTALLED_VERSION is missing Docker-driver binaries — reinstalling pinned OpenShell ${PIN_VERSION}..."
       elif ! openshell_has_required_messaging_features; then
-        fail "openshell $INSTALLED_VERSION is missing required messaging credential rewrite support. Install OpenShell PR #1286 or a release that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
+        fail "openshell $INSTALLED_VERSION is missing required messaging credential rewrite support. Install an OpenShell build that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
       else
         info "openshell already installed: $INSTALLED_VERSION (>= $MIN_VERSION, <= $MAX_VERSION, messaging rewrite capable)"
         exit 0
@@ -279,7 +279,7 @@ else
 fi
 
 if ! openshell_has_required_messaging_features "$target_dir/openshell"; then
-  fail "installed openshell is missing required messaging credential rewrite support. Install OpenShell PR #1286 or a release that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
+  fail "installed openshell is missing required messaging credential rewrite support. Install an OpenShell build that includes provider aliases, WebSocket text rewrite, and request-body credential rewrite."
 fi
 
 info "$("$target_dir/openshell" --version 2>&1 || echo openshell) installed"

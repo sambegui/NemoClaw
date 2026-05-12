@@ -5,25 +5,25 @@
 set -euo pipefail
 
 log() {
-  printf '[openshell-pr1286] %s\n' "$*"
+  printf '[openshell-main] %s\n' "$*"
 }
 
 fail() {
-  printf '[openshell-pr1286] ERROR: %s\n' "$*" >&2
+  printf '[openshell-main] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
-PINNED_COMMIT="4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-OPEN_SHELL_REPO_URL="https://github.com/ericksoa/OpenShell.git"
-OPEN_SHELL_BRANCH="fix/872-websocket-credential-rewrite"
-OPEN_SHELL_PR_URL="https://github.com/NVIDIA/OpenShell/pull/1286"
+PINNED_COMMIT="9ea94b645ddad445650ad0bcbee093beeaeb1451"
+OPEN_SHELL_REPO_URL="https://github.com/NVIDIA/OpenShell.git"
+OPEN_SHELL_BRANCH="main"
+OPEN_SHELL_REF_URL="https://github.com/NVIDIA/OpenShell/tree/main"
 OPEN_SHELL_CI_IMAGE="ghcr.io/nvidia/openshell/ci:latest"
 Z3_REPO_URL="https://github.com/Z3Prover/z3.git"
 Z3_COMMIT="ddb49568d3520e99799e364fb22f35fc67d887b1"
 
-requested_commit="${OPENSHELL_PR1286_COMMIT:-$PINNED_COMMIT}"
+requested_commit="${OPENSHELL_MAIN_COMMIT:-$PINNED_COMMIT}"
 if [ "$requested_commit" != "$PINNED_COMMIT" ]; then
-  fail "OPENSHELL_PR1286_COMMIT must be $PINNED_COMMIT, got $requested_commit"
+  fail "OPENSHELL_MAIN_COMMIT must be $PINNED_COMMIT, got $requested_commit"
 fi
 
 case "$(uname -m)" in
@@ -42,7 +42,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-command -v docker >/dev/null 2>&1 || fail "docker is required to build OpenShell PR #1286"
+command -v docker >/dev/null 2>&1 || fail "docker is required to build OpenShell main"
 
 install_dir="${HOME}/.local/bin"
 mkdir -p "$install_dir"
@@ -57,7 +57,7 @@ trap cleanup EXIT
 
 log "OpenShell repo: $OPEN_SHELL_REPO_URL"
 log "OpenShell branch: $OPEN_SHELL_BRANCH"
-log "OpenShell PR: $OPEN_SHELL_PR_URL"
+log "OpenShell main URL: $OPEN_SHELL_REF_URL"
 log "OpenShell pinned commit: $PINNED_COMMIT"
 log "OpenShell CI image: $OPEN_SHELL_CI_IMAGE"
 log "Rust targets: $rust_musl_target, $rust_gnu_target"
@@ -74,7 +74,7 @@ docker pull "$OPEN_SHELL_CI_IMAGE"
 docker run --rm --privileged \
   -e "OPEN_SHELL_REPO_URL=$OPEN_SHELL_REPO_URL" \
   -e "OPEN_SHELL_BRANCH=$OPEN_SHELL_BRANCH" \
-  -e "OPEN_SHELL_PR_URL=$OPEN_SHELL_PR_URL" \
+  -e "OPEN_SHELL_REF_URL=$OPEN_SHELL_REF_URL" \
   -e "PINNED_COMMIT=$PINNED_COMMIT" \
   -e "Z3_REPO_URL=$Z3_REPO_URL" \
   -e "Z3_COMMIT=$Z3_COMMIT" \
@@ -91,11 +91,11 @@ docker run --rm --privileged \
     set -euo pipefail
 
     log() {
-      printf "[openshell-pr1286:container] %s\n" "$*"
+      printf "[openshell-main:container] %s\n" "$*"
     }
 
     fail() {
-      printf "[openshell-pr1286:container] ERROR: %s\n" "$*" >&2
+      printf "[openshell-main:container] ERROR: %s\n" "$*" >&2
       exit 1
     }
 
@@ -113,7 +113,7 @@ docker run --rm --privileged \
     git checkout --detach "$PINNED_COMMIT"
     actual_commit="$(git rev-parse HEAD)"
     [ "$actual_commit" = "$PINNED_COMMIT" ] || fail "checked out $actual_commit, expected $PINNED_COMMIT"
-    log "Checked out ${OPEN_SHELL_PR_URL} at ${actual_commit}"
+    log "Checked out ${OPEN_SHELL_REF_URL} at ${actual_commit}"
 
     git config --global --add safe.directory "$PWD"
     mise trust --yes "$PWD/mise.toml"
@@ -174,7 +174,7 @@ docker run --rm --privileged \
     /out/openshell-sandbox --version
     strings /out/openshell | grep -F request-body-credential-rewrite >/dev/null
     strings /out/openshell | grep -F websocket-credential-rewrite >/dev/null
-    log "Built and verified PR #1286 binaries"
+    log "Built and verified OpenShell main binaries"
   '
 
 install -m 755 "$out_dir/openshell" "$install_dir/openshell"
@@ -185,7 +185,7 @@ export PATH="$install_dir:$PATH"
 export NEMOCLAW_OPENSHELL_BIN="$install_dir/openshell"
 export NEMOCLAW_OPENSHELL_GATEWAY_BIN="$install_dir/openshell-gateway"
 export NEMOCLAW_OPENSHELL_SANDBOX_BIN="$install_dir/openshell-sandbox"
-export NEMOCLAW_OPENSHELL_PR1286_COMMIT="$PINNED_COMMIT"
+export NEMOCLAW_OPENSHELL_MAIN_COMMIT="$PINNED_COMMIT"
 
 log "Installed openshell: $NEMOCLAW_OPENSHELL_BIN"
 "$NEMOCLAW_OPENSHELL_BIN" --version
@@ -208,8 +208,8 @@ if [ -n "${GITHUB_ENV:-}" ]; then
     printf 'NEMOCLAW_OPENSHELL_BIN=%s\n' "$NEMOCLAW_OPENSHELL_BIN"
     printf 'NEMOCLAW_OPENSHELL_GATEWAY_BIN=%s\n' "$NEMOCLAW_OPENSHELL_GATEWAY_BIN"
     printf 'NEMOCLAW_OPENSHELL_SANDBOX_BIN=%s\n' "$NEMOCLAW_OPENSHELL_SANDBOX_BIN"
-    printf 'NEMOCLAW_OPENSHELL_PR1286_COMMIT=%s\n' "$NEMOCLAW_OPENSHELL_PR1286_COMMIT"
+    printf 'NEMOCLAW_OPENSHELL_MAIN_COMMIT=%s\n' "$NEMOCLAW_OPENSHELL_MAIN_COMMIT"
   } >>"$GITHUB_ENV"
 fi
 
-log "OpenShell PR #1286 binaries are ready on PATH"
+log "OpenShell main binaries are ready on PATH"

@@ -111,12 +111,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run cloud E2E test
         env:
@@ -152,12 +152,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run cloud onboard E2E test
         env:
@@ -195,12 +195,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run cloud inference E2E test
         env:
@@ -234,12 +234,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run skill agent E2E test
         env:
@@ -273,12 +273,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw
         env:
@@ -315,12 +315,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run messaging providers E2E test
         env:
@@ -360,12 +360,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run messaging compatible endpoint E2E test
         env:
@@ -404,12 +404,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Brave Search E2E test
         env:
@@ -451,12 +451,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Kimi inference compatibility E2E test
         env:
@@ -508,12 +508,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run token rotation E2E test
         env:
@@ -553,12 +553,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run sandbox survival E2E test
         env:
@@ -593,12 +593,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run #2478 crash-loop recovery E2E test
         env:
@@ -633,12 +633,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes Agent E2E test
         env:
@@ -675,12 +675,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes inference switch E2E test
         env:
@@ -717,12 +717,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes Discord E2E test
         env:
@@ -764,12 +764,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes Slack E2E test
         env:
@@ -809,12 +809,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Start gateway log streamer (background)
         run: |
@@ -1062,12 +1062,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run inference error classification E2E test
         env:
@@ -1101,12 +1101,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run OpenClaw inference switch E2E test
         env:
@@ -1141,12 +1141,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run network policy E2E test
         env:
@@ -1181,12 +1181,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run deployment services E2E test
         env:
@@ -1220,12 +1220,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run diagnostics E2E test
         env:
@@ -1261,12 +1261,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run credential migration E2E test
         env:
@@ -1301,12 +1301,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run snapshot commands E2E test
         env:
@@ -1340,12 +1340,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run shields & config E2E test
         env:
@@ -1379,12 +1379,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run OpenClaw rebuild upgrade E2E test
         env:
@@ -1419,12 +1419,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run upgrade stale sandbox E2E test
         env:
@@ -1461,12 +1461,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -1520,12 +1520,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -1564,12 +1564,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes rebuild upgrade E2E test
         env:
@@ -1604,12 +1604,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run Hermes stale base-image rebuild E2E test
         env:
@@ -1643,12 +1643,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw
         env:
@@ -1688,12 +1688,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw
         env:
@@ -1733,12 +1733,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw
         env:
@@ -1778,12 +1778,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw
         env:
@@ -1824,12 +1824,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw and onboard sandbox
         env:
@@ -1873,12 +1873,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Install NemoClaw and onboard sandbox
         env:
@@ -1925,12 +1925,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run overlayfs auto-fix E2E test
         env:
@@ -1970,12 +1970,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run device auth health E2E
         env:
@@ -2013,12 +2013,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Run launchable install-flow smoke test
         env:
@@ -2077,12 +2077,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Verify GPU availability
         run: |
@@ -2137,12 +2137,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: "Build OpenShell PR #1286 for this nightly job"
+      - name: "Build OpenShell main for this nightly job"
         if: ${{ github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENSHELL_PR1286_COMMIT: "4e689703d0d4e78d6d6277c5d6a770726bf2957d"
-        run: bash scripts/build-openshell-pr1286-for-nightly.sh
+          OPENSHELL_MAIN_COMMIT: "9ea94b645ddad445650ad0bcbee093beeaeb1451"
+        run: bash scripts/build-openshell-main-for-nightly.sh
 
       - name: Verify GPU availability
         run: |
