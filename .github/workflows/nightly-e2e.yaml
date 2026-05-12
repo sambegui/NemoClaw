@@ -279,6 +279,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install OpenShell PR #1286 for this branch
+        if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        run: bash scripts/install-openshell-pr1286-for-ci.sh
+
       - name: Run messaging providers E2E test
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -618,6 +622,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install OpenShell PR #1286 for this branch
+        if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        run: bash scripts/install-openshell-pr1286-for-ci.sh
+
       - name: Run Hermes Discord E2E test
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -657,6 +665,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Install OpenShell PR #1286 for this branch
+        if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        run: bash scripts/install-openshell-pr1286-for-ci.sh
 
       - name: Run Hermes Slack E2E test
         env:
