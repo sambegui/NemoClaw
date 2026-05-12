@@ -51,7 +51,7 @@ resolve_installer_version() {
     return
   fi
   # Prefer git tags (works in dev clones and CI)
-  if command -v git &>/dev/null && [[ -d "${repo_root}/.git" ]]; then
+  if command -v git &>/dev/null && [[ -e "${repo_root}/.git" ]]; then
     local git_ver=""
     if git_ver="$(git -C "$repo_root" describe --tags --match 'v*' 2>/dev/null)"; then
       git_ver="${git_ver#v}"
@@ -1341,7 +1341,7 @@ is_source_checkout() {
     return 1
   fi
 
-  if [[ -n "${NEMOCLAW_REPO_ROOT:-}" || -d "${repo_root}/.git" ]]; then
+  if [[ -n "${NEMOCLAW_REPO_ROOT:-}" || -e "${repo_root}/.git" ]]; then
     return 0
   fi
 
@@ -1989,7 +1989,7 @@ except Exception:
 " "$_reg_file" 2>/dev/null || echo 0)"
     if [ "$_has_sandboxes" -gt 0 ]; then
       info "Backing up $_has_sandboxes sandbox(es) before upgrade…"
-      "$_cli_runner" backup-all 2>&1 || warn "Pre-upgrade backup failed (non-fatal). Continuing."
+      "$_cli_runner" backup-all 2>&1 || error "Pre-upgrade backup failed. Fix the OpenShell gateway state, rerun '${_CLI_BIN} backup-all', then rerun the installer."
     fi
   fi
 
