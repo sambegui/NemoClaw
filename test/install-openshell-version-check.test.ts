@@ -22,20 +22,18 @@ function writeExecutable(target: string, contents: string) {
 function runWithInstalledVersion(
   version: string,
   extraEnv: NodeJS.ProcessEnv = {},
-  options: { driverBins?: boolean | "gateway"; os?: string; arch?: string } = {},
+  options: { driverBins?: boolean | "gateway" | "gateway-vm"; os?: string; arch?: string } = {},
 ) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openshell-ver-"));
   try {
     const fakeBin = path.join(tmp, "bin");
     fs.mkdirSync(fakeBin);
 
-    if (options.os || options.arch) {
-      writeExecutable(
-        path.join(fakeBin, "uname"),
-        `#!/usr/bin/env bash
+    writeExecutable(
+      path.join(fakeBin, "uname"),
+      `#!/usr/bin/env bash
 if [ "\${1:-}" = "-m" ]; then echo "${options.arch ?? "x86_64"}"; else echo "${options.os ?? "Linux"}"; fi`,
-      );
-    }
+    );
 
     // Fake openshell that reports the given version
     writeExecutable(
@@ -55,6 +53,13 @@ exit 0`,
     if (options.driverBins !== false && options.driverBins !== "gateway") {
       writeExecutable(
         path.join(fakeBin, "openshell-sandbox"),
+        `#!/usr/bin/env bash
+exit 0`,
+      );
+    }
+    if (options.driverBins === "gateway-vm") {
+      writeExecutable(
+        path.join(fakeBin, "openshell-driver-vm"),
         `#!/usr/bin/env bash
 exit 0`,
       );
@@ -103,9 +108,9 @@ describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
     expect(result.stdout).toMatch(/Installing OpenShell from release 'v0\.0\.37'/);
   });
 
-  it("accepts macOS openshell 0.0.37 when the gateway binary is installed", () => {
+  it("accepts macOS openshell 0.0.37 when the gateway and VM driver binaries are installed", () => {
     const result = runWithInstalledVersion("0.0.37", {}, {
-      driverBins: "gateway",
+      driverBins: "gateway-vm",
       os: "Darwin",
       arch: "arm64",
     });
@@ -127,6 +132,7 @@ describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
   it("declares the macOS arm64 gateway helper asset", () => {
     const source = fs.readFileSync(SCRIPT, "utf-8");
     expect(source).toContain("openshell-gateway-aarch64-apple-darwin.tar.gz");
+    expect(source).toContain("openshell-driver-vm-aarch64-apple-darwin.tar.gz");
     expect(source).toContain("openshell-gateway-checksums-sha256.txt");
   });
 
