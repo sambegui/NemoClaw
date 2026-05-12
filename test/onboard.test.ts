@@ -116,6 +116,7 @@ type OnboardTestInternals = {
     },
     opts?: {
       platform?: NodeJS.Platform;
+      arch?: NodeJS.Architecture;
       gatewayBin?: string | null;
       isPidAliveFn?: (pid: number) => boolean;
       isDockerDriverGatewayProcessFn?: (pid: number, gatewayBin?: string | null) => boolean;
@@ -582,7 +583,7 @@ network_policies:
     expect(
       isDockerDriverGatewayPortListener(
         { ok: false, process: "openshell", pid: 1234 },
-        { ...opts, platform: "darwin" },
+        { ...opts, platform: "darwin", arch: "arm64" },
       ),
     ).toBe(true);
     expect(
