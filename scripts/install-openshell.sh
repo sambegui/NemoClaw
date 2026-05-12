@@ -35,18 +35,13 @@ info "Detected $OS_LABEL ($ARCH_LABEL)"
 
 # Minimum version required for native messaging credential rewrite:
 # WebSocket text frames plus provider-shaped aliases and REST request bodies.
-MIN_VERSION="0.0.38"
+MIN_VERSION="0.0.39"
 # Maximum version validated for this NemoClaw release. Newer OpenShell builds
 # may change sandbox semantics; upgrade NemoClaw before upgrading past this.
-MAX_VERSION="0.0.38"
-# Pin fresh installs to this version instead of pulling "latest". The override
-# is intentionally explicit so temporary patched OpenShell builds can be tested
-# without weakening the runtime feature gate below.
-PIN_VERSION="${NEMOCLAW_OPENSHELL_PIN_VERSION:-$MAX_VERSION}"
-PIN_TAG="${NEMOCLAW_OPENSHELL_PIN_TAG:-v${PIN_VERSION}}"
-PIN_REPO="${NEMOCLAW_OPENSHELL_PIN_REPO:-NVIDIA/OpenShell}"
-DEV_MIN_VERSION="0.0.38"
-NIGHTLY_OPENSHELL_MAIN_COMMIT="9ea94b645ddad445650ad0bcbee093beeaeb1451"
+MAX_VERSION="0.0.39"
+# Pin fresh installs to this version instead of pulling "latest".
+PIN_VERSION="$MAX_VERSION"
+DEV_MIN_VERSION="0.0.39"
 
 CHANNEL="${NEMOCLAW_OPENSHELL_CHANNEL:-auto}"
 case "$CHANNEL" in
@@ -63,7 +58,7 @@ fi
 if [ "$RESOLVED_CHANNEL" = "dev" ]; then
   RELEASE_TAG="dev"
 else
-  RELEASE_TAG="$PIN_TAG"
+  RELEASE_TAG="v${PIN_VERSION}"
 fi
 
 version_gte() {
@@ -111,7 +106,7 @@ openshell_has_required_messaging_features() {
 
   # Keep this independent of a live gateway. `policy update --dry-run` still
   # needs gateway metadata, but the CLI binary must contain the endpoint-option
-  # parser for request-body/WebSocket rewrite support now merged to OpenShell main.
+  # parser for request-body/WebSocket rewrite support released in OpenShell 0.0.39.
   local binary_strings
   binary_strings="$(strings "$openshell_bin" 2>/dev/null || true)"
   if [[ "$binary_strings" != *"request-body-credential-rewrite"* ]]; then
@@ -130,41 +125,6 @@ require_openshell_messaging_features() {
   openshell_has_required_messaging_features "$openshell_bin" \
     || fail "${OPENSHELL_FEATURE_CHECK_ERROR:-OpenShell binary is missing required messaging credential rewrite support.}"
 }
-
-is_native_messaging_websocket_nightly_branch() {
-  [ "${GITHUB_ACTIONS:-}" = "true" ] \
-    && [ "${GITHUB_REPOSITORY:-}" = "NVIDIA/NemoClaw" ] \
-    && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ]
-}
-
-require_main_nightly_binary() {
-  local binary_name="$1"
-  local expected_path="$2"
-  local resolved_path
-  resolved_path="$(command -v "$binary_name" 2>/dev/null || true)"
-  [ -n "$resolved_path" ] || fail "$binary_name is required on PATH for the temporary OpenShell main nightly branch path."
-  [ -x "$resolved_path" ] || fail "$binary_name is not executable at $resolved_path."
-  if [ -n "$expected_path" ] && [ "$expected_path" != "$resolved_path" ]; then
-    fail "$binary_name resolved to $resolved_path, but the OpenShell main nightly helper exported $expected_path."
-  fi
-  info "$binary_name resolved to $resolved_path" >&2
-  "$resolved_path" --version >&2 || fail "$binary_name --version failed for $resolved_path."
-  printf '%s\n' "$resolved_path"
-}
-
-if is_native_messaging_websocket_nightly_branch; then
-  info "Using prebuilt OpenShell main binaries for fix/native-messaging-websocket nightly validation."
-  [ "${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-}" = "$NIGHTLY_OPENSHELL_MAIN_COMMIT" ] \
-    || fail "NEMOCLAW_OPENSHELL_MAIN_COMMIT must be $NIGHTLY_OPENSHELL_MAIN_COMMIT for this branch, got '${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-unset}'."
-
-  openshell_path="$(require_main_nightly_binary openshell "${NEMOCLAW_OPENSHELL_BIN:-}")"
-  require_main_nightly_binary openshell-gateway "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" >/dev/null
-  require_main_nightly_binary openshell-sandbox "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" >/dev/null
-
-  require_openshell_messaging_features "$openshell_path"
-  info "OpenShell main binary feature strings verified."
-  exit 0
-fi
 
 if command -v openshell >/dev/null 2>&1; then
   INSTALLED_VERSION_OUTPUT="$(openshell --version 2>&1 || true)"
@@ -258,7 +218,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 download_with_curl() {
   local name
   for name in "${ASSETS[@]}" "${CHECKSUM_FILES[@]}"; do
-    curl -fsSL "https://github.com/${PIN_REPO}/releases/download/${RELEASE_TAG}/$name" \
+    curl -fsSL "https://github.com/NVIDIA/OpenShell/releases/download/${RELEASE_TAG}/$name" \
       -o "$tmpdir/$name"
   done
 }
@@ -266,7 +226,7 @@ download_with_curl() {
 if command -v gh >/dev/null 2>&1; then
   gh_ok=1
   for name in "${ASSETS[@]}" "${CHECKSUM_FILES[@]}"; do
-    if ! GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$RELEASE_TAG" --repo "$PIN_REPO" \
+    if ! GH_PROMPT_DISABLED=1 GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" gh release download "$RELEASE_TAG" --repo NVIDIA/OpenShell \
       --pattern "$name" --dir "$tmpdir" --clobber 2>/dev/null; then
       gh_ok=0
       break

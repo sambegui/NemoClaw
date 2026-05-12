@@ -103,44 +103,44 @@ exit 1`,
 }
 
 describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
-  it("exits cleanly when openshell 0.0.38 and driver binaries are already installed", () => {
-    const result = runWithInstalledVersion("0.0.38");
+  it("exits cleanly when openshell 0.0.39 and driver binaries are already installed", () => {
+    const result = runWithInstalledVersion("0.0.39");
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/already installed.*0\.0\.38/);
+    expect(result.stdout).toMatch(/already installed.*0\.0\.39/);
   });
 
-  it("triggers reinstall when openshell 0.0.38 is missing Docker-driver binaries", () => {
-    const result = runWithInstalledVersion("0.0.38", {}, { driverBins: false, os: "Linux" });
+  it("triggers reinstall when openshell 0.0.39 is missing Docker-driver binaries", () => {
+    const result = runWithInstalledVersion("0.0.39", {}, { driverBins: false, os: "Linux" });
     expect(result.status).not.toBe(0);
     expect(result.stdout).toMatch(/missing Docker-driver binaries/);
-    expect(result.stdout).toMatch(/Installing OpenShell from release 'v0\.0\.38'/);
+    expect(result.stdout).toMatch(/Installing OpenShell from release 'v0\.0\.39'/);
   });
 
-  it("fails closed when openshell 0.0.38 lacks required messaging rewrite support", () => {
-    const result = runWithInstalledVersion("0.0.38", {}, { capability: false });
+  it("fails closed when openshell 0.0.39 lacks required messaging rewrite support", () => {
+    const result = runWithInstalledVersion("0.0.39", {}, { capability: false });
     expect(result.status).toBe(1);
     expect(result.stdout).toMatch(/missing request-body-credential-rewrite support/);
   });
 
-  it("accepts macOS openshell 0.0.38 when the gateway and VM driver binaries are installed", () => {
-    const result = runWithInstalledVersion("0.0.38", {}, {
+  it("accepts macOS openshell 0.0.39 when the gateway and VM driver binaries are installed", () => {
+    const result = runWithInstalledVersion("0.0.39", {}, {
       driverBins: "gateway-vm",
       os: "Darwin",
       arch: "arm64",
     });
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/already installed.*0\.0\.38/);
+    expect(result.stdout).toMatch(/already installed.*0\.0\.39/);
   });
 
-  it("triggers reinstall when macOS openshell 0.0.38 is missing the gateway binary", () => {
-    const result = runWithInstalledVersion("0.0.38", {}, {
+  it("triggers reinstall when macOS openshell 0.0.39 is missing the gateway binary", () => {
+    const result = runWithInstalledVersion("0.0.39", {}, {
       driverBins: false,
       os: "Darwin",
       arch: "arm64",
     });
     expect(result.status).not.toBe(0);
     expect(result.stdout).toMatch(/missing Docker-driver binaries/);
-    expect(result.stdout).toMatch(/Installing OpenShell from release 'v0\.0\.38'/);
+    expect(result.stdout).toMatch(/Installing OpenShell from release 'v0\.0\.39'/);
   });
 
   it("downloads the macOS arm64 gateway and VM helper assets during reinstall", () => {
@@ -215,7 +215,7 @@ dest="\${@: -1}"
 mkdir -p "$(dirname "$dest")"
 cat > "$dest" <<'EOF'
 #!/usr/bin/env bash
-if [ "\${1:-}" = "--version" ]; then echo "openshell 0.0.38"; exit 0; fi
+if [ "\${1:-}" = "--version" ]; then echo "openshell 0.0.39"; exit 0; fi
 # request-body-credential-rewrite websocket-credential-rewrite
 exit 0
 EOF
@@ -245,8 +245,8 @@ exit 0`,
     }
   });
 
-  it("triggers upgrade when openshell 0.0.37 is installed (below current floor)", () => {
-    const result = runWithInstalledVersion("0.0.37");
+  it("triggers upgrade when openshell 0.0.38 is installed (below current floor)", () => {
+    const result = runWithInstalledVersion("0.0.38");
     expect(result.status).not.toBe(0);
     expect(result.stdout).toMatch(/below minimum.*upgrading/);
   });
@@ -271,7 +271,7 @@ exit 0`,
   });
 
   it("fails with a clear error when openshell is above MAX_VERSION", () => {
-    const result = runWithInstalledVersion("0.0.39");
+    const result = runWithInstalledVersion("0.0.40");
     expect(result.status).toBe(1);
     expect(result.stdout).toMatch(/above the maximum/);
   });
@@ -283,7 +283,7 @@ exit 0`,
   });
 
   it("accepts an installed OpenShell dev-channel Docker-driver build", () => {
-    const result = runWithInstalledVersion("0.0.38.dev84+g6b2180425", {
+    const result = runWithInstalledVersion("0.0.39.dev84+g6b2180425", {
       NEMOCLAW_OPENSHELL_CHANNEL: "dev",
     });
     expect(result.status).toBe(0);

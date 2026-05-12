@@ -607,17 +607,17 @@ network_policies:
     ]);
     expect(parseDockerCdiSpecDirs("")).toEqual([]);
     expect(
-      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.38.dev1+gabcdef", "linux", {
+      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.40.dev1+gabcdef", "linux", {
         NEMOCLAW_OPENSHELL_CHANNEL: "dev",
       }),
     ).toBe(true);
     expect(
-      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.38.dev1+gabcdef", "linux", {
+      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.40.dev1+gabcdef", "linux", {
         NEMOCLAW_OPENSHELL_CHANNEL: "auto",
       }),
     ).toBe(false);
     expect(
-      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.38", "linux", {
+      shouldAllowOpenshellAboveBlueprintMax("openshell 0.0.40", "linux", {
         NEMOCLAW_OPENSHELL_CHANNEL: "dev",
       }),
     ).toBe(false);

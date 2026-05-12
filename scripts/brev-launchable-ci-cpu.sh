@@ -28,7 +28,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/<ref>/scripts/brev-launchable-ci-cpu.sh | bash
 #
 # Environment overrides:
-#   OPENSHELL_VERSION     — OpenShell CLI release tag (default: v0.0.37)
+#   OPENSHELL_VERSION     — OpenShell CLI release tag (default: v0.0.39)
 #   NEMOCLAW_REF          — NemoClaw git ref to clone (default: main)
 #   NEMOCLAW_CLONE_DIR    — Where to clone NemoClaw (default: ~/NemoClaw)
 #   SKIP_DOCKER_PULL      — Set to 1 to skip Docker image pre-pulls
@@ -40,12 +40,11 @@
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────
-OPENSHELL_VERSION="${OPENSHELL_VERSION:-v0.0.37}"
+OPENSHELL_VERSION="${OPENSHELL_VERSION:-v0.0.39}"
 NEMOCLAW_REF="${NEMOCLAW_REF:-main}"
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 NEMOCLAW_CLONE_DIR="${NEMOCLAW_CLONE_DIR:-${TARGET_HOME}/NemoClaw}"
-NIGHTLY_OPENSHELL_MAIN_COMMIT="9ea94b645ddad445650ad0bcbee093beeaeb1451"
 
 LAUNCH_LOG="${LAUNCH_LOG:-/tmp/launch-plugin.log}"
 SENTINEL="/var/run/nemoclaw-launchable-ready"
@@ -91,20 +90,6 @@ retry() {
     sleep "$sleep_sec"
     ((attempt++))
   done
-}
-
-is_native_messaging_websocket_nightly_branch() {
-  [ "${GITHUB_ACTIONS:-}" = "true" ] \
-    && [ "${GITHUB_REPOSITORY:-}" = "NVIDIA/NemoClaw" ] \
-    && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ]
-}
-
-require_main_binary() {
-  local binary_path="$1"
-  local binary_name="$2"
-  [ -n "$binary_path" ] || fail "$binary_name path is required for the temporary OpenShell main nightly branch path"
-  [ -x "$binary_path" ] || fail "$binary_name is not executable at $binary_path"
-  "$binary_path" --version || fail "$binary_name --version failed for $binary_path"
 }
 
 # ── Wait for apt locks ───────────────────────────────────────────────
@@ -204,23 +189,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 # 4. OpenShell CLI
 # ══════════════════════════════════════════════════════════════════════
-if is_native_messaging_websocket_nightly_branch; then
-  info "Using prebuilt OpenShell main binaries for fix/native-messaging-websocket nightly validation"
-  [ "${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-}" = "$NIGHTLY_OPENSHELL_MAIN_COMMIT" ] \
-    || fail "NEMOCLAW_OPENSHELL_MAIN_COMMIT must be $NIGHTLY_OPENSHELL_MAIN_COMMIT, got ${NEMOCLAW_OPENSHELL_MAIN_COMMIT:-unset}"
-  main_openshell_bin="${NEMOCLAW_OPENSHELL_BIN:-}"
-  require_main_binary "$main_openshell_bin" openshell
-  require_main_binary "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" openshell-gateway
-  require_main_binary "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" openshell-sandbox
-  main_openshell_dir="$(dirname "$main_openshell_bin")"
-  export PATH="$main_openshell_dir:$PATH"
-  command -v strings >/dev/null 2>&1 || fail "strings is required to verify OpenShell main feature strings"
-  strings "$main_openshell_bin" | grep -F request-body-credential-rewrite >/dev/null \
-    || fail "OpenShell main CLI is missing request-body-credential-rewrite"
-  strings "$main_openshell_bin" | grep -F websocket-credential-rewrite >/dev/null \
-    || fail "OpenShell main CLI is missing websocket-credential-rewrite"
-  info "OpenShell main binaries verified"
-elif command -v openshell >/dev/null 2>&1; then
+if command -v openshell >/dev/null 2>&1; then
   _installed_ver="$(openshell --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
   _pinned_ver="${OPENSHELL_VERSION#v}" # strip leading 'v'
   if [ "$_installed_ver" = "$_pinned_ver" ]; then
@@ -281,7 +250,7 @@ DOCKER_PULL_PID=""
 if [[ "${SKIP_DOCKER_PULL:-0}" != "1" ]]; then
   info "Pre-pulling Docker images in background..."
   (
-    SUPERVISOR_TAG="${OPENSHELL_VERSION#v}" # v0.0.37 → 0.0.37
+    SUPERVISOR_TAG="${OPENSHELL_VERSION#v}" # v0.0.39 -> 0.0.39
     SUPERVISOR_IMAGE="ghcr.io/nvidia/openshell/supervisor:${SUPERVISOR_TAG}"
 
     # Pull all images in parallel
