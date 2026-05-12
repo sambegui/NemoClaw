@@ -88,11 +88,25 @@ export interface MessagingOverlap {
   reason?: "matching-token" | "unknown-token";
 }
 
+export interface GatewayHealth {
+  healthy: boolean;
+  state: string;
+  reason?: string;
+}
+
 export interface ShowStatusCommandDeps {
   listSandboxes: () => { sandboxes: SandboxEntry[]; defaultSandbox?: string | null };
   getLiveInference: () => GatewayInference | null;
   showServiceStatus: (options: { sandboxName?: string }) => void;
   getServiceStatuses?: (options: { sandboxName?: string }) => StatusServiceRow[];
+  /**
+   * Report whether the named NemoClaw gateway is reachable. When omitted,
+   * `showStatusCommand` keeps its legacy 0-exit behaviour; when provided and
+   * the gateway is unhealthy, `showStatusCommand` emits a `gateway: down`
+   * diagnostic and sets `process.exitCode = 1` so shell and CI callers can
+   * detect the degraded state from `$?` (#3386).
+   */
+  getGatewayHealth?: () => GatewayHealth;
   checkMessagingBridgeHealth?: (
     sandboxName: string,
     channels: string[],
@@ -383,6 +397,25 @@ export function showStatusCommand(deps: ShowStatusCommandDeps): void {
       }
     }
     log("");
+  }
+
+  // Surface gateway health between the sandbox list and the host-service
+  // list, since the gateway sits logically between the two. When the named
+  // gateway is unhealthy we also set process.exitCode = 1 so shell scripts
+  // and CI can detect the degraded state from `$?` (#3386). The exit code is
+  // set, not thrown — JSON callers (`status --json`) remain unaffected and
+  // the rest of the report keeps printing.
+  if (deps.getGatewayHealth) {
+    const health = deps.getGatewayHealth();
+    if (!health.healthy) {
+      log("");
+      const detail = health.reason ? ` (${health.reason})` : "";
+      log(`  gateway: down [${health.state}]${detail}`);
+      log(
+        `    Run 'openshell gateway start --name nemoclaw' or 'nemoclaw onboard --resume' to recover.`,
+      );
+      process.exitCode = 1;
+    }
   }
 
   deps.showServiceStatus({ sandboxName: defaultSandbox || undefined });
