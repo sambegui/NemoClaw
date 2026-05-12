@@ -92,6 +92,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: nightly-e2e-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.ref || 'schedule' }}
@@ -281,6 +282,8 @@ jobs:
 
       - name: Install OpenShell PR #1286 for this branch
         if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/install-openshell.sh
 
       - name: Run messaging providers E2E test
@@ -624,6 +627,8 @@ jobs:
 
       - name: Install OpenShell PR #1286 for this branch
         if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/install-openshell.sh
 
       - name: Run Hermes Discord E2E test
@@ -668,6 +673,8 @@ jobs:
 
       - name: Install OpenShell PR #1286 for this branch
         if: github.repository == 'NVIDIA/NemoClaw' && github.ref == 'refs/heads/fix/native-messaging-websocket'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/install-openshell.sh
 
       - name: Run Hermes Slack E2E test
