@@ -46,6 +46,7 @@ PIN_VERSION="${NEMOCLAW_OPENSHELL_PIN_VERSION:-$MAX_VERSION}"
 PIN_TAG="${NEMOCLAW_OPENSHELL_PIN_TAG:-v${PIN_VERSION}}"
 PIN_REPO="${NEMOCLAW_OPENSHELL_PIN_REPO:-NVIDIA/OpenShell}"
 DEV_MIN_VERSION="0.0.38"
+NIGHTLY_PR1286_COMMIT="077544834681aa3c00f71a7d50a9efcd37afb5ad"
 
 CHANNEL="${NEMOCLAW_OPENSHELL_CHANNEL:-auto}"
 case "$CHANNEL" in
@@ -100,6 +101,42 @@ openshell_has_required_messaging_features() {
   [[ "$binary_strings" == *"request-body-credential-rewrite"* ]] \
     && [[ "$binary_strings" == *"websocket-credential-rewrite"* ]]
 }
+
+is_native_messaging_websocket_nightly_branch() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] \
+    && [ "${GITHUB_REPOSITORY:-}" = "NVIDIA/NemoClaw" ] \
+    && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ]
+}
+
+require_pr1286_nightly_binary() {
+  local binary_name="$1"
+  local expected_path="$2"
+  local resolved_path
+  resolved_path="$(command -v "$binary_name" 2>/dev/null || true)"
+  [ -n "$resolved_path" ] || fail "$binary_name is required on PATH for the temporary PR #1286 nightly branch path."
+  [ -x "$resolved_path" ] || fail "$binary_name is not executable at $resolved_path."
+  if [ -n "$expected_path" ] && [ "$expected_path" != "$resolved_path" ]; then
+    fail "$binary_name resolved to $resolved_path, but the PR #1286 nightly helper exported $expected_path."
+  fi
+  info "$binary_name resolved to $resolved_path" >&2
+  "$resolved_path" --version >&2 || fail "$binary_name --version failed for $resolved_path."
+  printf '%s\n' "$resolved_path"
+}
+
+if is_native_messaging_websocket_nightly_branch; then
+  info "Using prebuilt OpenShell PR #1286 binaries for fix/native-messaging-websocket nightly validation."
+  [ "${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-}" = "$NIGHTLY_PR1286_COMMIT" ] \
+    || fail "NEMOCLAW_OPENSHELL_PR1286_COMMIT must be $NIGHTLY_PR1286_COMMIT for this branch, got '${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-unset}'."
+
+  openshell_path="$(require_pr1286_nightly_binary openshell "${NEMOCLAW_OPENSHELL_BIN:-}")"
+  require_pr1286_nightly_binary openshell-gateway "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" >/dev/null
+  require_pr1286_nightly_binary openshell-sandbox "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" >/dev/null
+
+  openshell_has_required_messaging_features "$openshell_path" \
+    || fail "OpenShell PR #1286 nightly binary is missing request-body-credential-rewrite or websocket-credential-rewrite."
+  info "OpenShell PR #1286 binary feature strings verified."
+  exit 0
+fi
 
 if command -v openshell >/dev/null 2>&1; then
   INSTALLED_VERSION_OUTPUT="$(openshell --version 2>&1 || true)"

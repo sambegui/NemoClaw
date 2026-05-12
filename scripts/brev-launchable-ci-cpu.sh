@@ -45,6 +45,7 @@ NEMOCLAW_REF="${NEMOCLAW_REF:-main}"
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 NEMOCLAW_CLONE_DIR="${NEMOCLAW_CLONE_DIR:-${TARGET_HOME}/NemoClaw}"
+NIGHTLY_PR1286_COMMIT="077544834681aa3c00f71a7d50a9efcd37afb5ad"
 
 LAUNCH_LOG="${LAUNCH_LOG:-/tmp/launch-plugin.log}"
 SENTINEL="/var/run/nemoclaw-launchable-ready"
@@ -90,6 +91,20 @@ retry() {
     sleep "$sleep_sec"
     ((attempt++))
   done
+}
+
+is_native_messaging_websocket_nightly_branch() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] \
+    && [ "${GITHUB_REPOSITORY:-}" = "NVIDIA/NemoClaw" ] \
+    && [ "${GITHUB_REF:-}" = "refs/heads/fix/native-messaging-websocket" ]
+}
+
+require_pr1286_binary() {
+  local binary_path="$1"
+  local binary_name="$2"
+  [ -n "$binary_path" ] || fail "$binary_name path is required for the temporary PR #1286 nightly branch path"
+  [ -x "$binary_path" ] || fail "$binary_name is not executable at $binary_path"
+  "$binary_path" --version || fail "$binary_name --version failed for $binary_path"
 }
 
 # ── Wait for apt locks ───────────────────────────────────────────────
@@ -189,7 +204,23 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 # 4. OpenShell CLI
 # ══════════════════════════════════════════════════════════════════════
-if command -v openshell >/dev/null 2>&1; then
+if is_native_messaging_websocket_nightly_branch; then
+  info "Using prebuilt OpenShell PR #1286 binaries for fix/native-messaging-websocket nightly validation"
+  [ "${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-}" = "$NIGHTLY_PR1286_COMMIT" ] \
+    || fail "NEMOCLAW_OPENSHELL_PR1286_COMMIT must be $NIGHTLY_PR1286_COMMIT, got ${NEMOCLAW_OPENSHELL_PR1286_COMMIT:-unset}"
+  pr1286_openshell_bin="${NEMOCLAW_OPENSHELL_BIN:-}"
+  require_pr1286_binary "$pr1286_openshell_bin" openshell
+  require_pr1286_binary "${NEMOCLAW_OPENSHELL_GATEWAY_BIN:-}" openshell-gateway
+  require_pr1286_binary "${NEMOCLAW_OPENSHELL_SANDBOX_BIN:-}" openshell-sandbox
+  pr1286_openshell_dir="$(dirname "$pr1286_openshell_bin")"
+  export PATH="$pr1286_openshell_dir:$PATH"
+  command -v strings >/dev/null 2>&1 || fail "strings is required to verify OpenShell PR #1286 feature strings"
+  strings "$pr1286_openshell_bin" | grep -F request-body-credential-rewrite >/dev/null \
+    || fail "OpenShell PR #1286 CLI is missing request-body-credential-rewrite"
+  strings "$pr1286_openshell_bin" | grep -F websocket-credential-rewrite >/dev/null \
+    || fail "OpenShell PR #1286 CLI is missing websocket-credential-rewrite"
+  info "OpenShell PR #1286 binaries verified"
+elif command -v openshell >/dev/null 2>&1; then
   _installed_ver="$(openshell --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
   _pinned_ver="${OPENSHELL_VERSION#v}" # strip leading 'v'
   if [ "$_installed_ver" = "$_pinned_ver" ]; then
