@@ -8647,7 +8647,8 @@ const { createSandbox } = require(${onboardPath});
     );
 
     assert.match(source, /const preferredEntry = findForwardEntry/);
-    assert.match(source, /function isLiveForwardStatus/);
+    // isLiveForwardStatus lives in ./onboard/dashboard-port and is imported above;
+    // the call site itself is the meaningful assertion.
     assert.match(source, /!isLiveForwardStatus\(preferredEntry\.status\)/);
     assert.match(
       source,
@@ -8750,16 +8751,16 @@ const { createSandbox } = require(${onboardPath});
     // higher-level tests; this assertion just keeps the chain in place
     // when the function is refactored.
     const source = fs.readFileSync(
-      path.join(import.meta.dirname, "..", "src", "lib", "onboard.ts"),
+      path.join(import.meta.dirname, "..", "src", "lib", "onboard", "dashboard-port.ts"),
       "utf-8",
     );
-    assert.match(source, /function isPortBoundOnHost/);
+    assert.match(source, /export function isPortBoundOnHost/);
     assert.match(source, /\["lsof", "-i", `:\$\{port\}`, "-sTCP:LISTEN", "-P", "-n"\]/);
     assert.match(
       source,
       /\["sudo", "-n", "lsof", "-i", `:\$\{port\}`, "-sTCP:LISTEN", "-P", "-n"\]/,
     );
-    assert.match(source, /function probePortBoundSync/);
+    assert.match(source, /export function probePortBoundSync/);
     assert.match(source, /EADDRINUSE/);
   });
 

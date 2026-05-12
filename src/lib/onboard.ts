@@ -282,6 +282,11 @@ const policies: typeof import("./policies") = require("./policies");
 const shields = require("./shields");
 const tiers: typeof import("./tiers") = require("./tiers");
 const { ensureUsageNoticeConsent } = require("./onboard/usage-notice");
+const {
+  findAvailableDashboardPort,
+  getOccupiedPorts,
+  isLiveForwardStatus,
+} = require("./onboard/dashboard-port") as typeof import("./onboard/dashboard-port");
 const preflightUtils: typeof import("./onboard/preflight") = require("./onboard/preflight");
 const clusterImagePatch: typeof import("./cluster-image-patch") = require("./cluster-image-patch");
 const {
@@ -8848,10 +8853,6 @@ function findForwardEntry(
   return null;
 }
 
-function isLiveForwardStatus(status: string): boolean {
-  return status === "running" || status === "active";
-}
-
 function getRunningForwardPorts(forwardListOutput: string | null | undefined): string[] {
   const ports = new Set<string>();
   if (!forwardListOutput) return [];
@@ -8874,152 +8875,6 @@ function stopAllDashboardForwards(): void {
   }
 }
 
-/**
- * Parse `openshell forward list` output into a Map<port, sandboxName>.
- * Only includes running forwards — stopped/stale entries are ignored so
- * they don't block port allocation or cause false "range exhausted" errors.
- *
- * Output format (columns separated by whitespace):
- *   SANDBOX  BIND  PORT  PID  STATUS
- */
-function getOccupiedPorts(forwardListOutput: string | null): Map<string, string> {
-  const occupied = new Map();
-  if (!forwardListOutput) return occupied;
-  for (const line of forwardListOutput.split("\n")) {
-    if (/^\s*SANDBOX\s/i.test(line)) continue;
-    const parts = line.trim().split(/\s+/);
-    // parts: [sandbox, bind, port, pid, status...]
-    if (parts.length < 3 || !/^\d+$/.test(parts[2])) continue;
-    const status = (parts[4] || "").toLowerCase();
-    if (!isLiveForwardStatus(status)) continue;
-    occupied.set(parts[2], parts[0]);
-  }
-  return occupied;
-}
-
-/**
- * Synchronous check whether a TCP port has an active listener on the host.
- *
- * Detection chain — any positive signal short-circuits:
- *   1. `lsof` — finds listeners owned by the current user.
- *   2. `sudo -n lsof` — catches root-owned listeners (e.g., docker-proxy on
- *      macOS) that the unprivileged lsof can't see. Silently no-ops when
- *      the user can't escalate non-interactively.
- *   3. Node `net` bind probe — authoritative fallback when both lsof
- *      invocations come up empty, mirroring what `openshell forward start`
- *      will actually attempt.
- *
- * Returns false (optimistic) when every probe is inconclusive — the
- * downstream forward-start check is the final authority (#3260).
- */
-function isPortBoundOnHost(port: number): boolean {
-  try {
-    const out = runCapture(["lsof", "-i", `:${port}`, "-sTCP:LISTEN", "-P", "-n"], {
-      ignoreError: true,
-    });
-    if (out && out.trim().length > 0) return true;
-  } catch {
-    /* fall through to the next probe */
-  }
-
-  try {
-    const sudoOut = runCapture(
-      ["sudo", "-n", "lsof", "-i", `:${port}`, "-sTCP:LISTEN", "-P", "-n"],
-      { ignoreError: true },
-    );
-    if (sudoOut && sudoOut.trim().length > 0) return true;
-  } catch {
-    /* fall through to the bind probe */
-  }
-
-  return probePortBoundSync(port);
-}
-
-/**
- * Synchronous Node `net` bind probe — tries to listen on the port and
- * reports whether the bind would have failed with EADDRINUSE. Spawned via
- * spawnSync of `node -e` because `findAvailableDashboardPort` runs deep in
- * a sync allocation flow and `net.createServer().listen()` is async.
- *
- * Exit codes: 0 = bind succeeded (port free); 1 = EADDRINUSE; anything
- * else = inconclusive (treated as free for safety — the forward-start
- * check is authoritative).
- */
-function probePortBoundSync(port: number): boolean {
-  try {
-    const script =
-      "const net = require('node:net');" +
-      "const srv = net.createServer();" +
-      "let done = false;" +
-      "const exit = (code) => { if (!done) { done = true; process.exit(code); } };" +
-      "srv.once('error', (e) => exit(e && e.code === 'EADDRINUSE' ? 1 : 2));" +
-      `srv.listen(${port}, '127.0.0.1', () => srv.close(() => exit(0)));`;
-    const result = spawnSync(process.execPath, ["-e", script], {
-      stdio: "ignore",
-      timeout: 2_000,
-    });
-    return result.status === 1;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Find the next available dashboard port for the given sandbox.
- * Returns the preferred port if free or already owned by this sandbox,
- * otherwise scans DASHBOARD_PORT_RANGE_START..END for a free port.
- * Validates host-port availability (via the proactive probe chain in
- * isPortBoundOnHost) so ports bound by non-OpenShell processes are
- * skipped (#3260).
- * Throws if the entire range is exhausted.
- *
- * `isPortBoundCheck` is an injectable seam for tests so they don't have
- * to spawn real lsof / Node probes; production callers leave it at the
- * default.
- */
-function findAvailableDashboardPort(
-  sandboxName: string,
-  preferredPort: number,
-  forwardListOutput: string | null,
-  isPortBoundCheck: (port: number) => boolean = isPortBoundOnHost,
-): number {
-  const occupied = getOccupiedPorts(forwardListOutput);
-  const hostBoundPorts: number[] = [];
-  // Try the preferred port first (it may be outside the dashboard range when
-  // a caller passes --control-ui-port), then the rest of the range. Each port
-  // is probed at most once so we don't pay for `lsof` + `sudo lsof` + Node
-  // bind multiple times per port.
-  const portsToScan = [
-    preferredPort,
-    ...Array.from(
-      { length: DASHBOARD_PORT_RANGE_END - DASHBOARD_PORT_RANGE_START + 1 },
-      (_, i) => DASHBOARD_PORT_RANGE_START + i,
-    ).filter((p) => p !== preferredPort),
-  ];
-  for (const p of portsToScan) {
-    const pStr = String(p);
-    const pOwner = occupied.get(pStr) ?? null;
-    if (pOwner === sandboxName) return p;
-    if (pOwner === null) {
-      if (!isPortBoundCheck(p)) return p;
-      hostBoundPorts.push(p);
-    }
-  }
-
-  const ownerLines = [...occupied.entries()]
-    .filter(
-      ([p]) => Number(p) >= DASHBOARD_PORT_RANGE_START && Number(p) <= DASHBOARD_PORT_RANGE_END,
-    )
-    .map(([p, s]) => `  ${p} → ${s}`);
-  const hostLines = hostBoundPorts
-    .filter((p) => p >= DASHBOARD_PORT_RANGE_START && p <= DASHBOARD_PORT_RANGE_END)
-    .map((p) => `  ${p} → non-OpenShell host listener`);
-  const lines = [...ownerLines, ...hostLines].join("\n");
-  throw new Error(
-    `All dashboard ports in range ${DASHBOARD_PORT_RANGE_START}-${DASHBOARD_PORT_RANGE_END} are occupied:\n${lines}\n` +
-      `Free a sandbox or use --control-ui-port <N> with a port outside this range.`,
-  );
-}
 
 /**
  * Build the actionable error lines printed when the just-created openshell
