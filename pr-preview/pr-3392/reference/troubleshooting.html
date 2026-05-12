@@ -1032,7 +1032,8 @@ In non-interactive mode (<code class="docutils literal notranslate"><span class=
 <section id="openclaw-config-set-or-unset-is-blocked-inside-the-sandbox">
 <h3><code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">set</span></code> or <code class="docutils literal notranslate"><span class="pre">unset</span></code> is blocked inside the sandbox<a class="headerlink" href="#openclaw-config-set-or-unset-is-blocked-inside-the-sandbox" title="Link to this heading">#</a></h3>
 <p>This is expected.
-The sandbox’s OpenClaw configuration (<code class="docutils literal notranslate"><span class="pre">/sandbox/.openclaw/openclaw.json</span></code>) is baked into the container image at build time.
+NemoClaw builds the sandbox’s OpenClaw configuration (<code class="docutils literal notranslate"><span class="pre">/sandbox/.openclaw/openclaw.json</span></code>) from host-side onboarding, rebuild, inference, policy, and messaging inputs.
+Fresh sandboxes keep that file writable by default so the agent can manage runtime state, but direct in-sandbox edits are not the supported or durable path for NemoClaw-managed settings.
 NemoClaw’s sandbox entrypoint installs a guard that intercepts <code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">set</span></code> and <code class="docutils literal notranslate"><span class="pre">openclaw</span> <span class="pre">config</span> <span class="pre">unset</span></code> and prints an actionable error, because changes made inside the running sandbox do not persist across rebuilds.</p>
 <p>For most configuration changes, exit the sandbox and rerun onboarding:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>nemoclaw<span class="w"> </span>onboard

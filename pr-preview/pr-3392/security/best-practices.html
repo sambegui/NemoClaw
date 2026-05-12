@@ -1027,7 +1027,7 @@ You can hot-reload others while the sandbox runs.</p>
 <tr class="row-odd"><td><p>Filesystem</p></td>
 <td><p>System binary tampering, credential theft, config manipulation.</p></td>
 <td><p>Landlock LSM + container mounts</p></td>
-<td><p>No. Requires sandbox re-creation.</p></td>
+<td><p>Landlock layout: no. Requires sandbox re-creation. Config lockdown posture: yes, with host-side shields commands.</p></td>
 </tr>
 <tr class="row-even"><td><p>Process</p></td>
 <td><p>Privilege escalation, fork bombs, syscall abuse.</p></td>
@@ -1312,6 +1312,33 @@ For sensitive workloads, use a reviewed host-side immutability workflow after in
 </tbody>
 </table>
 </div>
+</section>
+<section id="locking-config-with-shields">
+<h3>Locking Config with Shields<a class="headerlink" href="#locking-config-with-shields" title="Link to this heading">#</a></h3>
+<p>NemoClaw exposes the reviewed host-side immutability workflow through shields commands:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Command</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">shields</span> <span class="pre">status</span></code></p></td>
+<td><p>Show whether the sandbox is in default mutable mode, locked mode, or temporarily unlocked mode.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">shields</span> <span class="pre">up</span></code></p></td>
+<td><p>Opt into lockdown for sensitive workloads by locking config and state entry points with root ownership, read-only modes, and the immutable flag where available.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">shields</span> <span class="pre">down</span> <span class="pre">--timeout</span> <span class="pre">5m</span> <span class="pre">--reason</span> <span class="pre">&quot;&lt;reason&gt;&quot;</span></code></p></td>
+<td><p>Temporarily return a previously locked sandbox to the mutable default for maintenance, then auto-restore lockdown.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Run shields commands from the host.
+They use privileged OpenShell and Kubernetes paths that do not inherit the sandbox process’s Landlock context.
+Landlock itself stays fixed at sandbox creation; <code class="docutils literal notranslate"><span class="pre">shields</span> <span class="pre">up</span></code> does not rewrite the Landlock policy.
+Instead, it layers DAC permissions and <code class="docutils literal notranslate"><span class="pre">chattr</span> <span class="pre">+i</span></code> over paths that the default Landlock policy intentionally leaves writable.</p>
 </section>
 <section id="writable-paths">
 <h3>Writable Paths<a class="headerlink" href="#writable-paths" title="Link to this heading">#</a></h3>
@@ -2038,6 +2065,7 @@ They provide guidance on which controls to keep tight or relax.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#filesystem-controls">Filesystem Controls</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-system-paths">Read-Only System Paths</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-config-directory">Agent Config Directory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#locking-config-with-shields">Locking Config with Shields</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#writable-paths">Writable Paths</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#landlock-lsm-enforcement">Landlock LSM Enforcement</a></li>
 </ul>

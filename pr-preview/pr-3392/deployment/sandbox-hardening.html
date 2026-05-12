@@ -605,6 +605,11 @@ The agent’s home directory (<code class="docutils literal notranslate"><span c
 </tbody>
 </table>
 </div>
+<p>This writable default is intentional.
+Seeing the sandbox user create files under <code class="docutils literal notranslate"><span class="pre">/sandbox</span></code> or <code class="docutils literal notranslate"><span class="pre">/sandbox/.openclaw</span></code> in a fresh sandbox does not mean Landlock failed.
+Landlock still enforces the fixed read-only system paths below.
+Use <code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">shields</span> <span class="pre">up</span></code> from the host to opt into config lockdown for sensitive workloads.
+That host-side command layers root ownership, read-only modes, and the immutable flag where available; it does not change the Landlock policy after sandbox creation.</p>
 <p>System paths remain read-only to prevent agents from:</p>
 <ul class="simple">
 <li><p>Replacing system binaries with trojanized versions</p></li>
