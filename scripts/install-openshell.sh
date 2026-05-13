@@ -63,27 +63,35 @@ fi
 # instead, so a malformed override should not abort a dev install (#3446 review).
 # The TS layer passes MIN/MAX/PIN from the blueprint so a single source of truth
 # (nemoclaw-blueprint/blueprint.yaml) drives the install (#3404).
-apply_blueprint_override() {
-  local name="$1" value="$2"
-  if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s' "$value"
-  else
-    fail "${name}='${value}' is not a valid X.Y.Z version."
-  fi
-}
+#
+# Validation is inlined (rather than wrapped in a helper that returns via
+# $(...)) so that `fail`'s error message reaches the user's stderr instead of
+# being captured into the variable assignment.
 if [ "$RESOLVED_CHANNEL" != "dev" ]; then
   if [ -n "${NEMOCLAW_OPENSHELL_MIN_VERSION:-}" ]; then
-    MIN_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_MIN_VERSION "$NEMOCLAW_OPENSHELL_MIN_VERSION")"
+    if [[ "$NEMOCLAW_OPENSHELL_MIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      MIN_VERSION="$NEMOCLAW_OPENSHELL_MIN_VERSION"
+    else
+      fail "NEMOCLAW_OPENSHELL_MIN_VERSION='$NEMOCLAW_OPENSHELL_MIN_VERSION' is not a valid X.Y.Z version."
+    fi
   fi
   if [ -n "${NEMOCLAW_OPENSHELL_MAX_VERSION:-}" ]; then
-    MAX_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_MAX_VERSION "$NEMOCLAW_OPENSHELL_MAX_VERSION")"
-    # Intentionally do NOT default PIN_VERSION to the overridden MAX here.
-    # If the TS resolver couldn't reach GitHub (rate-limited / offline) it
-    # only sets MIN/MAX, never PIN — falling through to the script's
-    # hardcoded PIN_VERSION is the known-good safe path (#3446 CodeRabbit).
+    if [[ "$NEMOCLAW_OPENSHELL_MAX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      MAX_VERSION="$NEMOCLAW_OPENSHELL_MAX_VERSION"
+      # Intentionally do NOT default PIN_VERSION to the overridden MAX here.
+      # If the TS resolver couldn't reach GitHub (rate-limited / offline) it
+      # only sets MIN/MAX, never PIN — falling through to the script's
+      # hardcoded PIN_VERSION is the known-good safe path (#3446 CodeRabbit).
+    else
+      fail "NEMOCLAW_OPENSHELL_MAX_VERSION='$NEMOCLAW_OPENSHELL_MAX_VERSION' is not a valid X.Y.Z version."
+    fi
   fi
   if [ -n "${NEMOCLAW_OPENSHELL_PIN_VERSION:-}" ]; then
-    PIN_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_PIN_VERSION "$NEMOCLAW_OPENSHELL_PIN_VERSION")"
+    if [[ "$NEMOCLAW_OPENSHELL_PIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      PIN_VERSION="$NEMOCLAW_OPENSHELL_PIN_VERSION"
+    else
+      fail "NEMOCLAW_OPENSHELL_PIN_VERSION='$NEMOCLAW_OPENSHELL_PIN_VERSION' is not a valid X.Y.Z version."
+    fi
   fi
 fi
 
