@@ -272,6 +272,8 @@ const {
 } = require("./onboard/gateway-http-readiness") as typeof import("./onboard/gateway-http-readiness");
 const { isGatewayTcpReady } =
   require("./onboard/gateway-tcp-readiness") as typeof import("./onboard/gateway-tcp-readiness");
+const { verifySandboxBridgeGatewayReachableOrExit } =
+  require("./onboard/gateway-sandbox-reachability") as typeof import("./onboard/gateway-sandbox-reachability");
 const { trackChildExit } =
   require("./onboard/child-exit-tracker") as typeof import("./onboard/child-exit-tracker");
 const { reportDockerDriverGatewayStartFailure } =
@@ -4460,6 +4462,7 @@ async function startDockerDriverGateway({
     if (drift) {
       restartDockerDriverGatewayProcessForDrift(pidFileGatewayPid, drift.reason);
     } else if (registerDockerDriverGatewayEndpoint() && (await isDockerDriverGatewayHttpReady())) {
+      await verifySandboxBridgeGatewayReachableOrExit(exitOnFailure);
       console.log("  ✓ Reusing existing Docker-driver gateway");
       return;
     } else {
@@ -4491,6 +4494,7 @@ async function startDockerDriverGateway({
         isGatewayHealthy(adoptedStatus, adoptedGwInfo, adoptedActiveGatewayInfo) &&
         (await isDockerDriverGatewayHttpReady())
       ) {
+        await verifySandboxBridgeGatewayReachableOrExit(exitOnFailure);
         console.log(`  ✓ Reusing existing Docker-driver gateway process (PID ${portListenerPid})`);
         return;
       }
@@ -4562,6 +4566,7 @@ async function startDockerDriverGateway({
       isGatewayHealthy(status, namedInfo, currentInfo) &&
       (await isGatewayTcpReady())
     ) {
+      await verifySandboxBridgeGatewayReachableOrExit(exitOnFailure);
       console.log("  ✓ Docker-driver gateway is healthy");
       return;
     }
