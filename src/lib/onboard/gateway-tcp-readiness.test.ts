@@ -11,6 +11,7 @@
 import net from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { GATEWAY_PORT } from "../core/ports";
 import { isGatewayTcpReady } from "./gateway-tcp-readiness";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -94,9 +95,9 @@ describe("isGatewayTcpReady (#3111)", () => {
   });
 
   it("defaults to GATEWAY_PORT when no port is supplied", async () => {
-    // Nothing is listening on GATEWAY_PORT in test context; the call should
-    // resolve false (not throw) and do so without the caller threading the
-    // constant. This guards the default-parameter wiring.
-    await expect(isGatewayTcpReady(undefined, 200)).resolves.toBe(false);
+    // The development host may already have a gateway on GATEWAY_PORT. Compare
+    // the implicit and explicit calls instead of assuming the port is closed.
+    const implicit = await isGatewayTcpReady(undefined, 200);
+    await expect(isGatewayTcpReady(GATEWAY_PORT, 200)).resolves.toBe(implicit);
   });
 });
