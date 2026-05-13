@@ -16,11 +16,11 @@ const {
   cliName,
   setOnboardBrandingAgent,
 }: typeof import("./onboard/branding") = require("./onboard/branding");
-const {
-  cleanupTempDir,
-  secureTempFile,
-}: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
+const { cleanupTempDir }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
 const { stopStaleDashboardListenersForSandbox } = require("./onboard/stale-gateway-cleanup");
+const {
+  runBackgroundForwardStartWithDiagnostics,
+}: typeof import("./onboard/forward-start") = require("./onboard/forward-start");
 const {
   ensureOllamaLoopbackSystemdOverride,
 }: typeof import("./onboard/ollama-systemd") = require("./onboard/ollama-systemd");
@@ -9710,46 +9710,13 @@ function ensureDashboardForward(
   parsedUrl.port = String(actualPort);
   const actualTarget = getDashboardForwardTarget(parsedUrl.toString());
   runOpenshell(["forward", "stop", String(actualPort)], { ignoreError: true });
-  const forwardDiagPath = secureTempFile("nemoclaw-forward-start", ".out");
-  const forwardDiagDir = path.dirname(forwardDiagPath);
-  const forwardErrPath = path.join(forwardDiagDir, "nemoclaw-forward-start.err");
-  let fwdResult: ReturnType<typeof runOpenshell> | null = null;
-  let fwdDiagnostic = "";
-  const outFd = fs.openSync(forwardDiagPath, "w", 0o600);
-  const errFd = fs.openSync(forwardErrPath, "w", 0o600);
-  try {
-    fwdResult = runOpenshell(
-      ["forward", "start", "--background", actualTarget, sandboxName],
-      {
-        ignoreError: true,
-        suppressOutput: true,
-        stdio: ["ignore", outFd, errFd],
-        timeout: 30_000,
-      },
-    );
-  } finally {
-    try {
-      fs.closeSync(outFd);
-    } catch {
-      /* best effort */
-    }
-    try {
-      fs.closeSync(errFd);
-    } catch {
-      /* best effort */
-    }
-  }
-  try {
-    fwdDiagnostic = compactText(
-      redact(
-        `${fs.existsSync(forwardErrPath) ? fs.readFileSync(forwardErrPath, "utf-8") : ""} ${
-          fs.existsSync(forwardDiagPath) ? fs.readFileSync(forwardDiagPath, "utf-8") : ""
-        } ${fwdResult?.error instanceof Error ? fwdResult.error.message : ""}`,
+  const { result: fwdResult, diagnostic: fwdDiagnostic } =
+    runBackgroundForwardStartWithDiagnostics((stdio, timeout) =>
+      runOpenshell(
+        ["forward", "start", "--background", actualTarget, sandboxName],
+        { ignoreError: true, suppressOutput: true, stdio, timeout },
       ),
     );
-  } finally {
-    cleanupTempDir(forwardDiagPath, "nemoclaw-forward-start");
-  }
   if (fwdResult && fwdResult.status !== 0) {
     const looksLikePortConflict =
       fwdDiagnostic === "" ||
