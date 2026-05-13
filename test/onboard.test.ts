@@ -9822,6 +9822,13 @@ const { createSandbox } = require(${onboardPath});
     assert.match(source, /const looksLikePortConflict =/);
     assert.match(source, /eaddrinuse\|address already in use/i);
     assert.match(source, /suppressOutput: true/);
+    assert.match(source, /secureTempFile\("nemoclaw-forward-start", "\.out"\)/);
+    assert.match(source, /stdio: \["ignore", outFd, errFd\]/);
+    assert.doesNotMatch(
+      source,
+      /forward", "start", "--background"[\s\S]{0,260}stdio: \["ignore", "pipe", "pipe"\]/,
+      "background forward start must not capture pipe stdio; daemonized children can keep pipes open and hang install.sh",
+    );
     assert.match(
       source,
       /runOpenshell\(\["sandbox", "delete", sandboxName\], \{ ignoreError: true \}\)/,
