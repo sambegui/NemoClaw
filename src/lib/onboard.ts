@@ -309,6 +309,8 @@ const validationRecovery: typeof import("./validation-recovery") = require("./va
 const webSearch: typeof import("./inference/web-search") = require("./inference/web-search");
 const openshellInstallFlow: typeof import("./onboard/openshell-install") =
   require("./onboard/openshell-install");
+const openshellPinFlow: typeof import("./onboard/openshell-pin") =
+  require("./onboard/openshell-pin");
 const sandboxCreateFailureDiagnostics: typeof import("./onboard/sandbox-create-failure") =
   require("./onboard/sandbox-create-failure");
 
@@ -345,6 +347,7 @@ import type { WebSearchConfig } from "./inference/web-search";
 import type {
   DockerDriverBinaryOverrides,
   OpenShellInstallDeps,
+  OpenShellInstallResult,
 } from "./onboard/openshell-install";
 import type { SelectionDrift } from "./onboard/selection-drift";
 
@@ -2767,139 +2770,20 @@ function getPortConflictServiceHints(platform = process.platform): string[] {
   ];
 }
 
-/**
- * Query published OpenShell release tags from GitHub. Returns `null` on any
- * fetch failure (gh missing, curl failure, network down) so callers can fall
- * back to the legacy install behaviour instead of hard-failing. Returns
- * `string[]` (possibly empty) on a successful query.
- */
-function listOpenshellReleaseTags(): string[] | null {
-  const ghResult = spawnSync(
-    "gh",
-    [
-      "release",
-      "list",
-      "--repo",
-      "NVIDIA/OpenShell",
-      "--limit",
-      "100",
-      "--json",
-      "tagName",
-    ],
-    {
-      env: {
-        ...process.env,
-        GH_PROMPT_DISABLED: "1",
-        GH_TOKEN: process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "",
-      },
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
-    },
-  );
-  if (ghResult.status === 0 && typeof ghResult.stdout === "string") {
-    try {
-      const parsed = JSON.parse(ghResult.stdout);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((entry) => (entry && typeof entry.tagName === "string" ? entry.tagName : null))
-          .filter((tag): tag is string => tag !== null);
-      }
-    } catch {
-      // fall through to curl
-    }
-  }
-  const curlResult = spawnSync(
-    "curl",
-    [
-      "-fsSL",
-      "-H",
-      "Accept: application/vnd.github+json",
-      "https://api.github.com/repos/NVIDIA/OpenShell/releases?per_page=100",
-    ],
-    {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
-    },
-  );
-  if (curlResult.status === 0 && typeof curlResult.stdout === "string") {
-    try {
-      const parsed = JSON.parse(curlResult.stdout);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((entry) => (entry && typeof entry.tag_name === "string" ? entry.tag_name : null))
-          .filter((tag): tag is string => tag !== null);
-      }
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function installOpenshell(): {
-  installed: boolean;
-  localBin: string | null;
-  futureShellPathHint: string | null;
-} {
-  const installEnv: NodeJS.ProcessEnv = { ...process.env };
-  const maxVersion = getBlueprintMaxOpenshellVersion();
-  if (maxVersion) {
-    const releases = listOpenshellReleaseTags();
-    if (releases !== null && releases.length > 0) {
-      const resolution = openshellInstallFlow.resolveOpenshellInstallVersion(
-        releases,
-        { max: maxVersion },
-        { versionGte },
-      );
-      if (resolution.kind === "incompatible") {
-        console.error("");
-        console.error(`  ✗ ${resolution.message}`);
-        console.error("");
-        return { installed: false, localBin: null, futureShellPathHint: null };
-      }
-      if (resolution.kind === "pin") {
-        installEnv.NEMOCLAW_OPENSHELL_PIN_VERSION = resolution.version;
-        if (resolution.reason === "max-cap") {
-          console.log(
-            `  Pinning OpenShell to ${resolution.version} (latest ${resolution.latest ?? "unknown"} exceeds blueprint max ${maxVersion})`,
-          );
-        }
-      }
-    }
-  }
-  const result = spawnSync("bash", [path.join(SCRIPTS, "install-openshell.sh")], {
+function installOpenshell(): OpenShellInstallResult {
+  return openshellPinFlow.runOpenshellInstall({
+    scriptsDir: SCRIPTS,
     cwd: ROOT,
-    env: installEnv,
-    stdio: ["ignore", "pipe", "pipe"],
-    encoding: "utf-8",
-    timeout: 300_000,
+    resolveOpenshell,
+    getFutureShellPathHint,
+    setOpenshellBin: (bin) => {
+      OPENSHELL_BIN = bin;
+    },
+    getBlueprintMinOpenshellVersion,
+    getBlueprintMaxOpenshellVersion,
+    versionGte,
+    log: console.log,
   });
-  if (result.status !== 0) {
-    const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
-    if (output) {
-      console.error(output);
-    }
-    return { installed: false, localBin: null, futureShellPathHint: null };
-  }
-  const localBin = process.env.XDG_BIN_HOME || path.join(process.env.HOME || "", ".local", "bin");
-  const openshellPath = path.join(localBin, "openshell");
-  const futureShellPathHint = fs.existsSync(openshellPath)
-    ? getFutureShellPathHint(localBin, process.env.PATH)
-    : null;
-  if (fs.existsSync(openshellPath) && futureShellPathHint) {
-    process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
-  }
-  OPENSHELL_BIN = resolveOpenshell();
-  if (OPENSHELL_BIN) {
-    process.env.NEMOCLAW_OPENSHELL_BIN = OPENSHELL_BIN;
-  }
-  return {
-    installed: OPENSHELL_BIN !== null,
-    localBin,
-    futureShellPathHint,
-  };
 }
 
 function areRequiredDockerDriverBinariesPresent(
@@ -11107,8 +10991,6 @@ module.exports = {
   getFutureShellPathHint,
   areRequiredDockerDriverBinariesPresent,
   ensureOpenshellForOnboard,
-  parseOpenshellReleaseTag: openshellInstallFlow.parseOpenshellReleaseTag,
-  resolveOpenshellInstallVersion: openshellInstallFlow.resolveOpenshellInstallVersion,
   shouldRequireDockerDriverEnv,
   getGatewayBootstrapRepairPlan,
   getGatewayLocalEndpoint,

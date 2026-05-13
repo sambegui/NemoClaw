@@ -2504,7 +2504,7 @@ const { loadAgent } = require(${agentDefsPath});
   });
 
   describe("resolveOpenshellInstallVersion (#3404)", () => {
-    const onboardModule = require("../dist/lib/onboard") as {
+    const installModule = require("../dist/lib/onboard/openshell-install") as {
       parseOpenshellReleaseTag: (tag: unknown) => string | null;
       resolveOpenshellInstallVersion: (
         available: readonly string[],
@@ -2522,7 +2522,7 @@ const { loadAgent } = require(${agentDefsPath});
     const helpers = { versionGte };
 
     it("picks the highest available release ≤ max when latest exceeds max", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["v0.0.34", "0.0.35", "v0.0.38"],
         { max: "0.0.36" },
         helpers,
@@ -2534,7 +2534,7 @@ const { loadAgent } = require(${agentDefsPath});
     });
 
     it("picks latest unchanged when latest is ≤ max", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["v0.0.34", "0.0.35", "v0.0.36"],
         { max: "0.0.39" },
         helpers,
@@ -2546,7 +2546,7 @@ const { loadAgent } = require(${agentDefsPath});
     });
 
     it("returns an incompatible resolution when no release ≤ max exists", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["v0.0.38", "0.0.39"],
         { max: "0.0.36" },
         helpers,
@@ -2559,7 +2559,7 @@ const { loadAgent } = require(${agentDefsPath});
     });
 
     it("falls back to legacy fetch behaviour when max is missing", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["v0.0.38", "0.0.39"],
         { max: null },
         helpers,
@@ -2570,7 +2570,7 @@ const { loadAgent } = require(${agentDefsPath});
 
     it("falls back to legacy fetch when max is malformed", () => {
       for (const max of ["", "-1.0.0", "not-a-version", "v"] as const) {
-        const result = onboardModule.resolveOpenshellInstallVersion(
+        const result = installModule.resolveOpenshellInstallVersion(
           ["v0.0.38"],
           { max },
           helpers,
@@ -2580,7 +2580,7 @@ const { loadAgent } = require(${agentDefsPath});
     });
 
     it("silently drops malformed entries from the available list", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["", "v0.0.35", "-1.0.0", "not-a-version", "v0.0.34"],
         { max: "0.0.36" },
         helpers,
@@ -2590,18 +2590,18 @@ const { loadAgent } = require(${agentDefsPath});
     });
 
     it("parseOpenshellReleaseTag strips leading v and rejects malformed input", () => {
-      expect(onboardModule.parseOpenshellReleaseTag("v0.0.39")).toBe("0.0.39");
-      expect(onboardModule.parseOpenshellReleaseTag("0.0.39")).toBe("0.0.39");
-      expect(onboardModule.parseOpenshellReleaseTag("")).toBe(null);
-      expect(onboardModule.parseOpenshellReleaseTag("   ")).toBe(null);
-      expect(onboardModule.parseOpenshellReleaseTag("-1.0.0")).toBe(null);
-      expect(onboardModule.parseOpenshellReleaseTag("0.0")).toBe(null);
-      expect(onboardModule.parseOpenshellReleaseTag(42)).toBe(null);
-      expect(onboardModule.parseOpenshellReleaseTag(null)).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag("v0.0.39")).toBe("0.0.39");
+      expect(installModule.parseOpenshellReleaseTag("0.0.39")).toBe("0.0.39");
+      expect(installModule.parseOpenshellReleaseTag("")).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag("   ")).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag("-1.0.0")).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag("0.0")).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag(42)).toBe(null);
+      expect(installModule.parseOpenshellReleaseTag(null)).toBe(null);
     });
 
     it("matches the DGX Spark repro: latest=0.0.38 max=0.0.36 picks 0.0.36", () => {
-      const result = onboardModule.resolveOpenshellInstallVersion(
+      const result = installModule.resolveOpenshellInstallVersion(
         ["v0.0.36", "v0.0.37", "v0.0.38"],
         { max: "0.0.36" },
         helpers,
@@ -2609,6 +2609,140 @@ const { loadAgent } = require(${agentDefsPath});
       expect(result.kind).toBe("pin");
       expect(result.version).toBe("0.0.36");
       expect(result.reason).toBe("max-cap");
+    });
+  });
+
+  describe("resolveOpenshellInstallPin (#3404 orchestrator)", () => {
+    const pinModule = require("../dist/lib/onboard/openshell-pin") as {
+      resolveOpenshellInstallPin: (deps: {
+        getBlueprintMaxOpenshellVersion: () => string | null;
+        versionGte: (a: string, b: string) => boolean;
+        listReleases?: () => string[] | null;
+        log?: (m: string) => void;
+      }) => { kind: "pin" | "no-max" | "incompatible"; version?: string; message?: string };
+    };
+
+    it("returns no-max when the blueprint has no max_openshell_version", () => {
+      const result = pinModule.resolveOpenshellInstallPin({
+        getBlueprintMaxOpenshellVersion: () => null,
+        versionGte,
+        listReleases: () => ["v0.0.38"],
+      });
+      expect(result.kind).toBe("no-max");
+    });
+
+    it("falls back to no-max when GitHub fetch fails (offline)", () => {
+      const result = pinModule.resolveOpenshellInstallPin({
+        getBlueprintMaxOpenshellVersion: () => "0.0.36",
+        versionGte,
+        listReleases: () => null,
+      });
+      expect(result.kind).toBe("no-max");
+    });
+
+    it("falls back to no-max when GitHub returns an empty list", () => {
+      const result = pinModule.resolveOpenshellInstallPin({
+        getBlueprintMaxOpenshellVersion: () => "0.0.36",
+        versionGte,
+        listReleases: () => [],
+      });
+      expect(result.kind).toBe("no-max");
+    });
+
+    it("pins to highest ≤ max when releases exceed the cap (QA repro)", () => {
+      const logged: string[] = [];
+      const result = pinModule.resolveOpenshellInstallPin({
+        getBlueprintMaxOpenshellVersion: () => "0.0.36",
+        versionGte,
+        listReleases: () => ["v0.0.36", "v0.0.37", "v0.0.38"],
+        log: (m) => logged.push(m),
+      });
+      expect(result.kind).toBe("pin");
+      expect(result.version).toBe("0.0.36");
+      expect(logged.join("\n")).toContain("0.0.36");
+      expect(logged.join("\n")).toContain("0.0.38");
+    });
+
+    it("surfaces incompatible when no published release ≤ max exists", () => {
+      const result = pinModule.resolveOpenshellInstallPin({
+        getBlueprintMaxOpenshellVersion: () => "0.0.36",
+        versionGte,
+        listReleases: () => ["v0.0.38", "v0.0.39"],
+      });
+      expect(result.kind).toBe("incompatible");
+      expect(result.message ?? "").toContain("0.0.36");
+      expect(result.message ?? "").toContain("0.0.39");
+    });
+  });
+
+  describe("computeOpenshellInstallEnv overlays MIN/MAX/PIN (#3404 widening)", () => {
+    const pinModule = require("../dist/lib/onboard/openshell-pin") as {
+      computeOpenshellInstallEnv: (
+        baseEnv: Record<string, string | undefined>,
+        deps: {
+          getBlueprintMinOpenshellVersion?: () => string | null;
+          getBlueprintMaxOpenshellVersion: () => string | null;
+          versionGte: (a: string, b: string) => boolean;
+          listReleases?: () => string[] | null;
+          log?: (m: string) => void;
+        },
+      ) => { env: Record<string, string | undefined> | null };
+    };
+
+    it("overlays MIN/MAX/PIN env vars from blueprint when latest exceeds max", () => {
+      const result = pinModule.computeOpenshellInstallEnv(
+        { EXISTING: "preserved" },
+        {
+          getBlueprintMinOpenshellVersion: () => "0.0.39",
+          getBlueprintMaxOpenshellVersion: () => "0.0.39",
+          versionGte,
+          listReleases: () => ["v0.0.38", "v0.0.39", "v0.0.42"],
+        },
+      );
+      expect(result.env).not.toBe(null);
+      expect(result.env?.EXISTING).toBe("preserved");
+      expect(result.env?.NEMOCLAW_OPENSHELL_MIN_VERSION).toBe("0.0.39");
+      expect(result.env?.NEMOCLAW_OPENSHELL_MAX_VERSION).toBe("0.0.39");
+      expect(result.env?.NEMOCLAW_OPENSHELL_PIN_VERSION).toBe("0.0.39");
+    });
+
+    it("overlays MIN/MAX but no PIN when GitHub fetch fails (offline)", () => {
+      const result = pinModule.computeOpenshellInstallEnv(
+        {},
+        {
+          getBlueprintMinOpenshellVersion: () => "0.0.39",
+          getBlueprintMaxOpenshellVersion: () => "0.0.39",
+          versionGte,
+          listReleases: () => null,
+        },
+      );
+      expect(result.env).not.toBe(null);
+      expect(result.env?.NEMOCLAW_OPENSHELL_MIN_VERSION).toBe("0.0.39");
+      expect(result.env?.NEMOCLAW_OPENSHELL_MAX_VERSION).toBe("0.0.39");
+      expect(result.env?.NEMOCLAW_OPENSHELL_PIN_VERSION).toBeUndefined();
+    });
+
+    it("returns the base env unchanged when blueprint exposes no min/max", () => {
+      const baseEnv = { ONLY_THIS: "value" };
+      const result = pinModule.computeOpenshellInstallEnv(baseEnv, {
+        getBlueprintMinOpenshellVersion: () => null,
+        getBlueprintMaxOpenshellVersion: () => null,
+        versionGte,
+        listReleases: () => ["v0.0.38"],
+      });
+      expect(result.env).toBe(baseEnv);
+    });
+
+    it("aborts (env=null) when no release ≤ max exists", () => {
+      const result = pinModule.computeOpenshellInstallEnv(
+        {},
+        {
+          getBlueprintMaxOpenshellVersion: () => "0.0.36",
+          versionGte,
+          listReleases: () => ["v0.0.38", "v0.0.39"],
+        },
+      );
+      expect(result.env).toBe(null);
     });
   });
 

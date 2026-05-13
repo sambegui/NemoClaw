@@ -44,13 +44,6 @@ MAX_VERSION="0.0.39"
 # OpenShell release that satisfies the blueprint's max_openshell_version
 # (see #3404). The hardcoded value is the fallback for offline runs.
 PIN_VERSION="$MAX_VERSION"
-if [ -n "${NEMOCLAW_OPENSHELL_PIN_VERSION:-}" ]; then
-  if [[ "$NEMOCLAW_OPENSHELL_PIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    PIN_VERSION="$NEMOCLAW_OPENSHELL_PIN_VERSION"
-  else
-    fail "NEMOCLAW_OPENSHELL_PIN_VERSION='$NEMOCLAW_OPENSHELL_PIN_VERSION' is not a valid X.Y.Z version."
-  fi
-fi
 DEV_MIN_VERSION="0.0.39"
 
 CHANNEL="${NEMOCLAW_OPENSHELL_CHANNEL:-auto}"
@@ -63,6 +56,35 @@ if [ "$CHANNEL" = "auto" ]; then
   RESOLVED_CHANNEL="stable"
 else
   RESOLVED_CHANNEL="$CHANNEL"
+fi
+
+# Honour the TS installer's blueprint-derived env overrides only on the stable
+# channel — the dev channel installs from the `dev` tag and uses DEV_MIN_VERSION
+# instead, so a malformed override should not abort a dev install (#3446 review).
+# The TS layer passes MIN/MAX/PIN from the blueprint so a single source of truth
+# (nemoclaw-blueprint/blueprint.yaml) drives the install (#3404).
+apply_blueprint_override() {
+  local name="$1" value="$2"
+  if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s' "$value"
+  else
+    fail "${name}='${value}' is not a valid X.Y.Z version."
+  fi
+}
+if [ "$RESOLVED_CHANNEL" != "dev" ]; then
+  if [ -n "${NEMOCLAW_OPENSHELL_MIN_VERSION:-}" ]; then
+    MIN_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_MIN_VERSION "$NEMOCLAW_OPENSHELL_MIN_VERSION")"
+  fi
+  if [ -n "${NEMOCLAW_OPENSHELL_MAX_VERSION:-}" ]; then
+    MAX_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_MAX_VERSION "$NEMOCLAW_OPENSHELL_MAX_VERSION")"
+    # Default the pin to the (possibly overridden) MAX_VERSION before applying
+    # the explicit PIN override so a bumped blueprint without a resolver result
+    # still pins to the new max.
+    PIN_VERSION="$MAX_VERSION"
+  fi
+  if [ -n "${NEMOCLAW_OPENSHELL_PIN_VERSION:-}" ]; then
+    PIN_VERSION="$(apply_blueprint_override NEMOCLAW_OPENSHELL_PIN_VERSION "$NEMOCLAW_OPENSHELL_PIN_VERSION")"
+  fi
 fi
 
 if [ "$RESOLVED_CHANNEL" = "dev" ]; then
