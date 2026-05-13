@@ -34,6 +34,9 @@ describe("uninstall plan", () => {
         { kind: "preserve-ollama-models", names: ["nemotron-3-super:120b", "nemotron-3-nano:30b"] },
         { kind: "delete-managed-swap" },
         { kind: "delete-openshell-binary", path: "/usr/local/bin/openshell" },
+        { kind: "delete-openshell-binary", path: "/usr/local/bin/openshell-gateway" },
+        { kind: "delete-openshell-binary", path: "/usr/local/bin/openshell-sandbox" },
+        { kind: "delete-openshell-binary", path: "/usr/local/bin/openshell-driver-vm" },
         { kind: "stop-ollama-auth-proxy" },
       ]),
     );
@@ -62,7 +65,21 @@ describe("uninstall plan", () => {
     expect(actions).toEqual(expect.arrayContaining([{ kind: "delete-docker-volume", name: "openshell-cluster-custom" }]));
     expect(actions).toEqual(expect.arrayContaining([{ kind: "delete-ollama-model", name: "nemotron-3-super:120b" }]));
     expect(actions).toEqual(
-      expect.arrayContaining([{ kind: "preserve-openshell-binary", paths: ["/usr/local/bin/openshell", "/bin/openshell"] }]),
+      expect.arrayContaining([
+        {
+          kind: "preserve-openshell-binary",
+          paths: [
+            "/usr/local/bin/openshell",
+            "/bin/openshell",
+            "/usr/local/bin/openshell-gateway",
+            "/bin/openshell-gateway",
+            "/usr/local/bin/openshell-sandbox",
+            "/bin/openshell-sandbox",
+            "/usr/local/bin/openshell-driver-vm",
+            "/bin/openshell-driver-vm",
+          ],
+        },
+      ]),
     );
     expect(actions).toEqual(
       expect.arrayContaining([{ kind: "preserve-shim", reason: "regular file is not an installer-managed shim" }]),

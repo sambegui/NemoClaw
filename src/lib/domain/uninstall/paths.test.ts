@@ -18,7 +18,16 @@ describe("uninstall paths", () => {
     expect(paths.openshellConfigDir).toBe(path.join("/home/test", ".config", "openshell"));
     expect(paths.nemoclawConfigDir).toBe(path.join("/home/test", ".config", "nemoclaw"));
     expect(paths.nemoclawShimPath).toBe(path.join("/home/test", ".local", "bin", "nemoclaw"));
-    expect(paths.openshellInstallPaths).toEqual(["/usr/local/bin/openshell", path.join("/xdg/bin", "openshell")]);
+    expect(paths.openshellInstallPaths).toEqual([
+      "/usr/local/bin/openshell",
+      path.join("/xdg/bin", "openshell"),
+      "/usr/local/bin/openshell-gateway",
+      path.join("/xdg/bin", "openshell-gateway"),
+      "/usr/local/bin/openshell-sandbox",
+      path.join("/xdg/bin", "openshell-sandbox"),
+      "/usr/local/bin/openshell-driver-vm",
+      path.join("/xdg/bin", "openshell-driver-vm"),
+    ]);
     expect(paths.helperServiceGlob).toBe(path.join("/tmp/nemo", "nemoclaw-services-*"));
     expect(paths.runtimeTempGlobs).toEqual([
       path.join("/tmp/nemo", "nemoclaw-create-*.log"),

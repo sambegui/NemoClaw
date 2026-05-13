@@ -13,6 +13,19 @@ export const NEMOCLAW_PROVIDERS = [
 ] as const;
 export const NEMOCLAW_OLLAMA_MODELS = ["nemotron-3-super:120b", "nemotron-3-nano:30b"] as const;
 
+// install-openshell.sh ships the CLI wrapper plus one or two helper binaries
+// into the same directory: `openshell-gateway` on every platform, plus
+// `openshell-sandbox` on Linux or `openshell-driver-vm` on macOS. All three
+// names need to be enumerated here so that `nemoclaw uninstall` cleans up
+// every artefact it installed, rather than leaving the helpers behind to
+// trip the version-mismatch guard on the next install.
+const OPENSHELL_BINARY_BASENAMES = [
+  "openshell",
+  "openshell-gateway",
+  "openshell-sandbox",
+  "openshell-driver-vm",
+] as const;
+
 export interface UninstallPathOptions {
   home: string;
   repoRoot?: string;
@@ -48,7 +61,10 @@ export function defaultUninstallPaths(options: UninstallPathOptions): UninstallP
     nemoclawShimPath: path.join(options.home, ".local", "bin", "nemoclaw"),
     nemoclawStateDir: path.join(options.home, ".nemoclaw"),
     openshellConfigDir: path.join(options.home, ".config", "openshell"),
-    openshellInstallPaths: ["/usr/local/bin/openshell", path.join(xdgBinHome, "openshell")],
+    openshellInstallPaths: OPENSHELL_BINARY_BASENAMES.flatMap((name) => [
+      `/usr/local/bin/${name}`,
+      path.join(xdgBinHome, name),
+    ]),
     repoRoot: options.repoRoot || path.resolve(__dirname, "..", "..", "..", ".."),
     runtimeTempGlobs: [path.join(tmpDir, "nemoclaw-create-*.log"), path.join(tmpDir, "nemoclaw-tg-ssh-*.conf")],
     shellProfilePaths: [
