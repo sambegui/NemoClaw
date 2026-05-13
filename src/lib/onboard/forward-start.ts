@@ -21,6 +21,22 @@ export type BackgroundForwardStartRunner = (
   timeoutMs: number,
 ) => BackgroundForwardStartResult;
 
+function readDiagnosticFile(filePath: string): string {
+  try {
+    return fs.readFileSync(filePath, "utf-8");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return "";
+    }
+    throw error;
+  }
+}
+
 export function runBackgroundForwardStartWithDiagnostics(
   runForwardStart: BackgroundForwardStartRunner,
   timeoutMs = 30_000,
@@ -55,8 +71,8 @@ export function runBackgroundForwardStartWithDiagnostics(
   }
 
   try {
-    const stderr = fs.existsSync(forwardErrPath) ? fs.readFileSync(forwardErrPath, "utf-8") : "";
-    const stdout = fs.existsSync(forwardDiagPath) ? fs.readFileSync(forwardDiagPath, "utf-8") : "";
+    const stderr = readDiagnosticFile(forwardErrPath);
+    const stdout = readDiagnosticFile(forwardDiagPath);
     const message = result?.error instanceof Error ? result.error.message : "";
     return {
       result: result ?? { status: null, error: new Error("forward start did not return a result") },
