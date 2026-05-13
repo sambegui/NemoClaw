@@ -39,8 +39,18 @@ MIN_VERSION="0.0.39"
 # Maximum version validated for this NemoClaw release. Newer OpenShell builds
 # may change sandbox semantics; upgrade NemoClaw before upgrading past this.
 MAX_VERSION="0.0.39"
-# Pin fresh installs to this version instead of pulling "latest".
+# Pin fresh installs to this version. The TS installer normally overrides this
+# via NEMOCLAW_OPENSHELL_PIN_VERSION after resolving the highest published
+# OpenShell release that satisfies the blueprint's max_openshell_version
+# (see #3404). The hardcoded value is the fallback for offline runs.
 PIN_VERSION="$MAX_VERSION"
+if [ -n "${NEMOCLAW_OPENSHELL_PIN_VERSION:-}" ]; then
+  if [[ "$NEMOCLAW_OPENSHELL_PIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    PIN_VERSION="$NEMOCLAW_OPENSHELL_PIN_VERSION"
+  else
+    fail "NEMOCLAW_OPENSHELL_PIN_VERSION='$NEMOCLAW_OPENSHELL_PIN_VERSION' is not a valid X.Y.Z version."
+  fi
+fi
 DEV_MIN_VERSION="0.0.39"
 
 CHANNEL="${NEMOCLAW_OPENSHELL_CHANNEL:-auto}"

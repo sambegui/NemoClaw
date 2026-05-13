@@ -2503,6 +2503,115 @@ const { loadAgent } = require(${agentDefsPath});
     expect(versionGte(max, min)).toBe(true);
   });
 
+  describe("resolveOpenshellInstallVersion (#3404)", () => {
+    const onboardModule = require("../dist/lib/onboard") as {
+      parseOpenshellReleaseTag: (tag: unknown) => string | null;
+      resolveOpenshellInstallVersion: (
+        available: readonly string[],
+        options: { max: string | null },
+        helpers: { versionGte: (a: string, b: string) => boolean },
+      ) => {
+        kind: "pin" | "no-max" | "incompatible";
+        version?: string;
+        latest?: string | null;
+        max?: string;
+        message?: string;
+        reason?: "latest" | "max-cap";
+      };
+    };
+    const helpers = { versionGte };
+
+    it("picks the highest available release ≤ max when latest exceeds max", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["v0.0.34", "0.0.35", "v0.0.38"],
+        { max: "0.0.36" },
+        helpers,
+      );
+      expect(result.kind).toBe("pin");
+      expect(result.version).toBe("0.0.35");
+      expect(result.reason).toBe("max-cap");
+      expect(result.latest).toBe("0.0.38");
+    });
+
+    it("picks latest unchanged when latest is ≤ max", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["v0.0.34", "0.0.35", "v0.0.36"],
+        { max: "0.0.39" },
+        helpers,
+      );
+      expect(result.kind).toBe("pin");
+      expect(result.version).toBe("0.0.36");
+      expect(result.reason).toBe("latest");
+      expect(result.latest).toBe("0.0.36");
+    });
+
+    it("returns an incompatible resolution when no release ≤ max exists", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["v0.0.38", "0.0.39"],
+        { max: "0.0.36" },
+        helpers,
+      );
+      expect(result.kind).toBe("incompatible");
+      expect(result.latest).toBe("0.0.39");
+      expect(result.max).toBe("0.0.36");
+      expect(result.message).toContain("0.0.39");
+      expect(result.message).toContain("0.0.36");
+    });
+
+    it("falls back to legacy fetch behaviour when max is missing", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["v0.0.38", "0.0.39"],
+        { max: null },
+        helpers,
+      );
+      expect(result.kind).toBe("no-max");
+      expect(result.latest).toBe("0.0.39");
+    });
+
+    it("falls back to legacy fetch when max is malformed", () => {
+      for (const max of ["", "-1.0.0", "not-a-version", "v"] as const) {
+        const result = onboardModule.resolveOpenshellInstallVersion(
+          ["v0.0.38"],
+          { max },
+          helpers,
+        );
+        expect(result.kind).toBe("no-max");
+      }
+    });
+
+    it("silently drops malformed entries from the available list", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["", "v0.0.35", "-1.0.0", "not-a-version", "v0.0.34"],
+        { max: "0.0.36" },
+        helpers,
+      );
+      expect(result.kind).toBe("pin");
+      expect(result.version).toBe("0.0.35");
+    });
+
+    it("parseOpenshellReleaseTag strips leading v and rejects malformed input", () => {
+      expect(onboardModule.parseOpenshellReleaseTag("v0.0.39")).toBe("0.0.39");
+      expect(onboardModule.parseOpenshellReleaseTag("0.0.39")).toBe("0.0.39");
+      expect(onboardModule.parseOpenshellReleaseTag("")).toBe(null);
+      expect(onboardModule.parseOpenshellReleaseTag("   ")).toBe(null);
+      expect(onboardModule.parseOpenshellReleaseTag("-1.0.0")).toBe(null);
+      expect(onboardModule.parseOpenshellReleaseTag("0.0")).toBe(null);
+      expect(onboardModule.parseOpenshellReleaseTag(42)).toBe(null);
+      expect(onboardModule.parseOpenshellReleaseTag(null)).toBe(null);
+    });
+
+    it("matches the DGX Spark repro: latest=0.0.38 max=0.0.36 picks 0.0.36", () => {
+      const result = onboardModule.resolveOpenshellInstallVersion(
+        ["v0.0.36", "v0.0.37", "v0.0.38"],
+        { max: "0.0.36" },
+        helpers,
+      );
+      expect(result.kind).toBe("pin");
+      expect(result.version).toBe("0.0.36");
+      expect(result.reason).toBe("max-cap");
+    });
+  });
+
   it("pins the gateway image to the installed OpenShell release version", () => {
     expect(getInstalledOpenshellVersion("openshell 0.0.12")).toBe("0.0.12");
     expect(getInstalledOpenshellVersion("openshell 0.0.13-dev.8+gbbcaed2ea")).toBe("0.0.13");
