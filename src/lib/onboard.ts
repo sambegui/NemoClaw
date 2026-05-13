@@ -354,7 +354,7 @@ let OPENSHELL_BIN: string | null = null;
 const GATEWAY_NAME = "nemoclaw";
 const BACK_TO_SELECTION = "__NEMOCLAW_BACK_TO_SELECTION__";
 
-const { gpuPassthroughRecoveryLines }: typeof import("./onboard/gpu-recovery") = require("./onboard/gpu-recovery");
+const { reportGpuPassthroughRecovery }: typeof import("./onboard/gpu-recovery") = require("./onboard/gpu-recovery");
 type HermesAuthMethod = "oauth" | "api_key";
 const HERMES_AUTH_METHOD_OAUTH: HermesAuthMethod = "oauth";
 const HERMES_AUTH_METHOD_API_KEY: HermesAuthMethod = "api_key";
@@ -10414,16 +10414,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       const gpuOutput = String(gpuCheck.stdout || "").trim();
       const gatewayHasGpu = gpuCheck.status === 0 && gpuOutput !== "null" && gpuOutput !== "[]";
       if (!gatewayHasGpu) {
-        const registeredNames = (() => {
-          try {
-            return registry.listSandboxes().sandboxes.map((s) => s.name).filter(Boolean);
-          } catch {
-            return [];
-          }
-        })();
-        for (const line of gpuPassthroughRecoveryLines(registeredNames)) {
-          console.error(line);
-        }
+        reportGpuPassthroughRecovery();
         process.exit(1);
       }
     }

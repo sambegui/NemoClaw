@@ -3,14 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { gpuPassthroughRecoveryLines } from "./onboard/gpu-recovery";
+import { gpuPassthroughRecoveryLines, reportGpuPassthroughRecovery } from "./onboard/gpu-recovery";
 
 describe("gpuPassthroughRecoveryLines", () => {
   it("suggests uninstall when no sandboxes are registered (no actionable destroy target)", () => {
     const lines = gpuPassthroughRecoveryLines([]);
     expect(lines).toEqual([
       "  Existing gateway was started without GPU passthrough.",
-      "  No sandboxes are registered, so there is nothing for `nemoclaw <name> destroy` to act on.",
+      "  No sandboxes are registered, so there is nothing to destroy.",
       "  To enable GPU, clear the stale gateway state and re-onboard:",
       "    nemoclaw uninstall && nemoclaw onboard --gpu",
     ]);
@@ -38,7 +38,27 @@ describe("gpuPassthroughRecoveryLines", () => {
   });
 
   it("never emits the literal `<name>` placeholder in any suggestion", () => {
-    expect(gpuPassthroughRecoveryLines([]).every((l) => !l.includes("nemoclaw <name> destroy --yes"))).toBe(true);
-    expect(gpuPassthroughRecoveryLines(["x"]).every((l) => !l.includes("nemoclaw <name> destroy --yes"))).toBe(true);
+    expect(gpuPassthroughRecoveryLines([]).join("\n")).not.toContain("<name>");
+    expect(gpuPassthroughRecoveryLines(["x"]).join("\n")).not.toContain("<name>");
+    expect(gpuPassthroughRecoveryLines(["alpha", "beta"]).join("\n")).not.toContain("<name>");
+  });
+});
+
+describe("reportGpuPassthroughRecovery", () => {
+  it("routes the registered sandbox names through the printer", () => {
+    const printed: string[] = [];
+    reportGpuPassthroughRecovery((line) => printed.push(line), () => ["alpha"]);
+    expect(printed).toEqual(gpuPassthroughRecoveryLines(["alpha"]));
+  });
+
+  it("falls back to the no-sandbox guidance when the registry lookup throws", () => {
+    const printed: string[] = [];
+    reportGpuPassthroughRecovery(
+      (line) => printed.push(line),
+      () => {
+        throw new Error("registry unreachable");
+      },
+    );
+    expect(printed).toEqual(gpuPassthroughRecoveryLines([]));
   });
 });
