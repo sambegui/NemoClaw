@@ -140,7 +140,8 @@ describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
   it("fails closed when openshell 0.0.39 lacks required messaging rewrite support", () => {
     const result = runWithInstalledVersion("0.0.39", {}, { capability: false });
     expect(result.status).toBe(1);
-    expect(result.stdout).toMatch(/missing request-body-credential-rewrite support/);
+    // `fail()` writes to stderr as of #3446; previously stdout.
+    expect(result.stderr).toMatch(/missing request-body-credential-rewrite support/);
   });
 
   it("accepts macOS openshell 0.0.39 when the gateway and VM driver binaries are installed", () => {
@@ -447,13 +448,15 @@ exit 0`,
   it("fails with a clear error when openshell is above MAX_VERSION", () => {
     const result = runWithInstalledVersion("0.0.40");
     expect(result.status).toBe(1);
-    expect(result.stdout).toMatch(/above the maximum/);
+    // `fail()` writes to stderr as of #3446; previously stdout.
+    expect(result.stderr).toMatch(/above the maximum/);
   });
 
   it("fails with a clear error when openshell is at a much newer version", () => {
     const result = runWithInstalledVersion("0.1.0");
     expect(result.status).toBe(1);
-    expect(result.stdout).toMatch(/above the maximum/);
+    // `fail()` writes to stderr as of #3446; previously stdout.
+    expect(result.stderr).toMatch(/above the maximum/);
   });
 
   it("accepts an installed OpenShell dev-channel Docker-driver build", () => {
