@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-find-already-fixed"
+  ],
+  "query": "Audit the open-issue queue for issues that have been silently addressed by upstream PRs but never closed.",
+  "files": [],
+  "expected_behavior": [
+    "Queries the GitHub API for open issues and applies four independent signals (Signal 0: closedByPullRequestsReferences via gh api graphql; Signal 1: labels; Signal 2: code grep; Signal 3: merged-PR overlap).",
+    "Outputs a ranked candidate list with per-issue confidence score, signals fired, and evidence (commit hash / file:line / merged-PR url).",
+    "Drafts a 3-5 line evidence-bearing close comment for each candidate above --min-confidence.",
+    "Does NOT close any issues directly; explicitly defers closure to the close-superseded-issues skill via a JSON sidecar at /tmp/nemoclaw-skill-output-find-already-fixed-<run_id>.json."
+  ]
+}

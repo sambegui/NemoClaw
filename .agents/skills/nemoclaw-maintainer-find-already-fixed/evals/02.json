@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-find-already-fixed"
+  ],
+  "query": "Find issues that have a merged closing PR linked on GitHub but are still open.",
+  "files": [],
+  "expected_behavior": [
+    "Uses Signal 0 (gh api graphql query for closedByPullRequestsReferences with merged-state filter) as the highest-precedence signal.",
+    "Distinguishes between MERGED linked PRs (Signal 0 fires) and OPEN linked PRs (does NOT fire; routes to existing-pr-triage path instead).",
+    "Reports confidence 0.7 for issues with at least one merged in-repo linked PR (clears default --min-confidence 0.6 alone).",
+    "Surfaces the candidate list with per-issue PR-url evidence for the maintainer to review before any close action."
+  ]
+}

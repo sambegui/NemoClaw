@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-find-already-fixed"
+  ],
+  "query": "Find issues older than 90 days where the suggested fix is already present in the code but no PR explicitly references the issue.",
+  "files": [],
+  "expected_behavior": [
+    "Applies Signal 2c (stale-context bypass: +0.2 confidence bonus when Signal 2b fires for issues older than 90 days but Signal 3 does not).",
+    "Greps current main for the expected fix patterns from the issue body, confirming the fix is present.",
+    "Combines Signal 2b + 2c to clear the 0.6 threshold even without an explicit PR cross-reference, since old issues often have fixes shipped as part of refactors that did not cite the issue number.",
+    "Records calibration data in /tmp/find-already-fixed-calibration.jsonl so maintainers can tune Signal 2c thresholds based on real outcomes over time."
+  ]
+}

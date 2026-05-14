@@ -1,11 +1,11 @@
 ---
 name: nemoclaw-maintainer-find-already-fixed
-description: Scans open issues for already-fixed-on-main symptoms via 4 independent signals (GitHub's authoritative closed-by-PR GraphQL link, labels, code grep with bug-absent/fix-present sub-signals, merged-PR title overlap). Outputs a ranked close-list with evidence per issue and draft close comments — chains into `close-superseded-issues` via JSON sidecar. Use when auditing the open-issue queue for noise, when an "open" issue count seems inflated, or when preparing a release and the backlog needs sanitizing. Local-only, read-only — never closes, never posts.
+description: Scans open issues for already-fixed-on-main symptoms via 4 independent signals (GitHub's authoritative closed-by-PR GraphQL link, labels, code grep with bug-absent/fix-present sub-signals, merged-PR title overlap). Outputs a ranked close-list with evidence per issue and draft close comments — chains into `close-superseded-issues` via JSON sidecar. Use when auditing the open issue queue for noise, when an "open" issue count seems inflated, or when preparing a release and the backlog needs sanitizing. Local-only, read-only — never closes, never posts.
 ---
 
 # Find Already-Fixed Issues
 
-Proactively detect open issues that have been silently addressed by upstream PRs / refactors but were never closed. Reduces open-issue queue noise so the team can focus on the truly-open backlog. **Pure-detection skill — no code changes, no PR opens. Only output is a ranked close-list and draft comments.**
+Proactively detect open issues that have been silently addressed by upstream PRs / refactors but were never closed. Reduces open issue queue noise so the team can focus on the truly-open backlog. **Pure-detection skill — no code changes, no PR opens. Only output is a ranked close-list and draft comments.**
 
 ## Why this matters
 
@@ -75,7 +75,7 @@ done
 
 **Caveat:** GitHub only records the relationship when the linking PR uses one of the closing keywords in its body. A PR titled "fixes #1234" without the body trailer will NOT appear here — that case is still covered by Signal 3 (title/body grep). Don't drop Signal 3; Signal 0 is precision, Signal 3 is recall.
 
-**Live validation (run on the open-issue queue 2026-05-14):** Across 20 sampled open issues, 8 had Signal-0 linked PRs — all 8 PRs were in OPEN state (in flight), zero were merged. So in the steady state of an active repo, Signal 0 mostly surfaces "in flight" rather than "already shipped" — both useful, but routed differently.
+**Live validation (run on the open issue queue 2026-05-14):** Across 20 sampled open issues, 8 had Signal-0 linked PRs — all 8 PRs were in OPEN state (in flight), zero were merged. So in the steady state of an active repo, Signal 0 mostly surfaces "in flight" rather than "already shipped" — both useful, but routed differently.
 
 ### Signal 1 — Label-based (confidence +0.4)
 
