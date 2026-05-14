@@ -18,6 +18,9 @@ const {
 const { cleanupTempDir }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
 const { stopStaleDashboardListenersForSandbox } = require("./onboard/stale-gateway-cleanup");
 const {
+  runBackgroundForwardStartWithDiagnostics,
+}: typeof import("./onboard/forward-start") = require("./onboard/forward-start");
+const {
   ensureOllamaLoopbackSystemdOverride,
 }: typeof import("./onboard/ollama-systemd") = require("./onboard/ollama-systemd");
 const {
@@ -66,6 +69,9 @@ const {
 const {
   getSelectionDrift,
 }: typeof import("./onboard/selection-drift") = require("./onboard/selection-drift");
+const {
+  syncPresetSelection,
+}: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
 const crypto = require("node:crypto");
 const fs = require("fs");
 const os = require("os");
@@ -262,6 +268,11 @@ const policies: typeof import("./policy") = require("./policy");
 const shields = require("./shields");
 const tiers: typeof import("./policy/tiers") = require("./policy/tiers");
 const { ensureUsageNoticeConsent } = require("./onboard/usage-notice");
+const {
+  findAvailableDashboardPort,
+  getOccupiedPorts,
+  isLiveForwardStatus,
+} = require("./onboard/dashboard-port") as typeof import("./onboard/dashboard-port");
 const {
   destroyGatewayForReuse,
   warnIfGatewayDestroyFails,
@@ -9279,51 +9290,6 @@ async function setupPoliciesWithSelection(
   return interactiveChoice;
 }
 
-/**
- * Reconcile the sandbox's currently-applied preset list with the user's
- * target selection:
- *   - remove presets in `applied` but not in `target` (narrow)
- *   - apply presets in `target` but not in `applied` (widen)
- *   - leave unchanged presets untouched (no wasteful re-apply)
- *
- * Shared between the interactive and non-interactive paths so "narrow the
- * selection" works identically in both. Fixes #2177 (non-interactive path
- * was apply-only, so deselected presets lingered).
- *
- * @param {string} sandboxName  Target sandbox.
- * @param {string[]} applied    Preset names currently applied to the sandbox.
- * @param {string[]} target     Preset names the user wants applied after this call.
- * @param {Object<string, string>|null} [accessByName=null]
- *   Optional map of preset name → access mode ("read" | "read-write").
- *   When provided, applyPreset receives the mode per preset so the gateway
- *   can distinguish read vs read-write installs.
- * @returns {void}
- */
-function syncPresetSelection(
-  sandboxName: string,
-  applied: string[],
-  target: string[],
-  accessByName: Record<string, string> | null = null,
-): void {
-  const targetSet = new Set(target);
-  const appliedSet = new Set(applied);
-  const deselected = applied.filter((name) => !targetSet.has(name));
-  const newlySelected = target.filter((name) => !appliedSet.has(name));
-
-  for (const name of deselected) {
-    waitForPolicyMutation(`removePreset(${name})`, () =>
-      policies.removePreset(sandboxName, name),
-    );
-  }
-
-  for (const name of newlySelected) {
-    const options = accessByName ? { access: accessByName[name] } : undefined;
-    waitForPolicyMutation(`applyPreset(${name})`, () =>
-      policies.applyPreset(sandboxName, name, options),
-    );
-  }
-}
-
 // ── Dashboard ────────────────────────────────────────────────────
 
 const CONTROL_UI_PORT = DASHBOARD_PORT;
@@ -9367,10 +9333,6 @@ function findForwardEntry(
   return null;
 }
 
-function isLiveForwardStatus(status: string): boolean {
-  return status === "running" || status === "active";
-}
-
 function getRunningForwardPorts(forwardListOutput: string | null | undefined): string[] {
   const ports = new Set<string>();
   if (!forwardListOutput) return [];
@@ -9394,85 +9356,6 @@ function stopAllDashboardForwards(): void {
   }
 }
 
-/**
- * Parse `openshell forward list` output into a Map<port, sandboxName>.
- * Only includes running forwards — stopped/stale entries are ignored so
- * they don't block port allocation or cause false "range exhausted" errors.
- *
- * Output format (columns separated by whitespace):
- *   SANDBOX  BIND  PORT  PID  STATUS
- */
-function getOccupiedPorts(forwardListOutput: string | null): Map<string, string> {
-  const occupied = new Map();
-  if (!forwardListOutput) return occupied;
-  for (const rawLine of forwardListOutput.split("\n")) {
-    const line = rawLine.replace(ANSI_RE, "");
-    if (/^\s*SANDBOX\s/i.test(line)) continue;
-    const parts = line.trim().split(/\s+/);
-    // parts: [sandbox, bind, port, pid, status...]
-    if (parts.length < 3 || !/^\d+$/.test(parts[2])) continue;
-    const status = (parts[4] || "").toLowerCase();
-    if (!isLiveForwardStatus(status)) continue;
-    occupied.set(parts[2], parts[0]);
-  }
-  return occupied;
-}
-
-/**
- * Quick synchronous check whether a TCP port has an active listener on the host.
- * Uses lsof when available; returns false (optimistic) if lsof is missing.
- */
-function isPortBoundOnHost(port: number): boolean {
-  try {
-    const out = runCapture(["lsof", "-i", `:${port}`, "-sTCP:LISTEN", "-P", "-n"], {
-      ignoreError: true,
-    });
-    return !!out && out.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Find the next available dashboard port for the given sandbox.
- * Returns the preferred port if free or already owned by this sandbox,
- * otherwise scans DASHBOARD_PORT_RANGE_START..END for a free port.
- * Validates host-port availability (via lsof) so ports bound by
- * non-OpenShell processes are skipped.
- * Throws if the entire range is exhausted.
- */
-function findAvailableDashboardPort(
-  sandboxName: string,
-  preferredPort: number,
-  forwardListOutput: string | null,
-): number {
-  const occupied = getOccupiedPorts(forwardListOutput);
-  const preferredStr = String(preferredPort);
-  const owner = occupied.get(preferredStr) ?? null;
-  // If this sandbox already owns the forward, keep it.
-  if (owner === sandboxName) return preferredPort;
-  // If no forward claims the port, also check the host so we don't collide
-  // with non-OpenShell processes.
-  if (owner === null && !isPortBoundOnHost(preferredPort)) return preferredPort;
-
-  for (let p = DASHBOARD_PORT_RANGE_START; p <= DASHBOARD_PORT_RANGE_END; p++) {
-    const pStr = String(p);
-    const pOwner = occupied.get(pStr) ?? null;
-    if (pOwner === sandboxName) return p;
-    if (pOwner === null && !isPortBoundOnHost(p)) return p;
-  }
-
-  const owners = [...occupied.entries()]
-    .filter(
-      ([p]) => Number(p) >= DASHBOARD_PORT_RANGE_START && Number(p) <= DASHBOARD_PORT_RANGE_END,
-    )
-    .map(([p, s]) => `  ${p} → ${s}`)
-    .join("\n");
-  throw new Error(
-    `All dashboard ports in range ${DASHBOARD_PORT_RANGE_START}-${DASHBOARD_PORT_RANGE_END} are occupied:\n${owners}\n` +
-      `Free a sandbox or use --control-ui-port <N> with a port outside this range.`,
-  );
-}
 
 /**
  * Build the actionable error lines printed when the just-created openshell
@@ -9544,6 +9427,34 @@ function ensureDashboardForward(
   }
 
   if (actualPort !== preferredPort) {
+    if (rollbackSandboxOnFailure) {
+      // Create path: the sandbox was just built with CHAT_UI_URL and
+      // NEMOCLAW_DASHBOARD_PORT baked from `preferredPort` (see the
+      // `formatEnvAssignment("CHAT_UI_URL", …)` call in createSandbox). If
+      // the port was bound during the build window (TOCTOU), picking a new
+      // host port would leave the sandbox serving the dashboard on
+      // `preferredPort` internally while the forward listens on `actualPort`
+      // — reproducing the original "onboard exits but dashboard is
+      // unreachable" failure on the newly selected port. Reallocation is
+      // only safe on reuse paths where the sandbox image is fixed; on the
+      // create path we must roll back so the next onboard re-bakes with a
+      // clean port. (#3260)
+      const err = new Error(
+        `Dashboard port ${preferredPort} became host-bound during sandbox build; ` +
+          `cannot reallocate to ${actualPort} after the sandbox has been created with ` +
+          `CHAT_UI_URL=${preferredPort}. Free the port and re-run \`${cliName()} onboard\`, ` +
+          `or pass \`--control-ui-port <N>\` to pick a different dashboard port.`,
+      );
+      const delResult = runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
+      for (const line of buildOrphanedSandboxRollbackMessage(
+        sandboxName,
+        err,
+        delResult.status === 0,
+      )) {
+        console.error(line);
+      }
+      process.exit(1);
+    }
     console.warn(`  ! Port ${preferredPort} is taken. Using port ${actualPort} instead.`);
   }
 
@@ -9561,18 +9472,58 @@ function ensureDashboardForward(
   parsedUrl.port = String(actualPort);
   const actualTarget = getDashboardForwardTarget(parsedUrl.toString());
   runOpenshell(["forward", "stop", String(actualPort)], { ignoreError: true });
-  const fwdResult = runOpenshell(["forward", "start", "--background", actualTarget, sandboxName], {
-    ignoreError: true,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
+  const { result: fwdResult, diagnostic: fwdDiagnostic } =
+    runBackgroundForwardStartWithDiagnostics((stdio, timeout) =>
+      runOpenshell(
+        ["forward", "start", "--background", actualTarget, sandboxName],
+        { ignoreError: true, suppressOutput: true, stdio, timeout },
+      ),
+    );
   if (fwdResult && fwdResult.status !== 0) {
-    console.warn(
-      `! Port ${actualPort} forward did not start — port may be in use by another process.`,
-    );
-    console.warn(
-      `  Check: docker ps --format 'table {{.Names}}\\t{{.Ports}}' | grep ${actualPort}`,
-    );
-    console.warn(`  Free the port, then reconnect: ${cliName()} ${sandboxName} connect`);
+    const looksLikePortConflict =
+      fwdDiagnostic === "" ||
+      /eaddrinuse|address already in use|port .* in use|bind: .*in use/i.test(fwdDiagnostic);
+    if (rollbackSandboxOnFailure) {
+      // The sandbox was just created, committed to actualPort via its
+      // baked-in CHAT_UI_URL and NEMOCLAW_DASHBOARD_PORT env. Silently
+      // returning here leaves the user with a dashboard URL that points
+      // at a port held by another process — a TOCTOU race where the
+      // proactive probe in findAvailableDashboardPort missed the
+      // conflict (e.g., another listener bound during the multi-minute
+      // image build). Roll back so the next `onboard` retry's allocator
+      // observes the bound port and picks a different one. Only the
+      // EADDRINUSE-style failure gets the port-conflict wording; other
+      // errors (gateway / transport) propagate the real diagnostic so
+      // users aren't pointed at the wrong fix (#3260).
+      const err = new Error(
+        looksLikePortConflict
+          ? `Failed to start dashboard forward on port ${actualPort} — the host port ` +
+              `is held by another process. Free it and run \`${cliName()} onboard\` again, ` +
+              `or pass \`--control-ui-port <N>\` to pick a different dashboard port.`
+          : `Failed to start dashboard forward on port ${actualPort}: ${fwdDiagnostic.slice(0, 240)}`,
+      );
+      const delResult = runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
+      for (const line of buildOrphanedSandboxRollbackMessage(
+        sandboxName,
+        err,
+        delResult.status === 0,
+      )) {
+        console.error(line);
+      }
+      process.exit(1);
+    }
+    if (looksLikePortConflict) {
+      console.warn(
+        `! Port ${actualPort} forward did not start — port may be in use by another process.`,
+      );
+      console.warn(
+        `  Check: docker ps --format 'table {{.Names}}\\t{{.Ports}}' | grep ${actualPort}`,
+      );
+      console.warn(`  Free the port, then reconnect: ${cliName()} ${sandboxName} connect`);
+    } else {
+      console.warn(`! Port ${actualPort} forward did not start: ${fwdDiagnostic.slice(0, 240)}`);
+      console.warn(`  Reconnect after resolving the issue: ${cliName()} ${sandboxName} connect`);
+    }
   }
   return actualPort;
 }
@@ -9687,26 +9638,6 @@ function getWslHostAddress(
   return dashboardAccess.getWslHostAddress({ ...options, runCapture: options.runCapture || runCapture });
 }
 
-function getDashboardAccessInfo(
-  sandboxName: string,
-  options: Parameters<typeof dashboardAccess.getDashboardAccessInfo>[1] = {},
-) {
-  return dashboardAccess.getDashboardAccessInfo(sandboxName, {
-    ...options,
-    runCapture: options.runCapture || runCapture,
-    fetchGatewayAuthToken: fetchGatewayAuthTokenFromSandbox,
-  });
-}
-
-function getDashboardGuidanceLines(
-  access: Parameters<typeof dashboardAccess.getDashboardGuidanceLines>[0] = [],
-  options: Parameters<typeof dashboardAccess.getDashboardGuidanceLines>[1] = {},
-): string[] {
-  return dashboardAccess.getDashboardGuidanceLines(access, {
-    ...options,
-    runCapture: options.runCapture || runCapture,
-  });
-}
 /** Print the post-onboard dashboard with sandbox status and reconfiguration hints. */
 function printDashboard(
   sandboxName: string,
@@ -11042,6 +10973,7 @@ module.exports = {
   buildControlUiUrls,
 
   startGateway,
+  findAvailableDashboardPort,
   findDashboardForwardOwner,
   startGatewayForRecovery,
   openshellArgv,
