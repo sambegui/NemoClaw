@@ -202,9 +202,14 @@ RUN set -eu; \
     # and emits a warning instead of crashing.  Plugins still load via \
     # auto-discovery from the extensions directory. \
     rcf_file="$(grep -RIlE --include='*.js' 'async function replaceConfigFile\(params\)' "$OC_DIST" | head -n 1)"; \
-    test -n "$rcf_file" || { echo "ERROR: replaceConfigFile function not found in OpenClaw dist" >&2; exit 1; }; \
-    python3 /usr/local/lib/nemoclaw/rcf_patch.py "$rcf_file"; \
-    grep -REq --include='*.js' 'OPENSHELL_SANDBOX.*EACCES' "$rcf_file" || { echo "ERROR: Patch 4 (replaceConfigFile EACCES) not applied" >&2; exit 1; }; \
+    if [ -n "$rcf_file" ]; then \
+        OPENCLAW_VERSION="$(openclaw --version 2>/dev/null | awk '{print $2}' || true)" \
+            python3 /usr/local/lib/nemoclaw/rcf_patch.py "$rcf_file"; \
+        grep -REq --include='*.js' 'OPENSHELL_SANDBOX.*EACCES' "$rcf_file" \
+            || echo "[nemoclaw] WARN: Patch 4 (replaceConfigFile EACCES) not applied; plugin metadata persistence will surface raw EACCES at runtime" >&2; \
+    else \
+        echo "[nemoclaw] WARN: replaceConfigFile function not found in OpenClaw dist; skipping Patch 4 (see openclaw/openclaw#72950)" >&2; \
+    fi; \
     # --- Patch 5: bump default WS handshake timeout 10s -> 60s (#2484) --- \
     # OpenClaw's WS connect handshake has a hard-coded 10s timeout on both \
     # client and server. Server-side connect-handler processing can exceed \

@@ -7,11 +7,47 @@ Uses a broad regex anchored on function-call names, not whitespace or object
 property ordering, so minor formatting changes across OpenClaw versions don't
 cause false misses (#2689). The match is scoped to the replaceConfigFile
 function body to avoid patching unrelated blocks.
+
+The patch is gated against a single constant (LAST_OPENCLAW_NEEDING_RCF_PATCH):
+- If the installed OpenClaw version is above the sentinel, the patch is skipped
+  entirely on the assumption that the upstream fix has landed (OpenClaw #72950).
+- If the version is at or below the sentinel and the regex fails to match, the
+  script soft-warns and exits 0 instead of failing the image build. Plugin code
+  still loads via auto-discovery from extensions/; only plugin metadata
+  persistence surfaces raw EACCES at runtime. The maintainer bumps the sentinel
+  down when the upstream fix becomes available. See NemoClaw #2686 and #3497.
 """
+import os
 import re
 import sys
 
+# Bump this DOWN (not up) to the last OpenClaw version that still needs the
+# rcf_patch when the upstream fix in openclaw/openclaw#72950 lands. Until then,
+# the sentinel ensures every OpenClaw version still tries the patch.
+LAST_OPENCLAW_NEEDING_RCF_PATCH = "9999.99.99"
+
+
+def parse_version(value):
+    if not value:
+        return None
+    try:
+        return tuple(int(part) for part in value.strip().split("."))
+    except ValueError:
+        return None
+
+
 p = sys.argv[1]
+
+current = parse_version(os.environ.get("OPENCLAW_VERSION"))
+ceiling = parse_version(LAST_OPENCLAW_NEEDING_RCF_PATCH)
+if current is not None and ceiling is not None and current > ceiling:
+    print(
+        f"[nemoclaw] rcf_patch: OpenClaw {os.environ['OPENCLAW_VERSION']} is past the last "
+        f"known-broken version ({LAST_OPENCLAW_NEEDING_RCF_PATCH}); skipping patch. "
+        "Bump LAST_OPENCLAW_NEEDING_RCF_PATCH back up if this version still needs it."
+    )
+    sys.exit(0)
+
 src = open(p).read()
 
 
@@ -59,9 +95,22 @@ def find_matching_brace(text, open_idx):
     raise AssertionError("replaceConfigFile function body not terminated")
 
 
+def soft_skip(reason):
+    print(
+        f"[nemoclaw] rcf_patch: {reason}; skipping patch. "
+        "Plugin metadata persistence will surface raw EACCES in the sandbox, "
+        "but plugins still load via auto-discovery from extensions/. "
+        "See openclaw/openclaw#72950 for the upstream fix and update "
+        "LAST_OPENCLAW_NEEDING_RCF_PATCH once it lands.",
+        file=sys.stderr,
+    )
+    sys.exit(0)
+
+
 # Scope the search to the replaceConfigFile function body.
 fn_start = src.find("async function replaceConfigFile(")
-assert fn_start != -1, "replaceConfigFile function not found in file"
+if fn_start == -1:
+    soft_skip(f"replaceConfigFile function not found in {p}")
 fn_body_start = src.index("{", fn_start)
 fn_body_end = find_matching_brace(src, fn_body_start)
 fn_src = src[fn_body_start : fn_body_end + 1]
@@ -78,7 +127,8 @@ pat = re.compile(
     re.DOTALL,
 )
 m = pat.search(fn_src)
-assert m, "tryWriteSingleTopLevelIncludeMutation/writeConfigFile pattern not found in replaceConfigFile"
+if not m:
+    soft_skip(f"tryWriteSingleTopLevelIncludeMutation/writeConfigFile pattern not found in {p}")
 
 indent = m.group("pre")
 replacement = (
