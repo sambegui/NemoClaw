@@ -340,6 +340,7 @@ import type {
 } from "./onboard/types";
 import { listChannels } from "./sandbox/channels";
 import { streamGatewayStart } from "./onboard/gateway";
+import { gpuPassthroughRecoveryLines } from "./onboard/gpu-recovery";
 import type { StreamSandboxCreateResult } from "./sandbox/create-stream";
 import type { SandboxEntry } from "./state/registry";
 import type { BackupResult } from "./state/sandbox";
@@ -10385,9 +10386,21 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       const gpuOutput = String(gpuCheck.stdout || "").trim();
       const gatewayHasGpu = gpuCheck.status === 0 && gpuOutput !== "null" && gpuOutput !== "[]";
       if (!gatewayHasGpu) {
-        console.error("  Existing gateway was started without GPU passthrough.");
-        console.error("  To enable GPU, destroy the existing sandbox and gateway, then re-onboard:");
-        console.error(`    nemoclaw <name> destroy --yes && nemoclaw onboard --gpu`);
+        // #3456 sub-bug #3: emit registry-aware recovery hint instead of the
+        // previous hard-coded `<name>` placeholder, which was not actionable
+        // when no sandbox was registered (the dead-loop State B path).
+        let registeredNames: string[] = [];
+        try {
+          registeredNames = registry
+            .listSandboxes()
+            .sandboxes.map((s) => s.name)
+            .filter(Boolean);
+        } catch {
+          /* registry unreadable — fall through to empty-list hint */
+        }
+        for (const line of gpuPassthroughRecoveryLines(registeredNames)) {
+          console.error(line);
+        }
         process.exit(1);
       }
     }
