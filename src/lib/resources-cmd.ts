@@ -20,7 +20,7 @@ import { dockerSpawnSync } from "./adapters/docker";
 const GATEWAY_NAME = "nemoclaw";
 
 function getGatewayContainer(): string {
-  return process.env.NEMOCLAW_GATEWAY_CONTAINER || `openshell-cluster-${GATEWAY_NAME}`;
+  return `openshell-cluster-${GATEWAY_NAME}`;
 }
 
 function getBlueprintPath(): string {
@@ -38,14 +38,8 @@ function parseResourceProfilesFromBlueprint(
   const profiles: Record<string, ResourceProfile> = {};
   for (const [name, p] of Object.entries(raw)) {
     const prof = p as Record<string, unknown>;
-    if (prof.cpu_request && prof.cpu_limit && prof.memory_request && prof.memory_limit) {
-      profiles[name] = {
-        cpu_request: String(prof.cpu_request),
-        cpu_limit: String(prof.cpu_limit),
-        memory_request: String(prof.memory_request),
-        memory_limit: String(prof.memory_limit),
-      };
-    }
+    const profile = normalizeResourceProfile(prof);
+    if (profile) profiles[name] = profile;
   }
   return profiles;
 }
@@ -53,10 +47,8 @@ function parseResourceProfilesFromBlueprint(
 // ── Types ────────────────────────────────────────────────────────
 
 export interface ResourceProfile {
-  cpu_request: string;
-  cpu_limit: string;
-  memory_request: string;
-  memory_limit: string;
+  cpu: string;
+  memory: string;
 }
 
 export interface HardwareResources {
@@ -187,12 +179,12 @@ export function printHardwareResources(json: boolean): HardwareResources {
     console.log("  Resource Profiles:");
     for (const [name, p] of Object.entries(hw.profiles)) {
       const resolved = resolveProfile(p, hw);
-      const cpuStr = p.cpu_limit.endsWith("%")
-        ? `${p.cpu_limit} \u2192 ${resolved.cpu_limit} cores`
-        : `${p.cpu_limit} cores`;
-      const ramStr = p.memory_limit.endsWith("%")
-        ? `${p.memory_limit} \u2192 ${resolved.memory_limit}`
-        : p.memory_limit;
+      const cpuStr = p.cpu.endsWith("%")
+        ? `${p.cpu} \u2192 ${resolved.cpu} cores`
+        : `${p.cpu} cores`;
+      const ramStr = p.memory.endsWith("%")
+        ? `${p.memory} \u2192 ${resolved.memory}`
+        : p.memory;
       console.log(`    ${name}: cpu=${cpuStr}, ram=${ramStr}`);
     }
   }
@@ -219,7 +211,8 @@ export function resolveResourceValue(
     }
     const pct = parseInt(trimmed.slice(0, -1), 10);
     if (unit === "cpu") {
-      return String(Math.max(1, Math.floor(total * pct / 100)));
+      const milliCores = Math.max(1, Math.floor(total * 1000 * pct / 100));
+      return milliCores % 1000 === 0 ? String(milliCores / 1000) : `${milliCores}m`;
     }
     // Memory: use Mi for precision on smaller machines, Gi for larger
     const resultMB = Math.floor(total * pct / 100);
@@ -234,17 +227,17 @@ export function resolveResourceValue(
 }
 
 /**
- * Parse a Kubernetes CPU quantity to whole cores.
- * Handles plain integers ("16") and millicores ("7500m" → 7.5 → 7).
+ * Parse a Kubernetes CPU quantity.
+ * Handles plain quantities ("16", "3.5") and millicores ("7500m" -> 7.5).
  */
 function parseCpuQuantity(value: string): number | null {
   const trimmed = value.trim();
   if (trimmed.endsWith("m")) {
     const millis = parseInt(trimmed.slice(0, -1), 10);
     if (isNaN(millis)) return null;
-    return Math.floor(millis / 1000);
+    return millis / 1000;
   }
-  const cores = parseInt(trimmed, 10);
+  const cores = parseFloat(trimmed);
   return isNaN(cores) ? null : cores;
 }
 
@@ -257,10 +250,8 @@ export function resolveProfile(profile: ResourceProfile, hw: HardwareResources):
   const cpuTotal = hw.cpu.allocatable ? (parseCpuQuantity(hw.cpu.allocatable) ?? hw.cpu.cores) : hw.cpu.cores;
   const memTotalMB = hw.memory.allocatableMB ?? hw.memory.totalMB;
   return {
-    cpu_request: resolveResourceValue(profile.cpu_request, cpuTotal, "cpu"),
-    cpu_limit: resolveResourceValue(profile.cpu_limit, cpuTotal, "cpu"),
-    memory_request: resolveResourceValue(profile.memory_request, memTotalMB, "memory"),
-    memory_limit: resolveResourceValue(profile.memory_limit, memTotalMB, "memory"),
+    cpu: resolveResourceValue(profile.cpu, cpuTotal, "cpu"),
+    memory: resolveResourceValue(profile.memory, memTotalMB, "memory"),
   };
 }
 
@@ -281,7 +272,9 @@ export function appendResourceFlags(
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
     });
-    if (result.status !== 0 || !result.stdout?.includes("--cpu-request")) {
+    const help = result.stdout || "";
+    const hasFlag = (name: string) => new RegExp(`(^|\\s)--${name}(\\s|,|$)`).test(help);
+    if (result.status !== 0 || !hasFlag("cpu") || !hasFlag("memory")) {
       return false;
     }
   } catch {
@@ -290,14 +283,22 @@ export function appendResourceFlags(
   try {
     const hw = getHardwareResources();
     const resolved = resolveProfile(profile, hw);
-    if (resolved.cpu_request) args.push("--cpu-request", resolved.cpu_request);
-    if (resolved.cpu_limit) args.push("--cpu-limit", resolved.cpu_limit);
-    if (resolved.memory_request) args.push("--memory-request", resolved.memory_request);
-    if (resolved.memory_limit) args.push("--memory-limit", resolved.memory_limit);
+    if (resolved.cpu) args.push("--cpu", resolved.cpu);
+    if (resolved.memory) args.push("--memory", resolved.memory);
     return true;
   } catch {
     return false;
   }
+}
+
+function normalizeResourceProfile(prof: Record<string, unknown>): ResourceProfile | null {
+  const cpu = prof.cpu;
+  const memory = prof.memory;
+  if (!cpu || !memory) return null;
+  return {
+    cpu: String(cpu),
+    memory: String(memory),
+  };
 }
 
 /**

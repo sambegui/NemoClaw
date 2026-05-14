@@ -38,13 +38,20 @@ describe("selectResourceProfileForSandbox", () => {
     const deps = makeDeps({ env: { NEMOCLAW_RESOURCE_PROFILE: "developer" } as NodeJS.ProcessEnv });
 
     await expect(selectResourceProfileForSandbox(deps)).resolves.toEqual({
-      cpu_request: "37%",
-      cpu_limit: "75%",
-      memory_request: "37%",
-      memory_limit: "75%",
+      cpu: "75%",
+      memory: "75%",
     });
 
     expect(deps.note).toHaveBeenCalledWith("  Resource profile (env): developer");
+    expect(deps.promptOrDefault).not.toHaveBeenCalled();
+  });
+
+  it("treats the default environment profile as no resource preference", async () => {
+    const deps = makeDeps({ env: { NEMOCLAW_RESOURCE_PROFILE: "default" } as NodeJS.ProcessEnv });
+
+    await expect(selectResourceProfileForSandbox(deps)).resolves.toBeNull();
+
+    expect(deps.note).toHaveBeenCalledWith("  Resource profile (env): default (OpenShell defaults)");
     expect(deps.promptOrDefault).not.toHaveBeenCalled();
   });
 
@@ -59,22 +66,18 @@ describe("selectResourceProfileForSandbox", () => {
   it("applies CPU and RAM env overrides without prompting", async () => {
     const deps = makeDeps({
       env: {
-        NEMOCLAW_CPU_REQUEST: "2",
-        NEMOCLAW_CPU_LIMIT: "4",
-        NEMOCLAW_RAM_REQUEST: "4Gi",
-        NEMOCLAW_RAM_LIMIT: "8Gi",
+        NEMOCLAW_CPU: "4",
+        NEMOCLAW_RAM: "8Gi",
       } as NodeJS.ProcessEnv,
       isNonInteractive: vi.fn(() => true),
     });
 
     await expect(selectResourceProfileForSandbox(deps)).resolves.toEqual({
-      cpu_request: "2",
-      cpu_limit: "4",
-      memory_request: "4Gi",
-      memory_limit: "8Gi",
+      cpu: "4",
+      memory: "8Gi",
     });
 
-    expect(deps.note).toHaveBeenCalledWith("  Resource overrides (env): cpu=2/4, ram=4Gi/8Gi");
+    expect(deps.note).toHaveBeenCalledWith("  Resource overrides (env): cpu=4, ram=8Gi");
     expect(deps.promptOrDefault).not.toHaveBeenCalled();
   });
 
@@ -82,10 +85,8 @@ describe("selectResourceProfileForSandbox", () => {
     const deps = makeDeps({ promptOrDefault: vi.fn().mockResolvedValue("2") });
 
     await expect(selectResourceProfileForSandbox(deps)).resolves.toEqual({
-      cpu_request: "12%",
-      cpu_limit: "25%",
-      memory_request: "12%",
-      memory_limit: "25%",
+      cpu: "25%",
+      memory: "25%",
     });
 
     expect(deps.promptOrDefault).toHaveBeenCalledWith("  Choose [6]: ", null, "6");
@@ -99,25 +100,21 @@ describe("selectResourceProfileForSandbox", () => {
     expect(errorSpy).toHaveBeenCalledWith("  Invalid resource profile selection '99'. Choose a number from 1 to 6.");
   });
 
-  it("collects a custom profile and validates requests and limits", async () => {
+  it("collects a custom profile and validates CPU and RAM", async () => {
     const deps = makeDeps({
       promptOrDefault: vi.fn().mockResolvedValue("5"),
       prompt: vi
         .fn()
         .mockResolvedValueOnce("25%")
-        .mockResolvedValueOnce("50%")
-        .mockResolvedValueOnce("25%")
-        .mockResolvedValueOnce("50%"),
+        .mockResolvedValueOnce("25%"),
     });
 
     await expect(selectResourceProfileForSandbox(deps)).resolves.toEqual({
-      cpu_request: "25%",
-      cpu_limit: "50%",
-      memory_request: "25%",
-      memory_limit: "50%",
+      cpu: "25%",
+      memory: "25%",
     });
 
-    expect(deps.prompt).toHaveBeenCalledTimes(4);
+    expect(deps.prompt).toHaveBeenCalledTimes(2);
   });
 
   it("exits when custom profile validation fails", async () => {
@@ -126,9 +123,7 @@ describe("selectResourceProfileForSandbox", () => {
       prompt: vi
         .fn()
         .mockResolvedValueOnce("101%")
-        .mockResolvedValueOnce("50%")
-        .mockResolvedValueOnce("25%")
-        .mockResolvedValueOnce("50%"),
+        .mockResolvedValueOnce("25%"),
     });
 
     await expect(selectResourceProfileForSandbox(deps)).rejects.toThrow("process.exit(1)");

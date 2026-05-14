@@ -36,6 +36,7 @@ describe("resources-cmd", () => {
 
   it("resolves percentage and absolute resource values", () => {
     expect(resolveResourceValue("25%", 16, "cpu")).toBe("4");
+    expect(resolveResourceValue("25%", 3.5, "cpu")).toBe("875m");
     expect(resolveResourceValue("50%", 8192, "memory")).toBe("4Gi");
     expect(resolveResourceValue("10%", 1024, "memory")).toBe("128Mi");
     expect(resolveResourceValue("750m", 16, "cpu")).toBe("750m");
@@ -51,10 +52,8 @@ describe("resources-cmd", () => {
   it("resolves profiles against Kubernetes allocatable capacity when available", () => {
     const resolved = resolveProfile(
       {
-        cpu_request: "50%",
-        cpu_limit: "100%",
-        memory_request: "25%",
-        memory_limit: "50%",
+        cpu: "50%",
+        memory: "25%",
       },
       {
         cpu: { cores: 16, model: "test-cpu", allocatable: "7500m" },
@@ -65,10 +64,8 @@ describe("resources-cmd", () => {
     );
 
     expect(resolved).toEqual({
-      cpu_request: "3",
-      cpu_limit: "7",
-      memory_request: "4Gi",
-      memory_limit: "8Gi",
+      cpu: "3750m",
+      memory: "4Gi",
     });
   });
 
@@ -76,12 +73,10 @@ describe("resources-cmd", () => {
     const profiles = loadResourceProfiles();
 
     expect(profiles.developer).toEqual({
-      cpu_request: "37%",
-      cpu_limit: "75%",
-      memory_request: "37%",
-      memory_limit: "75%",
+      cpu: "75%",
+      memory: "75%",
     });
-    expect(profiles["game-developer"].cpu_limit).toBe("60%");
+    expect(profiles["game-developer"].cpu).toBe("60%");
   });
 
   it("returns hardware resources and includes parsed blueprint profiles", () => {
@@ -90,7 +85,7 @@ describe("resources-cmd", () => {
     expect(hw.cpu.cores).toBeGreaterThan(0);
     expect(hw.cpu.model).toEqual(expect.any(String));
     expect(hw.memory.totalMB).toBeGreaterThan(0);
-    expect(hw.profiles?.creator.cpu_request).toBe("25%");
+    expect(hw.profiles?.creator.cpu).toBe("50%");
   });
 
   it("prints JSON and returns the hardware object in JSON mode", () => {
@@ -104,13 +99,13 @@ describe("resources-cmd", () => {
     }
   });
 
-  it("appends resolved OpenShell resource flags when supported", () => {
-    const openshell = makeExecutable("#!/usr/bin/env sh\necho '--cpu-request --cpu-limit --memory-request --memory-limit'\n");
+  it("appends resolved OpenShell CPU and memory flags when supported", () => {
+    const openshell = makeExecutable("#!/usr/bin/env sh\necho '--cpu --memory'\n");
     const args = ["sandbox", "create"];
 
     const applied = appendResourceFlags(
       args,
-      { cpu_request: "2", cpu_limit: "4", memory_request: "1Gi", memory_limit: "2Gi" },
+      { cpu: "4", memory: "2Gi" },
       openshell,
     );
 
@@ -118,15 +113,19 @@ describe("resources-cmd", () => {
     expect(args).toEqual([
       "sandbox",
       "create",
-      "--cpu-request",
-      "2",
-      "--cpu-limit",
+      "--cpu",
       "4",
-      "--memory-request",
-      "1Gi",
-      "--memory-limit",
+      "--memory",
       "2Gi",
     ]);
+  });
+
+  it("does not use old request/limit resource flags", () => {
+    const openshell = makeExecutable("#!/usr/bin/env sh\necho '--cpu-request --cpu-limit --memory-request --memory-limit'\n");
+    const args = ["sandbox", "create"];
+
+    expect(appendResourceFlags(args, { cpu: "4", memory: "2Gi" }, openshell)).toBe(false);
+    expect(args).toEqual(["sandbox", "create"]);
   });
 
   it("gracefully skips resource flags when OpenShell does not support them", () => {
@@ -136,7 +135,7 @@ describe("resources-cmd", () => {
     expect(
       appendResourceFlags(
         args,
-        { cpu_request: "25%", cpu_limit: "50%", memory_request: "25%", memory_limit: "50%" },
+        { cpu: "25%", memory: "25%" },
         openshell,
       ),
     ).toBe(false);
@@ -144,13 +143,13 @@ describe("resources-cmd", () => {
   });
 
   it("gracefully skips resource flags when profile resolution fails", () => {
-    const openshell = makeExecutable("#!/usr/bin/env sh\necho '--cpu-request --cpu-limit'\n");
+    const openshell = makeExecutable("#!/usr/bin/env sh\necho '--cpu --memory'\n");
     const args = ["sandbox", "create"];
 
     expect(
       appendResourceFlags(
         args,
-        { cpu_request: "bogus%", cpu_limit: "50%", memory_request: "25%", memory_limit: "50%" },
+        { cpu: "bogus%", memory: "25%" },
         openshell,
       ),
     ).toBe(false);

@@ -67,7 +67,6 @@ Use `--json` for machine-readable CPU, memory, GPU, Kubernetes allocatable-capac
 $ nemoclaw resources [--json]
 ```
 
-`nemoclaw resources` reads `NEMOCLAW_GATEWAY_CONTAINER` only as an advanced override for the OpenShell gateway container name used when querying Kubernetes allocatable capacity.
 If the gateway is not running, Kubernetes allocatable fields are omitted and host CPU/RAM totals are still shown.
 
 ### `nemoclaw onboard`
@@ -1154,11 +1153,9 @@ These flags toggle optional behaviors during onboarding; set them before running
 | `NEMOCLAW_OVERLAY_SNAPSHOTTER` | snapshotter name | Selects the containerd overlay snapshotter for sandbox builds. Empty (default) preserves containerd's choice. |
 | `NEMOCLAW_SKIP_TELEGRAM_REACHABILITY` | `1` to enable | Skips the Telegram bot reachability probe during onboard (useful in restricted networks). |
 | `NEMOCLAW_CONFIG_ACCEPT_NEW_PATH` | `1` to enable | Accepts a new sandbox config path without an interactive prompt when the stored path differs from the discovered one. |
-| `NEMOCLAW_RESOURCE_PROFILE` | profile name | Selects a sandbox CPU/RAM resource profile from the blueprint during onboarding. Unknown names fail fast. |
-| `NEMOCLAW_CPU_REQUEST` | percentage or Kubernetes CPU quantity | Overrides the selected profile's CPU request. Percentages resolve against detected capacity. |
-| `NEMOCLAW_CPU_LIMIT` | percentage or Kubernetes CPU quantity | Overrides the selected profile's CPU limit. Percentages resolve against detected capacity. |
-| `NEMOCLAW_RAM_REQUEST` | percentage or Kubernetes memory quantity | Overrides the selected profile's memory request. Percentages resolve against detected capacity. |
-| `NEMOCLAW_RAM_LIMIT` | percentage or Kubernetes memory quantity | Overrides the selected profile's memory limit. Percentages resolve against detected capacity. |
+| `NEMOCLAW_RESOURCE_PROFILE` | profile name or `default` | Selects a sandbox CPU/RAM resource profile from the blueprint during onboarding. `default` means no resource preference, so NemoClaw passes no OpenShell CPU or memory flags. Unknown names fail fast. |
+| `NEMOCLAW_CPU` | percentage or Kubernetes CPU quantity | Overrides the selected profile's CPU size passed to OpenShell `--cpu`. Percentages resolve against detected capacity. |
+| `NEMOCLAW_RAM` | percentage or Kubernetes memory quantity | Overrides the selected profile's memory size passed to OpenShell `--memory`. Percentages resolve against detected capacity. |
 | `NEMOCLAW_SANDBOX_GPU` | `auto`, `1`, or `0` | Controls sandbox GPU passthrough during onboarding. `auto` enables GPU passthrough when an NVIDIA GPU is detected, `1` requires GPU passthrough, and `0` forces CPU-only sandbox creation. |
 | `NEMOCLAW_SANDBOX_GPU_DEVICE` | OpenShell GPU device selector | Selects the GPU device passed with `openshell sandbox create --gpu-device`. Setting this value enables sandbox GPU passthrough unless `NEMOCLAW_SANDBOX_GPU=0` is also set, which is rejected. |
 | `NEMOCLAW_DOCKER_GPU_PATCH` | `0` to disable, anything else to keep the default | Controls the Linux Docker-driver GPU sandbox compatibility patch. Set to `0` only as an escape hatch when the patch fails and you need onboarding to continue without patching the GPU sandbox container. |

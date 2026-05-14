@@ -37,25 +37,17 @@ components:
       - 18789
     resource_profiles:
       creator:
-        cpu_request: "25%"
-        cpu_limit: "50%"
-        memory_request: "25%"
-        memory_limit: "50%"
+        cpu: "50%"
+        memory: "50%"
       gamer:
-        cpu_request: "12%"
-        cpu_limit: "25%"
-        memory_request: "12%"
-        memory_limit: "25%"
+        cpu: "25%"
+        memory: "25%"
       game-developer:
-        cpu_request: "30%"
-        cpu_limit: "60%"
-        memory_request: "30%"
-        memory_limit: "60%"
+        cpu: "60%"
+        memory: "60%"
       developer:
-        cpu_request: "37%"
-        cpu_limit: "75%"
-        memory_request: "37%"
-        memory_limit: "75%"
+        cpu: "75%"
+        memory: "75%"
 
   inference:
     profiles:

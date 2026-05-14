@@ -65,15 +65,13 @@
             },
             "resource_profiles": {
               "type": "object",
-              "description": "Named resource profiles for sandbox CPU/memory allocation. Values can be absolute Kubernetes quantities (e.g. '4', '8Gi') or percentages of detected hardware (e.g. '25%').",
+              "description": "Named resource profiles for sandbox CPU/memory sizing. Values can be absolute Kubernetes quantities (e.g. '4', '8Gi') or percentages of detected hardware (e.g. '25%').",
               "additionalProperties": {
                 "type": "object",
-                "required": ["cpu_request", "cpu_limit", "memory_request", "memory_limit"],
+                "required": ["cpu", "memory"],
                 "properties": {
-                  "cpu_request": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" },
-                  "cpu_limit": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" },
-                  "memory_request": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" },
-                  "memory_limit": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" }
+                  "cpu": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" },
+                  "memory": { "type": "string", "minLength": 1, "pattern": "^([1-9]\\d?%|100%|\\d+(\\.\\d+)?[mKMGTPE]?i?)$" }
                 },
                 "additionalProperties": false
               }
