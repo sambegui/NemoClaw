@@ -91,7 +91,6 @@ export type OpenShellInstallDeps = {
   ) => boolean;
   resolveOpenShellGatewayBinary: () => string | null;
   resolveOpenShellSandboxBinary: () => string | null;
-  resolveOpenShellVmDriverBinary: () => string | null;
   isOpenshellInstalled: () => boolean;
   installOpenshell: () => OpenShellInstallResult;
   getInstalledOpenshellVersion: (versionOutput?: string | null) => string | null;

@@ -284,6 +284,8 @@ const { reportDockerDriverGatewayStartFailure } =
 const dockerDriverGatewayEnv: typeof import("./onboard/docker-driver-gateway-env") =
   require("./onboard/docker-driver-gateway-env");
 const { getDockerDriverGatewayEndpoint } = dockerDriverGatewayEnv;
+const dockerDriverGatewayRuntimeMarker: typeof import("./onboard/docker-driver-gateway-runtime-marker") =
+  require("./onboard/docker-driver-gateway-runtime-marker");
 const vmDriverProcess: typeof import("./onboard/vm-driver-process") = require("./onboard/vm-driver-process");
 const preflightUtils: typeof import("./onboard/preflight") = require("./onboard/preflight");
 const clusterImagePatch: typeof import("./cluster-image-patch") = require("./cluster-image-patch");
@@ -2749,7 +2751,6 @@ function getOpenShellInstallDeps(): OpenShellInstallDeps {
     isLinuxDockerDriverGatewayEnabled,
     resolveOpenShellGatewayBinary,
     resolveOpenShellSandboxBinary,
-    resolveOpenShellVmDriverBinary,
     isOpenshellInstalled,
     installOpenshell,
     getInstalledOpenshellVersion,
@@ -2811,16 +2812,16 @@ function terminateDockerDriverGatewayProcess(pid: number): boolean {
 function stopDockerDriverGatewayProcess(): boolean {
   const pid = getDockerDriverGatewayPid();
   if (pid === null || !isPidAlive(pid)) {
-    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    clearDockerDriverGatewayRuntimeFiles();
     return false;
   }
   if (!isDockerDriverGatewayProcess(pid, resolveOpenShellGatewayBinary())) {
-    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    clearDockerDriverGatewayRuntimeFiles();
     return false;
   }
 
   const stopped = terminateDockerDriverGatewayProcess(pid);
-  fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+  clearDockerDriverGatewayRuntimeFiles();
   return stopped;
 }
 
@@ -2861,7 +2862,7 @@ function retireLegacyGatewayForDockerDriverUpgrade(): void {
 function restartDockerDriverGatewayProcessForDrift(pid: number, reason: string): void {
   console.log(`  Existing OpenShell Docker-driver gateway is stale (${reason}); restarting...`);
   terminateDockerDriverGatewayProcess(pid);
-  fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+  clearDockerDriverGatewayRuntimeFiles();
 }
 
 async function refreshDockerDriverGatewayReuseState(
@@ -3170,27 +3171,6 @@ function resolveOpenShellSandboxBinary(): string | null {
   return null;
 }
 
-function resolveOpenShellVmDriverBinary(): string | null {
-  const configuredDir = process.env.OPENSHELL_DRIVER_DIR;
-  if (configuredDir && configuredDir.trim()) {
-    const configured = path.join(path.resolve(configuredDir.trim()), "openshell-driver-vm");
-    if (fs.existsSync(configured)) return configured;
-  }
-  const sibling = resolveSiblingBinary("openshell-driver-vm");
-  if (sibling) return sibling;
-  for (const candidate of [
-    path.join(os.homedir(), ".local", "bin", "openshell-driver-vm"),
-    path.join(os.homedir(), ".local", "libexec", "openshell", "openshell-driver-vm"),
-    "/usr/local/bin/openshell-driver-vm",
-    "/usr/local/libexec/openshell/openshell-driver-vm",
-    "/usr/local/libexec/openshell-driver-vm",
-    "/usr/bin/openshell-driver-vm",
-  ]) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
 function getOpenShellDockerSupervisorImage(versionOutput: string | null = null): string {
   if (process.env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE) {
     return process.env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE;
@@ -3334,12 +3314,29 @@ function getDockerDriverGatewayRuntimeDrift(
 ): DockerDriverGatewayRuntimeDrift | null {
   if (
     platform === "darwin" &&
-    desiredEnv.OPENSHELL_DRIVERS === "docker" &&
-    vmDriverProcess.hasOpenShellVmDriverChildProcess(pid, (args) =>
-      runCapture([...args], { ignoreError: true }),
-    )
+    desiredEnv.OPENSHELL_DRIVERS === "docker"
   ) {
-    return { reason: "VM driver child process is still attached to the gateway" };
+    const markerDrift =
+      dockerDriverGatewayRuntimeMarker.getDockerDriverGatewayRuntimeMarkerDriftForStateDir(
+        getDockerDriverGatewayStateDir(),
+        {
+          pid,
+          desiredEnv,
+          endpoint: getDockerDriverGatewayEndpoint(),
+          gatewayBin,
+          dockerHost: process.env.DOCKER_HOST || null,
+          platform,
+          arch: process.arch,
+        },
+      );
+    if (markerDrift) return markerDrift;
+    if (
+      vmDriverProcess.hasOpenShellVmDriverChildProcess(pid, (args) =>
+        runCapture([...args], { ignoreError: true }),
+      )
+    ) {
+      return { reason: "VM driver child process is still attached to the gateway" };
+    }
   }
   if (!shouldRequireDockerDriverEnv(platform)) return null;
   return getDockerDriverGatewayRuntimeDriftFromSnapshot({
@@ -3382,20 +3379,21 @@ function isDockerDriverGatewayProcessAlive(): boolean {
   if (!isDockerDriverGatewayProcess(pid, resolveOpenShellGatewayBinary(), {
     requireDockerDriverEnv: shouldRequireDockerDriverEnv(),
   })) {
-    fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+    clearDockerDriverGatewayRuntimeFiles();
     return false;
   }
   return true;
 }
 
+function clearDockerDriverGatewayRuntimeFiles(): void {
+  fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+  dockerDriverGatewayRuntimeMarker.clearDockerDriverGatewayRuntimeMarker(
+    getDockerDriverGatewayStateDir(),
+  );
+}
+
 function rememberDockerDriverGatewayPid(pid: number): void {
-  if (!Number.isInteger(pid) || pid <= 0) return;
-  const stateDir = getDockerDriverGatewayStateDir();
-  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(getDockerDriverGatewayPidFile(), `${pid}\n`, {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
+  dockerDriverGatewayRuntimeMarker.writeDockerDriverGatewayPidFile(getDockerDriverGatewayPidFile(), pid);
 }
 
 function getDockerDriverGatewayPortListenerPid(
@@ -4439,7 +4437,7 @@ async function startDockerDriverGateway({ exitOnFailure = true, skipSandboxBridg
   const existingPid = getDockerDriverGatewayPid() ?? portListenerPid;
   if (existingPid !== null && isPidAlive(existingPid)) {
     if (!isDockerDriverGatewayProcess(existingPid, identityGatewayBin)) {
-      fs.rmSync(getDockerDriverGatewayPidFile(), { force: true });
+      clearDockerDriverGatewayRuntimeFiles();
     } else {
       console.log(`  Restarting unhealthy Docker-driver gateway process (PID ${existingPid})...`);
       try {
@@ -4477,6 +4475,7 @@ async function startDockerDriverGateway({ exitOnFailure = true, skipSandboxBridg
     throw new Error("OpenShell gateway process did not return a pid");
   }
   rememberDockerDriverGatewayPid(childPid);
+  dockerDriverGatewayRuntimeMarker.writeDockerDriverGatewayRuntimeMarkerForStateDir(getDockerDriverGatewayStateDir(), { pid: childPid, desiredEnv: driftGatewayEnv, endpoint: getDockerDriverGatewayEndpoint(), gatewayBin: driftGatewayBin, openshellVersion: getInstalledOpenshellVersion(openshellVersionOutput), dockerHost: process.env.DOCKER_HOST || null });
 
   const pollCount = envInt("NEMOCLAW_HEALTH_POLL_COUNT", 30);
   const pollInterval = envInt("NEMOCLAW_HEALTH_POLL_INTERVAL", 2);
