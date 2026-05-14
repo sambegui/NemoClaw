@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-scope-issues"
+  ],
+  "query": "Find open issues that are duplicates of each other and propose a canonical issue to keep.",
+  "files": [],
+  "expected_behavior": [
+    "Applies the DUPLICATE classifier with three signals (D1: title token Jaccard >= 0.80, D2: same Closes-trailer match, D3: same reporter / body cosine >= 0.7 within 30 days).",
+    "Identifies the canonical issue (oldest open OR the one closed by a merged PR) and proposes closing the others as duplicates.",
+    "Drafts per-duplicate close comment in the form: 'Closing as duplicate of #<canonical> \u2014 discussion consolidated there.' with suggested_close_reason: completed.",
+    "Surfaces results in a markdown table grouped by canonical issue; does NOT close anything; chains into close-superseded-issues via the sidecar."
+  ]
+}

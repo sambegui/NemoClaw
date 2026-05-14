@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-scope-issues"
+  ],
+  "query": "Find stale issues where the reporter ghosted after a maintainer asked for repro info.",
+  "files": [],
+  "expected_behavior": [
+    "Applies the STALE_NO_REPRO classifier with three signals (S1: last maintainer comment matches needs-info shape; S2: reporter inactive >60d/>180d; S3: needs-info or awaiting-response label).",
+    "Treats this category specially: NEVER drafts a close, only a revival comment. Chains into close-superseded-issues with --revival-only flag.",
+    "Sets scheduled_close_at to 14 days post-revival in the JSON sidecar so a follow-up run can pick up no-response cases.",
+    "Drafts a polite revival comment that summarizes the prior needs-info request and gives an explicit 14-day window."
+  ]
+}

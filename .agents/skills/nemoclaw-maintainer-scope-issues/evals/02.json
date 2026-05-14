@@ -1,0 +1,17 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-scope-issues"
+  ],
+  "query": "Find open issues that ask for features outside NemoClaw's documented surface (e.g. Windows support, OpenClaw upstream changes).",
+  "files": [
+    "CLAUDE.md",
+    "docs/",
+    "nemoclaw-blueprint/"
+  ],
+  "expected_behavior": [
+    "Builds the scope model from CLAUDE.md (Project Overview + Architecture table), docs/ index, nemoclaw-blueprint/ YAML files, and .agents/skills/nemoclaw-user-* skill names.",
+    "Applies the OUT_OF_SCOPE classifier with signals O1 (title/body grep negative on scope model), O2 (platform-expansion regex: windows|wsl1|raspberry pi etc.), O3 (upstream-dependency feature regex).",
+    "Caps OUT_OF_SCOPE confidence at 0.8 and ALWAYS sets requires_user_confirm=true; never auto-closes.",
+    "Drafts a respectful close comment pointing the reporter to the right channel (upstream issue tracker, new project, RFC process)."
+  ]
+}
