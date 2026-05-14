@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { classifyNemoclawShim, DEV_SHIM_MARKER, isDevShimContents, isInstallerManagedWrapperContents } from "./shims";
+import { classifyNemoclawShim, DEV_SHIM_MARKER, isDevShimContents, isInstallerManagedWrapperContents } from "../../../../dist/lib/domain/uninstall/shims";
 
 function wrapper(extra = ""): string {
   return ["#!/usr/bin/env bash", 'export PATH="/tmp/node-bin:$PATH"', 'exec "/tmp/prefix/bin/nemoclaw" "$@"', extra]

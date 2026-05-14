@@ -7,7 +7,7 @@ import {
   findOrphanedSandboxImages,
   getRegisteredImageTags,
   parseSandboxImageRows,
-} from "./images";
+} from "../../../../dist/lib/domain/maintenance/images";
 
 describe("maintenance image helpers", () => {
   it("parses Docker image rows and fills missing sizes", () => {

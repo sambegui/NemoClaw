@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import path from "node:path";
 
-import { defaultUninstallPaths, OPENSHELL_MANAGED_BINARIES } from "./paths";
-import { buildUninstallPlan, flattenUninstallPlan } from "./plan";
+import { defaultUninstallPaths, OPENSHELL_MANAGED_BINARIES } from "../../../../dist/lib/domain/uninstall/paths";
+import { buildUninstallPlan, flattenUninstallPlan } from "../../../../dist/lib/domain/uninstall/plan";
 
 describe("uninstall plan", () => {
   it("models the six uninstall.sh cleanup steps", () => {

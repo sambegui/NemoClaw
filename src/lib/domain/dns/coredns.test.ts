@@ -10,7 +10,7 @@ import {
   isSafeDnsUpstream,
   resolveCoreDnsUpstream,
   selectOpenshellClusterContainer,
-} from "./coredns";
+} from "../../../../dist/lib/domain/dns/coredns";
 
 describe("CoreDNS domain helpers", () => {
   it("classifies Docker host socket runtimes", () => {

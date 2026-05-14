@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from "vitest";
-import { parseDuration, MAX_SECONDS, DEFAULT_SECONDS } from "./duration";
+import { parseDuration, MAX_SECONDS, DEFAULT_SECONDS } from "../../../dist/lib/domain/duration";
 
 describe("parseDuration", () => {
   it("parses minutes", () => {

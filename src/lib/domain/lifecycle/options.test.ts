@@ -8,7 +8,7 @@ import {
   normalizeGarbageCollectImagesOptions,
   normalizeRebuildSandboxOptions,
   normalizeUpgradeSandboxesOptions,
-} from "./options";
+} from "../../../../dist/lib/domain/lifecycle/options";
 
 describe("lifecycle option normalization", () => {
   it("preserves typed destroy options and still accepts compatibility argv", () => {

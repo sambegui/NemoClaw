@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { resolveInstallerVersion, resolveInstallRef } from "./ref";
+import { resolveInstallerVersion, resolveInstallRef } from "../../../../dist/lib/domain/installer/ref";
 
 describe("installer ref helpers", () => {
   it("resolves install refs with the same priority as install.sh", () => {

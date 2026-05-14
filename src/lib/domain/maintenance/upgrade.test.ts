@@ -8,7 +8,7 @@ import {
   shouldSkipUpgradeConfirmation,
   splitRebuildableSandboxes,
   type SandboxVersionCheck,
-} from "./upgrade";
+} from "../../../../dist/lib/domain/maintenance/upgrade";
 
 describe("upgrade sandboxes helpers", () => {
   it("detects upgrade confirmation bypass modes", () => {

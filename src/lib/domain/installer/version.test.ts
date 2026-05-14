@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { checkInstallerRuntime, versionGte, versionMajor } from "./version";
+import { checkInstallerRuntime, versionGte, versionMajor } from "../../../../dist/lib/domain/installer/version";
 
 describe("installer version helpers", () => {
   it("matches shell version_gte semantics", () => {

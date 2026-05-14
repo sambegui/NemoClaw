@@ -9,7 +9,7 @@ import {
   installerProviderHelpValues,
   installerProviderUsageLines,
   normalizeInstallerProvider,
-} from "./provider";
+} from "../../../../dist/lib/domain/installer/provider";
 
 describe("installer provider helpers", () => {
   it("normalizes installer provider aliases and case variants", () => {

@@ -8,7 +8,7 @@ import {
   isMissingSandboxDeleteOutput,
   shouldCleanupGatewayAfterDestroy,
   shouldStopHostServicesAfterDestroy,
-} from "./destroy";
+} from "../../../../dist/lib/domain/sandbox/destroy";
 
 describe("sandbox destroy helpers", () => {
   it("detects missing sandbox delete output", () => {

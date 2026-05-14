@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { npmGlobalBin, npmLinkTargetPaths, npmLinkTargetsWritable, pathWithPrependedEntries } from "./npm";
+import { npmGlobalBin, npmLinkTargetPaths, npmLinkTargetsWritable, pathWithPrependedEntries } from "../../../../dist/lib/domain/installer/npm";
 
 function state(options: { existing?: string[]; writable?: string[] }) {
   const existing = new Set(options.existing ?? []);

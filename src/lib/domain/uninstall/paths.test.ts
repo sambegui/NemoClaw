@@ -9,7 +9,7 @@ import {
   gatewayVolumeCandidates,
   OPENSHELL_MANAGED_BINARIES,
   uninstallStatePaths,
-} from "./paths";
+} from "../../../../dist/lib/domain/uninstall/paths";
 
 describe("uninstall paths", () => {
   it("returns the gateway volume candidate used by uninstall.sh", () => {
