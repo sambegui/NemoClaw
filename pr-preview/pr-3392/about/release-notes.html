@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=3f434bd6"></script>
+    <script src="../_static/documentation_options.js?v=5b8c9b92"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.40';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.41';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -507,6 +507,17 @@
 <section class="tex2jax_ignore mathjax_ignore" id="release-notes">
 <h1>Release Notes<a class="headerlink" href="#release-notes" title="Link to this heading">#</a></h1>
 <p>NVIDIA NemoClaw is available in early preview starting March 16, 2026. Use this page to track changes.</p>
+<section id="v0-0-41">
+<h2>v0.0.41<a class="headerlink" href="#v0-0-41" title="Link to this heading">#</a></h2>
+<p>NemoClaw v0.0.41 improves Docker-driver onboarding and release compatibility:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> can pin fresh OpenShell installs to a published release that fits the blueprint’s tested version range, while retaining the installer fallback when release metadata is unavailable.</p></li>
+<li><p>Docker-driver gateway startup verifies that sandbox containers can reach <code class="docutils literal notranslate"><span class="pre">host.openshell.internal</span></code> before reporting the gateway healthy, and Linux firewall failures include a targeted <code class="docutils literal notranslate"><span class="pre">ufw</span></code> remediation.</p></li>
+<li><p>Local Ollama setup probes sandbox-to-proxy reachability before it commits the inference route, so blocked <code class="docutils literal notranslate"><span class="pre">11435</span></code> traffic stops onboarding with a rerun-safe fix instead of leaving a broken route.</p></li>
+<li><p>Linux Docker-driver GPU onboarding can recreate the OpenShell-managed sandbox container with NVIDIA GPU access and leaves diagnostics plus cleanup guidance when GPU readiness fails.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">uninstall</span></code> removes all installer-managed OpenShell helper binaries unless you pass <code class="docutils literal notranslate"><span class="pre">--keep-openshell</span></code>.</p></li>
+</ul>
+</section>
 <section id="v0-0-40">
 <h2>v0.0.40<a class="headerlink" href="#v0-0-40" title="Link to this heading">#</a></h2>
 <p>NemoClaw v0.0.40 improves onboarding reliability, local inference setup, and sandbox recovery:</p>
@@ -627,6 +638,7 @@ See <a class="reference internal" href="../reference/commands.html#checking-the-
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-41">v0.0.41</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-40">v0.0.40</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-39">v0.0.39</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-38">v0.0.38</a></li>
