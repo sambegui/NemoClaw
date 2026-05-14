@@ -31,7 +31,7 @@ Flags:
 ## Prerequisites (hard rules)
 
 1. **Clean working tree.** `git status --porcelain` must be empty. Halt otherwise.
-2. **Skill must be invoked on the maintainer's local checkout.** This skill modifies local git state. Refuse to run inside a worktree or detached HEAD.
+2. **Must be invoked on the maintainer's local checkout.** This skill modifies local git state. Refuse to run inside a worktree or detached HEAD.
 3. **PR author must be checked.** If the PR is from a fork AND the maintainer doesn't have write access to the fork branch, surface that — the rebase can be done locally but pushing requires either the author's collaboration or maintainer admin override. Halt and ask.
 4. **Identity check.** Same as `issue-autopilot` Stage 0 — verify `git var GIT_AUTHOR_IDENT` matches the running maintainer and commit signing is configured.
 
@@ -181,6 +181,15 @@ Writes `/tmp/nemoclaw-skill-output-pr-rebase-assist-<run_id>.json`. Shares the m
 
 - Per-conflict block: 3-pane structured view (above) — every conflict gets its own block, never collapsed.
 - End-of-run summary: outcome + counts (`N conflicts resolved automatically, M manually, K aborted`) + the comment_draft for paste.
+
+## Reference cases (the 4 conflict shapes)
+
+These illustrate the conflict shapes the recommendation engine handles. PR numbers anonymized.
+
+- **Comments-only conflict (auto-merge):** Both main and PR rewrote the same docstring. Engine recommends `merge-both-with-edit`, concatenating the two updates. Common on heavily-documented files.
+- **New-field-not-referenced (keep PR):** Main added a new optional parameter `signal?: AbortSignal` to `createSandbox`; PR's diff doesn't reference it. Engine recommends `keep-pr` with a warning: "main's new `signal` parameter is undefined in this code path." Maintainer adds a default in a follow-up.
+- **Same-signature change (manual):** Both sides changed `validatePolicy()` — main added a return type, PR added a parameter. Engine recommends `manual` and surfaces the two signatures side-by-side; halts for the maintainer's call.
+- **Security-relevant on main (keep main):** Main landed a critical fix in `nemoclaw-blueprint/policies/egress.ts` (CVE-tagged). PR has unrelated changes in the same file. Engine recommends `keep-main` with the callout "Security-relevant: don't override main's fix; port the PR's change on top." Force-with-lease push fails because two authors push concurrently; halt cleanly per the concurrent-push branch.
 
 ## Halt conditions (the non-obvious ones)
 

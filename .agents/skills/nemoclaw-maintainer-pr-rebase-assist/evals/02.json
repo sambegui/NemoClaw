@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-pr-rebase-assist"
+  ],
+  "query": "Main changed nemoclaw-blueprint/policies/egress.ts with a security fix; my PR has unrelated changes in the same file. What does the recommendation engine suggest?",
+  "files": [],
+  "expected_behavior": [
+    "Detects 'security-relevant on main' pattern: changed file under nemoclaw-blueprint/policies/, credentials*, or inference/*.",
+    "Recommendation: keep-main, with the callout 'Security-relevant: don't override main's fix; port the PR's change on top'.",
+    "Never recommends keep-pr for this case, regardless of how many lines each side changed.",
+    "Maintainer can override with manual; the recommendation is a suggestion, not enforcement."
+  ]
+}

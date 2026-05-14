@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-pr-rebase-assist"
+  ],
+  "query": "Walk me through rebasing PR #3284, which has 3 conflict files.",
+  "files": [],
+  "expected_behavior": [
+    "Runs prerequisites check (clean working tree, not in a worktree, identity check passes).",
+    "gh pr checkout #3284 into a local rebase-pr-3284 branch; git fetch origin main; git rebase origin/main.",
+    "On halt: enumerates conflicted files; surfaces each as a 3-pane view (HEAD side / incoming side / recommended resolution).",
+    "Per file, presents 6 options [Apply / Edit / Use main / Use PR / Skip / Abort]; waits for the maintainer's choice."
+  ]
+}

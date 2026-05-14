@@ -1,0 +1,13 @@
+{
+  "skills": [
+    "nemoclaw-maintainer-pr-rebase-assist"
+  ],
+  "query": "Rebase complete and typecheck passing \u2014 push with --force-with-lease.",
+  "files": [],
+  "expected_behavior": [
+    "Shows the maintainer git log --oneline origin/main..HEAD and git diff origin/main..HEAD --stat before push.",
+    "Uses git push --force-with-lease=origin/<branch>:<old-ref> \u2014 NEVER plain --force.",
+    "If 'stale info' error (author pushed concurrently): aborts cleanly, leaves local branch intact, surfaces 'concurrent push detected; coordinate with the author before retrying'.",
+    "Never retries the push automatically; user explicitly re-confirms after coordination."
+  ]
+}
