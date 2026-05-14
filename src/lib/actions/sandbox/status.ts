@@ -74,6 +74,10 @@ function printInferenceProbeLine(probe: ProviderHealthStatus): void {
     console.log(`    ${label}: ${G}healthy${R} (${probe.endpoint})`);
     return;
   }
+  // `failureLabel` is set by the probe (e.g. `unauthorized` for HTTP 401 on
+  // the auth proxy in `inference/local.ts:probeOllamaAuthProxyHealth`); the
+  // `|| "unreachable"` fallback only applies when an upstream forgot to set
+  // one. Don't infer the failure mode here — preserve what the probe said. (#3265)
   console.log(
     `    ${label}: ${RD}${probe.failureLabel || "unreachable"}${R} (${probe.endpoint})`,
   );
