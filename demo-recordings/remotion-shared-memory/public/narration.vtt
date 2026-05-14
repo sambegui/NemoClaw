@@ -1,0 +1,112 @@
+1
+00:00:00,100 --> 00:00:03,583
+This demo shows OpenShell shared agent memory.
+
+2
+00:00:03,533 --> 00:00:10,168
+NemoClaw is the reference integration environment, but the reusable capability is the OpenShell memory driver.
+
+3
+00:00:10,168 --> 00:00:13,665
+We start Redis as the MVP storage backend.
+
+4
+00:00:13,665 --> 00:00:18,882
+Redis gives us a durable stream quickly, but it stays behind the platform boundary.
+
+5
+00:00:18,882 --> 00:00:24,182
+Next, OpenShell starts the memory driver and exposes slash v one slash memory.
+
+6
+00:00:24,182 --> 00:00:27,764
+OpenClaw and Hermes do not get Redis credentials.
+
+7
+00:00:27,764 --> 00:00:31,382
+They only get the OpenShell endpoint and a workspace scope.
+
+8
+00:00:31,382 --> 00:00:36,574
+Here is the real-world scenario: release validation for the shared-memory MVP.
+
+9
+00:00:36,574 --> 00:00:40,420
+Hermes subscribes to release updates before it starts work.
+
+10
+00:00:40,420 --> 00:00:44,879
+In this MVP, subscribe creates a durable filtered inbox.
+
+11
+00:00:44,879 --> 00:00:50,432
+The current delivery mode is pull, so the agent later pulls pending events from that inbox.
+
+12
+00:00:50,432 --> 00:00:53,401
+Now OpenClaw finds a release blocker.
+
+13
+00:00:53,401 --> 00:00:59,615
+The shared-memory MVP should not be marked demo-ready until the Hermes adapter smoke path has been validated.
+
+14
+00:00:59,615 --> 00:01:03,653
+OpenClaw publishes that as release dot blocker dot detected.
+
+15
+00:01:03,653 --> 00:01:09,771
+The event includes a subject, structured content, provenance, visibility, and a schema version.
+
+16
+00:01:09,771 --> 00:01:13,653
+OpenShell accepts the event and appends it to Redis Streams.
+
+17
+00:01:13,653 --> 00:01:20,000
+Notice the boundary: Redis stores the stream, but the agent contract remains the OpenShell memory API.
+
+18
+00:01:20,000 --> 00:01:24,639
+Hermes pulls its subscription inbox and receives the OpenClaw blocker.
+
+19
+00:01:24,639 --> 00:01:29,326
+This is why the demo has a poll command: it is not an extra query step.
+
+20
+00:01:29,326 --> 00:01:32,680
+It is pull delivery for a durable subscription.
+
+21
+00:01:32,680 --> 00:01:39,326
+Future OpenShell drivers can add webhooks, server-sent events, or WebSockets without changing the event schema.
+
+22
+00:01:39,326 --> 00:01:43,533
+Hermes acknowledges the blocker so it will not be replayed forever.
+
+23
+00:01:43,533 --> 00:01:47,536
+Hermes then publishes release dot remediation dot planned.
+
+24
+00:01:47,536 --> 00:01:58,413
+The remediation plan says it will run the Hermes adapter smoke path through OpenShell, validate subscribe, pull, acknowledge, and response publishing, and keep Redis hidden behind the driver boundary.
+
+25
+00:01:58,413 --> 00:02:02,055
+Finally, OpenClaw queries the remediation plan.
+
+26
+00:02:02,055 --> 00:02:07,235
+The release handoff is closed without either agent knowing the other's implementation details.
+
+27
+00:02:07,235 --> 00:02:12,031
+That is the value proposition: a plug-in shared memory driver for agents.
+
+28
+00:02:12,031 --> 00:02:18,846
+It is durable, scoped, polyglot, auditable, and reusable for future agents beyond OpenClaw and Hermes.
+

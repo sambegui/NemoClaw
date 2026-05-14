@@ -324,6 +324,7 @@ const providerModels: typeof import("./inference/provider-models") = require("./
 const sandboxCreateStream: typeof import("./sandbox/create-stream") = require("./sandbox/create-stream");
 const validationRecovery: typeof import("./validation-recovery") = require("./validation-recovery");
 const webSearch: typeof import("./inference/web-search") = require("./inference/web-search");
+const sharedMemory: typeof import("./shared-memory") = require("./shared-memory");
 const openshellInstallFlow: typeof import("./onboard/openshell-install") =
   require("./onboard/openshell-install");
 const openshellPinFlow: typeof import("./onboard/openshell-pin") =
@@ -331,11 +332,11 @@ const openshellPinFlow: typeof import("./onboard/openshell-pin") =
 const sandboxCreateFailureDiagnostics: typeof import("./onboard/sandbox-create-failure") =
   require("./onboard/sandbox-create-failure");
 
-import type { AgentDefinition } from "./agent/defs";
 import type { CurlProbeResult } from "./adapters/http/probe";
-import type { GatewayReuseState } from "./state/gateway";
+import type { AgentDefinition } from "./agent/defs";
 import type { GatewayInference } from "./inference/config";
 import type { GpuInfo, ValidationResult } from "./inference/local";
+import type { WebSearchConfig } from "./inference/web-search";
 import {
   hydrateMessagingChannelConfig,
   type MessagingChannelConfig,
@@ -344,30 +345,31 @@ import {
   readMessagingChannelConfigFromEnv,
   sanitizeMessagingChannelConfig,
 } from "./messaging-channel-config";
-import type { ContainerRuntime } from "./platform";
-import type { Session, SessionUpdates } from "./state/onboard-session";
-import type {
-  ModelCatalogFetchResult,
-  ModelValidationResult,
-  ProbeResult,
-  ValidationFailureLike,
-} from "./onboard/types";
-import { listChannels } from "./sandbox/channels";
 import { streamGatewayStart } from "./onboard/gateway";
 import { reportGpuPassthroughRecovery } from "./onboard/gpu-recovery";
-import type { StreamSandboxCreateResult } from "./sandbox/create-stream";
-import type { SandboxEntry } from "./state/registry";
-import type { BackupResult } from "./state/sandbox";
-import type { TierDefinition, TierPreset } from "./policy/tiers";
-import type { SandboxCreateFailure, ValidationClassification } from "./validation";
-import type { ProbeRecovery } from "./validation-recovery";
-import type { WebSearchConfig } from "./inference/web-search";
 import type {
   DockerDriverBinaryOverrides,
   OpenShellInstallDeps,
   OpenShellInstallResult,
 } from "./onboard/openshell-install";
 import type { SelectionDrift } from "./onboard/selection-drift";
+import type {
+  ModelCatalogFetchResult,
+  ModelValidationResult,
+  ProbeResult,
+  ValidationFailureLike,
+} from "./onboard/types";
+import type { ContainerRuntime } from "./platform";
+import type { TierDefinition, TierPreset } from "./policy/tiers";
+import { listChannels } from "./sandbox/channels";
+import type { StreamSandboxCreateResult } from "./sandbox/create-stream";
+import type { SharedMemoryRuntimeConfig } from "./shared-memory";
+import type { GatewayReuseState } from "./state/gateway";
+import type { Session, SessionUpdates } from "./state/onboard-session";
+import type { SandboxEntry } from "./state/registry";
+import type { BackupResult } from "./state/sandbox";
+import type { SandboxCreateFailure, ValidationClassification } from "./validation";
+import type { ProbeRecovery } from "./validation-recovery";
 
 const EXPERIMENTAL = process.env.NEMOCLAW_EXPERIMENTAL === "1";
 const USE_COLOR = !process.env.NO_COLOR && !!process.stdout.isTTY;
@@ -3199,13 +3201,20 @@ function getDockerDriverGatewayEnv(
   versionOutput: string | null = null,
   platform: NodeJS.Platform = process.platform,
 ): Record<string, string> {
-  return dockerDriverGatewayEnv.buildDockerDriverGatewayEnv({
+  const gatewayEnv = dockerDriverGatewayEnv.buildDockerDriverGatewayEnv({
     platform,
     stateDir: getDockerDriverGatewayStateDir(),
     dockerNetworkName: process.env.OPENSHELL_DOCKER_NETWORK_NAME || "openshell-docker",
     getDockerSupervisorImage: () => getOpenShellDockerSupervisorImage(versionOutput),
     resolveSandboxBin: resolveOpenShellSandboxBinary,
   });
+  const sharedMemoryConfig = getSharedMemoryConfigOrExit();
+  if (!sharedMemoryConfig) return gatewayEnv;
+  return {
+    ...gatewayEnv,
+    OPENSHELL_MEMORY_BACKEND: sharedMemoryConfig.backend,
+    OPENSHELL_MEMORY_REDIS_URL: sharedMemoryConfig.redisUrl,
+  };
 }
 
 function isPidAlive(pid: number): boolean {
@@ -4850,6 +4859,16 @@ function hasSandboxGpuDrift(sandboxName: string, config: SandboxGpuConfig): bool
   );
 }
 
+function getSharedMemoryConfigOrExit(): SharedMemoryRuntimeConfig | null {
+  try {
+    return sharedMemory.resolveSharedMemoryConfig(process.env);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`  Shared memory configuration error: ${message}`);
+    process.exit(1);
+  }
+}
+
 function updateReusedSandboxMetadata(
   sandboxName: string,
   agent: AgentDefinition | null | undefined,
@@ -4858,15 +4877,18 @@ function updateReusedSandboxMetadata(
   dashboardPort: number,
   selectionVerified = true,
   sandboxGpuConfig: SandboxGpuConfig | null = null,
+  sharedMemoryConfig: SharedMemoryRuntimeConfig | null = null,
 ): void {
   const existingEntry = registry.getSandbox(sandboxName);
   const agentVersionKnown = existingEntry?.agentVersion !== null;
   const selectionUpdates = selectionVerified ? { model, provider } : {};
+  const sharedMemoryMetadata = sharedMemory.toSharedMemoryRegistryMetadata(sharedMemoryConfig);
   registry.updateSandbox(sandboxName, {
     ...selectionUpdates,
     dashboardPort,
     ...getSandboxAgentRegistryFields(agent, agentVersionKnown),
     ...(sandboxGpuConfig ? getSandboxRuntimeRegistryFields(sandboxGpuConfig) : {}),
+    ...(sharedMemoryMetadata ? { sharedMemory: sharedMemoryMetadata } : { sharedMemory: undefined }),
   });
   registry.setDefault(sandboxName);
 }
@@ -5038,6 +5060,11 @@ async function createSandbox(
   );
   const effectiveSandboxGpuConfig =
     sandboxGpuConfig ?? resolveSandboxGpuConfig(gpu, { flag: null, device: null });
+  const sharedMemoryConfig = getSharedMemoryConfigOrExit();
+  const sharedMemoryMetadata = sharedMemory.toSharedMemoryRegistryMetadata(sharedMemoryConfig);
+  if (sharedMemoryConfig) {
+    note(`  Shared memory: ${sharedMemory.formatSharedMemorySummary(sharedMemoryConfig)}`);
+  }
 
   // Port priority: --control-ui-port > CHAT_UI_URL env > registry (resume) > agent.forwardPort > default
   // Pre-resolve port availability so CHAT_UI_URL baked into the Dockerfile,
@@ -5282,6 +5309,10 @@ async function createSandbox(
     const selectionDrift = getSelectionDrift(sandboxName, provider, model, { runOpenshell });
     const confirmedSelectionDrift = selectionDrift.changed && !selectionDrift.unknown;
     const sandboxGpuDrift = hasSandboxGpuDrift(sandboxName, effectiveSandboxGpuConfig);
+    const sharedMemoryDrift = sharedMemory.hasSharedMemoryRegistryDrift(
+      registry.getSandbox(sandboxName)?.sharedMemory,
+      sharedMemoryMetadata,
+    );
 
     // Detect whether any messaging credential has been rotated since the
     // sandbox was created. Provider credentials are resolved once at sandbox
@@ -5295,6 +5326,7 @@ async function createSandbox(
       !recreateForAgentDrift &&
       !needsProviderMigration &&
       !sandboxGpuDrift &&
+      !sharedMemoryDrift &&
       !credentialRotation.changed
     ) {
       // Guard against reusing a CPU-only sandbox when GPU passthrough is enabled.
@@ -5348,6 +5380,7 @@ async function createSandbox(
               reusedPort,
               !selectionDrift.unknown,
               effectiveSandboxGpuConfig,
+              sharedMemoryConfig,
             );
             return sandboxName;
           }
@@ -5385,6 +5418,7 @@ async function createSandbox(
               reusedPort2,
               !selectionDrift.unknown,
               effectiveSandboxGpuConfig,
+              sharedMemoryConfig,
             );
             return sandboxName;
           }
@@ -5431,12 +5465,13 @@ async function createSandbox(
             sandboxName,
             agent,
             model,
-          provider,
-          reusedPort3,
-          !selectionDrift.unknown,
-          effectiveSandboxGpuConfig,
-        );
-        return sandboxName;
+            provider,
+            reusedPort3,
+            !selectionDrift.unknown,
+            effectiveSandboxGpuConfig,
+            sharedMemoryConfig,
+          );
+          return sandboxName;
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -5461,6 +5496,7 @@ async function createSandbox(
           reusedPort4,
           !selectionDrift.unknown,
           effectiveSandboxGpuConfig,
+          sharedMemoryConfig,
         );
         return sandboxName;
       }
@@ -5477,6 +5513,8 @@ async function createSandbox(
       note(`  Sandbox '${sandboxName}' exists — recreating to apply model/provider change.`);
     } else if (sandboxGpuDrift) {
       note(`  Sandbox '${sandboxName}' exists — recreating to apply sandbox GPU settings.`);
+    } else if (sharedMemoryDrift) {
+      note(`  Sandbox '${sandboxName}' exists — recreating to apply shared memory settings.`);
     } else if (credentialRotation.changed) {
       // Message already printed above during backup.
     } else if (existingSandboxState === "ready") {
@@ -5850,6 +5888,11 @@ async function createSandbox(
   if (sandboxProxyPort && isValidProxyPort(sandboxProxyPort)) {
     envArgs.push(formatEnvAssignment("NEMOCLAW_PROXY_PORT", sandboxProxyPort));
   }
+  for (const [key, value] of Object.entries(
+    sharedMemory.buildSharedMemorySandboxEnv(sharedMemoryConfig),
+  )) {
+    envArgs.push(formatEnvAssignment(key, value));
+  }
   if (webSearchConfig?.fetchEnabled) {
     const braveKey =
       getCredential(webSearch.BRAVE_API_KEY_ENV) || process.env[webSearch.BRAVE_API_KEY_ENV];
@@ -6105,6 +6148,7 @@ async function createSandbox(
     messagingChannelConfig: messagingChannelConfig || undefined,
     disabledChannels: disabledChannels.length > 0 ? [...disabledChannels] : undefined,
     dashboardPort: actualDashboardPort,
+    sharedMemory: sharedMemoryMetadata,
   });
   registry.setDefault(sandboxName);
 
@@ -10573,11 +10617,19 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const sandboxGpuConfigChanged = sandboxName
       ? hasSandboxGpuDrift(sandboxName, sandboxGpuConfig)
       : false;
+    const sharedMemoryConfig = getSharedMemoryConfigOrExit();
+    const sharedMemoryConfigChanged = sandboxName
+      ? sharedMemory.hasSharedMemoryRegistryDrift(
+          registry.getSandbox(sandboxName)?.sharedMemory,
+          sharedMemory.toSharedMemoryRegistryMetadata(sharedMemoryConfig),
+        )
+      : false;
     const resumeSandbox =
       resume &&
       !webSearchConfigChanged &&
       !telegramConfigChanged &&
       !sandboxGpuConfigChanged &&
+      !sharedMemoryConfigChanged &&
       !messagingChannelConfigChanged &&
       session?.steps?.sandbox?.status === "complete" &&
       sandboxReuseState === "ready";
@@ -10606,6 +10658,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           }
         } else if (messagingChannelConfigChanged) {
           note("  [resume] Messaging channel configuration changed; recreating sandbox.");
+          if (sandboxName) {
+            registry.removeSandbox(sandboxName);
+          }
+        } else if (sharedMemoryConfigChanged) {
+          note("  [resume] Shared memory configuration changed; recreating sandbox.");
           if (sandboxName) {
             registry.removeSandbox(sandboxName);
           }

@@ -92,6 +92,32 @@ describe("inventory commands", () => {
     expect(getLiveInference).not.toHaveBeenCalled();
   });
 
+  it("returns shared-memory metadata for JSON inventory consumers", async () => {
+    const inventory = await getSandboxInventory({
+      recoverRegistryEntries: async () => ({
+        sandboxes: [
+          {
+            name: "alpha",
+            sharedMemory: {
+              backend: "redis",
+              endpoint: "http://memory.local/v1",
+              scope: "workspace:nemoclaw",
+            },
+          },
+        ],
+        defaultSandbox: "alpha",
+      }),
+      getLiveInference: () => null,
+      loadLastSession: () => null,
+    });
+
+    expect(inventory.sandboxes[0]?.sharedMemory).toEqual({
+      backend: "redis",
+      endpoint: "http://memory.local/v1",
+      scope: "workspace:nemoclaw",
+    });
+  });
+
   it("prints the empty-state onboarding hint when no sandboxes exist", async () => {
     const lines: string[] = [];
     await listSandboxesCommand({
@@ -610,6 +636,33 @@ describe("inventory commands", () => {
 
     expect(lines).toContain("      Inference: nvidia-prod / nvidia/nemotron-3-super-120b-a12b");
     expect(lines).toContain("      Inference: ollama-local / qwen2.5:7b");
+  });
+
+  it("emits shared-memory configuration under sandbox status rows", () => {
+    const lines: string[] = [];
+    showStatusCommand({
+      listSandboxes: () => ({
+        sandboxes: [
+          {
+            name: "alpha",
+            model: "m",
+            sharedMemory: {
+              backend: "redis",
+              endpoint: "http://memory.local/v1",
+              scope: "workspace:nemoclaw",
+            },
+          },
+        ],
+        defaultSandbox: "alpha",
+      }),
+      getLiveInference: () => null,
+      showServiceStatus: vi.fn(),
+      log: (message = "") => lines.push(message),
+    });
+
+    expect(lines).toContain(
+      "      Shared memory: redis scope=workspace:nemoclaw endpoint=http://memory.local/v1",
+    );
   });
 
   it("prefers live gateway provider for the default sandbox in the Inference line (#2604)", () => {

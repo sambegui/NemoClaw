@@ -363,6 +363,7 @@ OpenClaw Controls <security/openclaw-controls>
 Architecture <reference/architecture>
 CLI Commands Reference <reference/commands>
 CLI Selection Guide <reference/cli-selection-guide>
+Shared Agent Memory MVP <reference/shared-memory-mvp>
 Network Policies <reference/network-policies>
 Troubleshooting <reference/troubleshooting>
 ```

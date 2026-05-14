@@ -1,0 +1,23 @@
+This demo shows OpenShell shared agent memory. NemoClaw is the reference integration environment, but the reusable capability is the OpenShell memory driver.
+
+We start Redis as the MVP storage backend. Redis gives us a durable stream quickly, but it stays behind the platform boundary.
+
+Next, OpenShell starts the memory driver and exposes slash v one slash memory. OpenClaw and Hermes do not get Redis credentials. They only get the OpenShell endpoint and a workspace scope.
+
+Here is the real-world scenario: release validation for the shared-memory MVP. Hermes subscribes to release updates before it starts work. In this MVP, subscribe creates a durable filtered inbox. The current delivery mode is pull, so the agent later pulls pending events from that inbox.
+
+Now OpenClaw finds a release blocker. The shared-memory MVP should not be marked demo-ready until the Hermes adapter smoke path has been validated.
+
+OpenClaw publishes that as release dot blocker dot detected. The event includes a subject, structured content, provenance, visibility, and a schema version.
+
+OpenShell accepts the event and appends it to Redis Streams. Notice the boundary: Redis stores the stream, but the agent contract remains the OpenShell memory API.
+
+Hermes pulls its subscription inbox and receives the OpenClaw blocker. This is why the demo has a poll command: it is not an extra query step. It is pull delivery for a durable subscription. Future OpenShell drivers can add webhooks, server-sent events, or WebSockets without changing the event schema.
+
+Hermes acknowledges the blocker so it will not be replayed forever.
+
+Hermes then publishes release dot remediation dot planned. The remediation plan says it will run the Hermes adapter smoke path through OpenShell, validate subscribe, pull, acknowledge, and response publishing, and keep Redis hidden behind the driver boundary.
+
+Finally, OpenClaw queries the remediation plan. The release handoff is closed without either agent knowing the other's implementation details.
+
+That is the value proposition: a plug-in shared memory driver for agents. It is durable, scoped, polyglot, auditable, and reusable for future agents beyond OpenClaw and Hermes.

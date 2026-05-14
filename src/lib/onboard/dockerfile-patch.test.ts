@@ -30,6 +30,7 @@ afterEach(() => {
   }
   delete process.env.NEMOCLAW_PROXY_HOST;
   delete process.env.NEMOCLAW_PROXY_PORT;
+  delete process.env.NEMOCLAW_SHARED_MEMORY;
 });
 
 describe("dockerfile patch helpers", () => {
@@ -69,6 +70,7 @@ describe("dockerfile patch helpers", () => {
         "ARG NEMOCLAW_PROXY_HOST=old",
         "ARG NEMOCLAW_PROXY_PORT=old",
         "ARG NEMOCLAW_WEB_SEARCH_ENABLED=0",
+        "ARG NEMOCLAW_SHARED_MEMORY_ENABLED=0",
         "ARG NEMOCLAW_DISABLE_DEVICE_AUTH=0",
         "ARG NEMOCLAW_MESSAGING_CHANNELS_B64=old",
         "ARG NEMOCLAW_MESSAGING_ALLOWED_IDS_B64=old",
@@ -105,9 +107,33 @@ describe("dockerfile patch helpers", () => {
     expect(patched).toContain("ARG NEMOCLAW_PROXY_HOST=host.docker.internal");
     expect(patched).toContain("ARG NEMOCLAW_PROXY_PORT=3128");
     expect(patched).toContain("ARG NEMOCLAW_WEB_SEARCH_ENABLED=1");
+    expect(patched).toContain("ARG NEMOCLAW_SHARED_MEMORY_ENABLED=0");
     expect(patched).toContain("ARG NEMOCLAW_DISABLE_DEVICE_AUTH=1");
     expect(patched).not.toContain("ARG NEMOCLAW_MESSAGING_CHANNELS_B64=old");
     expect(patched).not.toContain("ARG NEMOCLAW_TELEGRAM_CONFIG_B64=old");
+  });
+
+  it("enables the OpenClaw shared-memory adapter at image build time when configured", () => {
+    process.env.NEMOCLAW_SHARED_MEMORY = "redis";
+    const dockerfilePath = dockerfileWith(
+      [
+        "ARG NEMOCLAW_MODEL=old",
+        "ARG NEMOCLAW_PROVIDER_KEY=old",
+        "ARG NEMOCLAW_PRIMARY_MODEL_REF=old",
+        "ARG CHAT_UI_URL=old",
+        "ARG NEMOCLAW_INFERENCE_BASE_URL=old",
+        "ARG NEMOCLAW_INFERENCE_API=old",
+        "ARG NEMOCLAW_INFERENCE_COMPAT_B64=old",
+        "ARG NEMOCLAW_BUILD_ID=old",
+        "ARG NEMOCLAW_DARWIN_VM_COMPAT=0",
+        "ARG NEMOCLAW_SHARED_MEMORY_ENABLED=0",
+      ].join("\n"),
+    );
+
+    patchStagedDockerfile(dockerfilePath, "custom-model", "https://chat.example", "build-1");
+
+    const patched = fs.readFileSync(dockerfilePath, "utf-8");
+    expect(patched).toContain("ARG NEMOCLAW_SHARED_MEMORY_ENABLED=1");
   });
 
   it("uses the shared sandbox inference mapping", () => {

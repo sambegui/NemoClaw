@@ -261,6 +261,17 @@ describe("generate-openclaw-config.py: config generation", () => {
     expect(config.tools?.web).toBeUndefined();
   });
 
+  it("loads the OpenClaw shared-memory plugin only when shared memory is enabled", () => {
+    const disabled = runConfigScript();
+    expect(disabled.plugins.entries["nemoclaw-shared-memory"]).toBeUndefined();
+
+    const enabled = runConfigScript({ NEMOCLAW_SHARED_MEMORY_ENABLED: "1" });
+    expect(enabled.plugins.entries["nemoclaw-shared-memory"]).toEqual({ enabled: true });
+    expect(enabled.plugins.load.paths).toContain(
+      "/usr/local/share/nemoclaw/openclaw-plugins/shared-memory",
+    );
+  });
+
   it("propagates agent timeout", () => {
     const config = runConfigScript({ NEMOCLAW_AGENT_TIMEOUT: "300" });
     expect(config.agents.defaults.timeoutSeconds).toBe(300);

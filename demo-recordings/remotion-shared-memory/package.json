@@ -1,0 +1,24 @@
+{
+  "private": true,
+  "name": "nemoclaw-shared-memory-demo-video",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "render": "remotion render src/index.ts SharedMemoryDemo ../shared-memory-demo-openclaw-hermes.mp4 --overwrite --codec=h264 --pixel-format=yuv420p --browser-executable=/home/ubuntu/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome",
+    "still": "remotion still src/index.ts SharedMemoryDemo ../shared-memory-demo-openclaw-hermes.png --frame=2974 --overwrite --browser-executable=/home/ubuntu/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.461",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.461",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "25.8.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "playwright-chromium": "1.60.0"
+  }
+}

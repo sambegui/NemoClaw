@@ -9,6 +9,7 @@ import type { WebSearchConfig } from "../inference/web-search";
 const SANDBOX_BASE_IMAGE = "ghcr.io/nvidia/nemoclaw/sandbox-base";
 const PROXY_HOST_RE = /^[A-Za-z0-9._-]+$/;
 const POSITIVE_INT_RE = /^[1-9][0-9]*$/;
+const DISABLED_SHARED_MEMORY_VALUES = new Set(["", "0", "false", "off", "none", "disabled"]);
 
 type LooseObject = Record<string, unknown>;
 
@@ -22,6 +23,11 @@ function sanitizeDockerArg(value: unknown): string {
 
 function encodeSanitizedDockerJsonArg(value: unknown): string {
   return sanitizeDockerArg(encodeDockerJsonArg(value));
+}
+
+function isSharedMemoryBuildEnabled(): boolean {
+  const value = String(process.env.NEMOCLAW_SHARED_MEMORY || "").trim().toLowerCase();
+  return !DISABLED_SHARED_MEMORY_VALUES.has(value);
 }
 
 export function isValidProxyHost(value: string): boolean {
@@ -194,6 +200,10 @@ export function patchStagedDockerfile(
   dockerfile = dockerfile.replace(
     /^ARG NEMOCLAW_WEB_SEARCH_ENABLED=.*$/m,
     `ARG NEMOCLAW_WEB_SEARCH_ENABLED=${sanitizeDockerArg(webSearchConfig ? "1" : "0")}`,
+  );
+  dockerfile = dockerfile.replace(
+    /^ARG NEMOCLAW_SHARED_MEMORY_ENABLED=.*$/m,
+    `ARG NEMOCLAW_SHARED_MEMORY_ENABLED=${sanitizeDockerArg(isSharedMemoryBuildEnabled() ? "1" : "0")}`,
   );
   // Onboard flow expects immediate dashboard access without device pairing,
   // so disable device auth for images built during onboard (see #1217).

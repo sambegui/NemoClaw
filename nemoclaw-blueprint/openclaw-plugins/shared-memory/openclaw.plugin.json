@@ -1,0 +1,11 @@
+{
+  "id": "nemoclaw-shared-memory",
+  "name": "NemoClaw Shared Memory",
+  "version": "0.1.0",
+  "description": "Adds an OpenClaw tool for publishing, querying, subscribing to, polling, and acknowledging OpenShell shared-memory events.",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

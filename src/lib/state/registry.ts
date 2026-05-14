@@ -3,10 +3,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-
-import { ensureConfigDir, readConfigFile, writeConfigFile } from "./config-io";
 import { isErrnoException } from "../core/errno";
 import type { MessagingChannelConfig } from "../messaging-channel-config";
+import type { SharedMemoryRegistryMetadata } from "../shared-memory";
+import { ensureConfigDir, readConfigFile, writeConfigFile } from "./config-io";
 
 export interface CustomPolicyEntry {
   name: string;
@@ -39,6 +39,7 @@ export interface SandboxEntry {
   messagingChannelConfig?: MessagingChannelConfig;
   disabledChannels?: string[];
   dashboardPort?: number | null;
+  sharedMemory?: SharedMemoryRegistryMetadata;
 }
 
 export interface SandboxRegistry {
@@ -219,6 +220,7 @@ export function registerSandbox(entry: SandboxEntry): void {
           ? [...entry.disabledChannels]
           : undefined,
       dashboardPort: entry.dashboardPort ?? undefined,
+      sharedMemory: entry.sharedMemory ? { ...entry.sharedMemory } : undefined,
     };
     if (!data.defaultSandbox) {
       data.defaultSandbox = entry.name;

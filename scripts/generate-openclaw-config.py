@@ -34,6 +34,7 @@ Environment variables:
     NEMOCLAW_PROXY_HOST                 Egress proxy host (default: 10.200.0.1)
     NEMOCLAW_PROXY_PORT                 Egress proxy port (default: 3128)
     NEMOCLAW_WEB_SEARCH_ENABLED         Set to "1" to enable web search tools
+    NEMOCLAW_SHARED_MEMORY_ENABLED     Set to "1" to load the OpenClaw shared-memory adapter
 """
 
 from __future__ import annotations
@@ -54,6 +55,12 @@ MODEL_SETUP_EFFECT_KEYS = {
 DEFAULT_DASHBOARD_PORT = 18789
 MIN_DASHBOARD_PORT = 1024
 MAX_DASHBOARD_PORT = 65535
+SHARED_MEMORY_OPENCLAW_PLUGIN = {
+    "id": "nemoclaw-shared-memory",
+    "path": "openclaw-plugins/shared-memory",
+    "loadPath": "/usr/local/share/nemoclaw/openclaw-plugins/shared-memory",
+}
+DISABLED_SHARED_MEMORY_VALUES = {"", "0", "false", "off", "none", "disabled"}
 
 
 def _coerce_positive_int(env: dict, name: str, default: int) -> int:
@@ -338,6 +345,19 @@ def _apply_openclaw_setup_effects(
         openclaw_plugins.append(plugin)
 
 
+def _shared_memory_enabled(env: dict) -> bool:
+    value = (env.get("NEMOCLAW_SHARED_MEMORY_ENABLED") or env.get("NEMOCLAW_SHARED_MEMORY") or "")
+    return value.strip().lower() not in DISABLED_SHARED_MEMORY_VALUES
+
+
+def _add_openclaw_plugin(openclaw_plugins: list[dict], plugin_ids: set[str], plugin: dict) -> None:
+    plugin_id = plugin["id"]
+    if plugin_id in plugin_ids:
+        return
+    plugin_ids.add(plugin_id)
+    openclaw_plugins.append(plugin)
+
+
 def build_config(env: dict | None = None) -> dict:
     """Build the complete openclaw config dict from environment variables.
 
@@ -420,6 +440,10 @@ def build_config(env: dict | None = None) -> dict:
     for setup in model_specific_setups:
         _apply_openclaw_setup_effects(
             setup, inference_compat, openclaw_plugins, openclaw_plugin_ids
+        )
+    if _shared_memory_enabled(env):
+        _add_openclaw_plugin(
+            openclaw_plugins, openclaw_plugin_ids, SHARED_MEMORY_OPENCLAW_PLUGIN
         )
 
     msg_channels = json.loads(

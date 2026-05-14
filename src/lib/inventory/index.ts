@@ -4,6 +4,10 @@
 import { CLI_NAME } from "../cli/branding";
 import type { GatewayInference } from "../inference/config";
 import { redactFull } from "../security/redact";
+import {
+  formatSharedMemorySummary,
+  type SharedMemoryRegistryMetadata,
+} from "../shared-memory";
 
 export interface SandboxEntry {
   name: string;
@@ -21,6 +25,7 @@ export interface SandboxEntry {
   messagingChannels?: string[] | null;
   agent?: string | null;
   dashboardPort?: number | null;
+  sharedMemory?: SharedMemoryRegistryMetadata | null;
 }
 
 export interface MessagingBridgeHealth {
@@ -66,6 +71,7 @@ export interface SandboxInventoryRow {
   policies: string[];
   agent: string | null;
   dashboardPort?: number | null;
+  sharedMemory?: SharedMemoryRegistryMetadata | null;
   isDefault: boolean;
   activeSessionCount: number | null;
   connected: boolean;
@@ -137,6 +143,7 @@ export interface StatusSandboxRow {
   policies: string[];
   agent: string | null;
   dashboardPort?: number | null;
+  sharedMemory?: SharedMemoryRegistryMetadata | null;
   isDefault: boolean;
 }
 
@@ -163,6 +170,16 @@ function safeStatusString(value: string | null | undefined): string | null {
   return redactFull(value);
 }
 
+function normalizeSharedMemoryMetadata(
+  metadata: SharedMemoryRegistryMetadata | null | undefined,
+): SharedMemoryRegistryMetadata | null {
+  if (!metadata) return null;
+  const scope = safeStatusString(metadata.scope);
+  const endpoint = safeStatusString(metadata.endpoint);
+  if (metadata.backend !== "redis" || !scope || !endpoint) return null;
+  return { backend: "redis", scope, endpoint };
+}
+
 function buildSandboxInventoryRow(
   sandbox: SandboxEntry,
   defaultSandbox: string | null,
@@ -173,6 +190,7 @@ function buildSandboxInventoryRow(
     typeof sandbox.sandboxGpuEnabled === "boolean"
       ? sandbox.sandboxGpuEnabled
       : sandbox.gpuEnabled === true;
+  const sharedMemory = normalizeSharedMemoryMetadata(sandbox.sharedMemory);
 
   return {
     name: sandbox.name,
@@ -188,6 +206,7 @@ function buildSandboxInventoryRow(
     policies: Array.isArray(sandbox.policies) ? sandbox.policies : [],
     agent: sandbox.agent || null,
     ...(sandbox.dashboardPort != null ? { dashboardPort: sandbox.dashboardPort } : {}),
+    ...(sharedMemory ? { sharedMemory } : {}),
     isDefault: sandbox.name === defaultSandbox,
     activeSessionCount,
     connected: activeSessionCount !== null && activeSessionCount > 0,
@@ -292,6 +311,9 @@ export function renderSandboxInventoryText(
     if (sandbox.dashboardPort != null) {
       log(`      dashboard: http://127.0.0.1:${sandbox.dashboardPort}/`);
     }
+    if (sandbox.sharedMemory) {
+      log(`      shared memory: ${formatSharedMemorySummary(sandbox.sharedMemory)}`);
+    }
   }
   log("");
   log("  * = default sandbox");
@@ -321,6 +343,7 @@ function buildStatusSandboxRow(
     typeof sandbox.sandboxGpuEnabled === "boolean"
       ? sandbox.sandboxGpuEnabled
       : sandbox.gpuEnabled === true;
+  const sharedMemory = normalizeSharedMemoryMetadata(sandbox.sharedMemory);
   return {
     name: safeStatusString(sandbox.name) || sandbox.name,
     model: safeStatusString(liveModel || sandbox.model || null),
@@ -339,6 +362,7 @@ function buildStatusSandboxRow(
       : [],
     agent: safeStatusString(sandbox.agent || null),
     ...(dashboardPort != null ? { dashboardPort } : {}),
+    ...(sharedMemory ? { sharedMemory } : {}),
     isDefault,
   };
 }
@@ -425,6 +449,10 @@ export function showStatusCommand(deps: ShowStatusCommandDeps): void {
       if (provider || model) {
         const parts = [provider, model].filter(Boolean).join(" / ");
         log(`      Inference: ${parts}`);
+      }
+      const sharedMemory = normalizeSharedMemoryMetadata(sb.sharedMemory);
+      if (sharedMemory) {
+        log(`      Shared memory: ${formatSharedMemorySummary(sharedMemory)}`);
       }
       if (deps.getActiveSessionCount) {
         const count = deps.getActiveSessionCount(sb.name);

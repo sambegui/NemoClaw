@@ -185,6 +185,30 @@ describe("registry", () => {
     });
   });
 
+  it("stores shared memory metadata at registration time", () => {
+    registry.registerSandbox({
+      name: "shared-memory",
+      sharedMemory: {
+        backend: "redis",
+        endpoint: "http://memory.local/v1",
+        scope: "workspace:nemoclaw",
+      },
+    });
+
+    const sb = registry.getSandbox("shared-memory");
+    expect(sb.sharedMemory).toEqual({
+      backend: "redis",
+      endpoint: "http://memory.local/v1",
+      scope: "workspace:nemoclaw",
+    });
+    const data = JSON.parse(fs.readFileSync(regFile, "utf-8"));
+    expect(data.sandboxes["shared-memory"].sharedMemory).toEqual({
+      backend: "redis",
+      endpoint: "http://memory.local/v1",
+      scope: "workspace:nemoclaw",
+    });
+  });
+
   it("imageTag defaults to null when not provided", () => {
     registry.registerSandbox({ name: "no-tag" });
     const sb = registry.getSandbox("no-tag");
