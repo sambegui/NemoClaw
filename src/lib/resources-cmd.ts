@@ -15,6 +15,8 @@ import * as path from "path";
 import { spawnSync, execSync } from "child_process";
 import * as YAML from "yaml";
 
+import { dockerSpawnSync } from "./adapters/docker";
+
 const GATEWAY_NAME = "nemoclaw";
 
 function getGatewayContainer(): string {
@@ -70,11 +72,12 @@ export function getHardwareResources(): HardwareResources {
   let allocatableMemMB: number | undefined;
   try {
     const container = getGatewayContainer();
-    const result = spawnSync("docker", [
-      "exec", container, "kubectl", "get", "nodes", "-o", "json",
-    ], { encoding: "utf-8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"] });
+    const result = dockerSpawnSync(
+      ["exec", container, "kubectl", "get", "nodes", "-o", "json"],
+      { encoding: "utf-8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"] },
+    );
     if (result.status === 0 && result.stdout) {
-      const nodes = JSON.parse(result.stdout);
+      const nodes = JSON.parse(String(result.stdout));
       const alloc = nodes.items?.[0]?.status?.allocatable;
       if (alloc) {
         allocatableCpu = alloc.cpu;

@@ -11,6 +11,7 @@ import { getAgentBranding, type AgentBranding } from "../../cli/branding";
 import { sleepMs } from "../../core/wait";
 import { defaultUninstallPaths, NEMOCLAW_OLLAMA_MODELS, NEMOCLAW_PROVIDERS, type UninstallPaths } from "../../domain/uninstall/paths";
 import { buildUninstallPlan, type UninstallPlan } from "../../domain/uninstall/plan";
+import { stopStaleDashboardListeners } from "../../onboard/stale-gateway-cleanup";
 import { classifyShimPath, type FileSystemDeps } from "./plan";
 
 export interface RunResult {
@@ -556,6 +557,14 @@ function executePlan(plan: UninstallPlan, paths: UninstallPaths, options: Uninst
       stopHelperServices(paths, runtime);
       removeGlob(paths.helperServiceGlob, runtime);
       stopMatchingPids(`openshell.*forward.*${runtime.env.NEMOCLAW_DASHBOARD_PORT || "18789"}`, runtime, "local OpenShell forward processes");
+      stopStaleDashboardListeners({
+        run: runtime.run,
+        kill: runtime.kill,
+        env: runtime.env,
+        log: runtime.log,
+        warn: runtime.warn,
+        commandExists: runtime.commandExists,
+      });
       stopOrphanedOpenShell(runtime);
       stopOllamaAuthProxy(paths, runtime);
     } else if (step.name === "OpenShell resources") {
@@ -573,7 +582,7 @@ function executePlan(plan: UninstallPlan, paths: UninstallPaths, options: Uninst
     } else if (step.name === "State and binaries") {
       removeManagedSwap(paths, runtime);
       for (const pattern of paths.runtimeTempGlobs) removeGlob(pattern, runtime);
-      if (options.keepOpenShell) runtime.log("Keeping openshell binary as requested.");
+      if (options.keepOpenShell) runtime.log("Keeping OpenShell binaries as requested.");
       else for (const target of paths.openshellInstallPaths) removeFileWithOptionalSudo(target, runtime);
       removePath(paths.nemoclawStateDir, runtime);
       removePath(paths.openshellConfigDir, runtime);

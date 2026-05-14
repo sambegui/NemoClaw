@@ -6,8 +6,8 @@
  * health checks, and command generators for vLLM and Ollama.
  */
 
-import type { CurlProbeResult } from "../http-probe";
-import { runCurlProbe } from "../http-probe";
+import type { CurlProbeResult } from "../adapters/http/probe";
+import { runCurlProbe } from "../adapters/http/probe";
 
 const { shellQuote, runCapture } = require("../runner");
 
@@ -20,8 +20,10 @@ const { isWsl } = require("../platform");
 export const OLLAMA_CONTAINER_PORT = isWsl() ? OLLAMA_PORT : OLLAMA_PROXY_PORT;
 
 export const HOST_GATEWAY_URL = "http://host.openshell.internal";
+export const LOCAL_INFERENCE_SANDBOX_HOST_URL_ENV = "NEMOCLAW_LOCAL_INFERENCE_SANDBOX_HOST_URL";
 export const CONTAINER_REACHABILITY_IMAGE = "curlimages/curl:8.10.1";
 export const DEFAULT_OLLAMA_MODEL = "nemotron-3-nano:30b";
+export const QWEN3_6_OLLAMA_MODEL = "qwen3.6:35b";
 export const SMALL_OLLAMA_MODEL = "qwen2.5:7b";
 export const LARGE_OLLAMA_MIN_MEMORY_MB = 32768;
 
@@ -123,13 +125,34 @@ export function validateOllamaPortConfiguration(): ValidationResult {
   return { ok: true };
 }
 
-export function getLocalProviderBaseUrl(provider: string): string | null {
+function normalizeLocalInferenceHostUrl(raw: string | null | undefined): string | null {
+  const value = String(raw || "").trim().replace(/\/+$/, "");
+  if (!value) return null;
+  if (/^[A-Za-z0-9_.-]+$/.test(value)) return `http://${value}`;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:" && parsed.hostname) return `http://${parsed.hostname}`;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function getLocalInferenceSandboxHostUrl(): string {
+  return normalizeLocalInferenceHostUrl(process.env[LOCAL_INFERENCE_SANDBOX_HOST_URL_ENV]) || HOST_GATEWAY_URL;
+}
+
+export function getLocalProviderBaseUrl(
+  provider: string,
+  options: { hostUrl?: string | null } = {},
+): string | null {
+  const hostUrl = normalizeLocalInferenceHostUrl(options.hostUrl) || getLocalInferenceSandboxHostUrl();
   switch (provider) {
     case "vllm-local":
-      return `${HOST_GATEWAY_URL}:${VLLM_PORT}/v1`;
+      return `${hostUrl}:${VLLM_PORT}/v1`;
     case "ollama-local":
       // Containers reach Ollama through the auth proxy, not directly.
-      return `${HOST_GATEWAY_URL}:${OLLAMA_CONTAINER_PORT}/v1`;
+      return `${hostUrl}:${OLLAMA_CONTAINER_PORT}/v1`;
     default:
       return null;
   }
@@ -248,6 +271,11 @@ export function getLocalProviderContainerReachabilityCheck(provider: string): st
     case "ollama-local":
       // Check the auth proxy port, not Ollama directly. The proxy listens
       // on 0.0.0.0 and is reachable from containers; Ollama is on 127.0.0.1.
+      // Use -w %{http_code} (instead of -sf) so an authenticated-but-401
+      // response still proves the network path works — the proxy now
+      // requires a Bearer token on every endpoint (#3338) and the ephemeral
+      // probe container doesn't carry one, but the goal here is connectivity
+      // not authorisation.
       return [
         "docker",
         "run",
@@ -259,7 +287,11 @@ export function getLocalProviderContainerReachabilityCheck(provider: string): st
         "5",
         "--max-time",
         "10",
-        "-sf",
+        "-s",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
         `http://host.openshell.internal:${OLLAMA_CONTAINER_PORT}/api/tags`,
       ];
     default:
@@ -464,6 +496,7 @@ export function getBootstrapOllamaModelOptions(gpu: GpuInfo | null): string[] {
   const options = [SMALL_OLLAMA_MODEL];
   if (gpu && gpu.totalMemoryMB >= LARGE_OLLAMA_MIN_MEMORY_MB) {
     options.push(DEFAULT_OLLAMA_MODEL);
+    options.push(QWEN3_6_OLLAMA_MODEL);
   }
   return options;
 }
@@ -474,8 +507,10 @@ export function getDefaultOllamaModel(
 ): string {
   const models = getOllamaModelOptions(runCaptureImpl);
   if (models.length === 0) {
-    const bootstrap = getBootstrapOllamaModelOptions(gpu);
-    return bootstrap[0];
+    if (gpu && gpu.totalMemoryMB >= LARGE_OLLAMA_MIN_MEMORY_MB) {
+      return QWEN3_6_OLLAMA_MODEL;
+    }
+    return SMALL_OLLAMA_MODEL;
   }
   return models.includes(DEFAULT_OLLAMA_MODEL) ? DEFAULT_OLLAMA_MODEL : models[0];
 }
