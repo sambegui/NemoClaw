@@ -1639,7 +1639,7 @@ For Local Ollama setups, uninstall also stops matching Ollama auth proxy process
 <td><p>Skip the confirmation prompt</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--keep-openshell</span></code></p></td>
-<td><p>Leave the <code class="docutils literal notranslate"><span class="pre">openshell</span></code> binary installed</p></td>
+<td><p>Leave OpenShell binaries installed</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--delete-models</span></code></p></td>
 <td><p>Also remove NemoClaw-pulled Ollama models</p></td>
@@ -1892,15 +1892,19 @@ Set them before running <code class="docutils literal notranslate"><span class="
 <td><p>OpenShell GPU device selector</p></td>
 <td><p>Selects the GPU device passed with <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">create</span> <span class="pre">--gpu-device</span></code>. Setting this value enables sandbox GPU passthrough unless <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_SANDBOX_GPU=0</span></code> is also set, which is rejected.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_BIN</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_DOCKER_GPU_PATCH</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code> to disable, anything else to keep the default</p></td>
+<td><p>Controls the Linux Docker-driver GPU sandbox compatibility patch. Set to <code class="docutils literal notranslate"><span class="pre">0</span></code> only as an escape hatch when the patch fails and you need onboarding to continue without patching the GPU sandbox container.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_BIN</span></code></p></td>
 <td><p>path</p></td>
 <td><p>Advanced override for the <code class="docutils literal notranslate"><span class="pre">openshell-gateway</span></code> binary used by the Linux Docker-driver gateway. Defaults to the binary next to <code class="docutils literal notranslate"><span class="pre">openshell</span></code>, then common install paths.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_SANDBOX_BIN</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_SANDBOX_BIN</span></code></p></td>
 <td><p>path</p></td>
 <td><p>Advanced override for the <code class="docutils literal notranslate"><span class="pre">openshell-sandbox</span></code> binary passed to the Linux Docker-driver gateway supervisor. Defaults to the binary next to <code class="docutils literal notranslate"><span class="pre">openshell</span></code>, then common install paths.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR</span></code></p></td>
 <td><p>path</p></td>
 <td><p>Advanced override for the Linux Docker-driver gateway pid file and SQLite state directory. Defaults to <code class="docutils literal notranslate"><span class="pre">~/.local/state/nemoclaw/openshell-docker-gateway</span></code>.</p></td>
 </tr>
