@@ -140,6 +140,33 @@ network_policies:
     expect(merged).toContain("allow_api");
   });
 
+  it("handles versionless policies and legacy non-map network policies while merging", () => {
+    const versionless = mergePresetIntoPolicy("filesystem_policy:\n  read_only: true\n", presetEntries);
+    expect(versionless).toMatch(/^version: 1/m);
+    expect(versionless).toContain("filesystem_policy");
+    expect(versionless).toContain("allow_api");
+
+    const legacyList = mergePresetIntoPolicy("version: 2\nnetwork_policies:\n  - legacy\n", presetEntries);
+    expect(legacyList).toContain("version: 2");
+    expect(legacyList).toContain("allow_api");
+    expect(legacyList).not.toContain("- legacy");
+  });
+
+  it("lets preset entries override existing network policy keys", () => {
+    const merged = mergePresetIntoPolicy(
+      `version: 1
+network_policies:
+  allow_api:
+    host: old.example.com
+    port: 80
+`,
+      presetEntries,
+    );
+    expect(merged).toContain("host: api.example.com");
+    expect(merged).toContain("port: 443");
+    expect(merged).not.toContain("old.example.com");
+  });
+
   it("falls back to text merging for unparseable preset entries", () => {
     expect(mergePresetIntoPolicy("version: 1\n", "  - not-a-map")).toContain("network_policies:");
     expect(mergePresetIntoPolicy("", "")).toBe("version: 1\n\nnetwork_policies:\n");
@@ -158,6 +185,12 @@ network_policies:
     expect(removed).toContain("keep_me");
     expect(removePresetFromPolicy(current, null)).toBe(current.trimEnd());
     expect(removePresetFromPolicy("", presetEntries)).toBe("version: 1\n\nnetwork_policies:\n");
+  });
+
+  it("leaves removal unchanged for legacy non-map policies and unparsable current policy", () => {
+    const legacyList = "version: 1\nnetwork_policies:\n  - legacy\n";
+    expect(removePresetFromPolicy(legacyList, presetEntries)).toBe(legacyList.trimEnd());
+    expect(removePresetFromPolicy("version: [", presetEntries)).toBe("version: 1\n\nnetwork_policies:\n");
   });
 
   it("leaves policies unchanged when preset entries cannot identify keys", () => {
