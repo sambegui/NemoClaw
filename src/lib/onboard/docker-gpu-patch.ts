@@ -449,9 +449,11 @@ export function buildDockerGpuCloneRunArgs(
     securityOpt.add("apparmor=unconfined");
   }
   for (const opt of securityOpt) args.push("--security-opt", opt);
-  if (networkMode !== "host") {
-    for (const hostEntry of stringArray(host.ExtraHosts)) args.push("--add-host", hostEntry);
-  }
+  // --add-host writes to the container's /etc/hosts (mount namespace), not
+  // the network stack, so OpenShell's host.openshell.internal mapping must
+  // survive even when the caller explicitly opts into --network=host via
+  // NEMOCLAW_DOCKER_GPU_PATCH_NETWORK=host (#3562, #3568).
+  for (const hostEntry of stringArray(host.ExtraHosts)) args.push("--add-host", hostEntry);
   for (const group of stringArray(host.GroupAdd)) args.push("--group-add", group);
   if (networkMode !== "host") {
     for (const dns of stringArray(host.Dns)) args.push("--dns", dns);

@@ -214,7 +214,10 @@ describe("docker-gpu-patch", () => {
     expect(args).toEqual(
       expect.arrayContaining(["--env", "OPENSHELL_ENDPOINT=http://127.0.0.1:8080/"]),
     );
-    expect(args).not.toEqual(
+    // --add-host writes to /etc/hosts (mount namespace), not the network
+    // stack, so it must survive even when --network=host is explicitly
+    // requested (#3562, #3568).
+    expect(args).toEqual(
       expect.arrayContaining(["--add-host", "host.openshell.internal:172.17.0.1"]),
     );
     expect(args).not.toEqual(expect.arrayContaining(["--network-alias", "openshell-alpha"]));
