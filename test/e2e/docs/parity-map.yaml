@@ -944,6 +944,11 @@ scripts:
     status: migrated
     bucket: rebuild-runtime
     assertions:
+    - legacy: 'TC-DEPLOY-01a / TC-DEPLOY-01b / TC-DEPLOY-01c'
+      status: deferred
+      reason: live legacy behavior requires non-deterministic infrastructure; retained for bucket parity tracking
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs
     - legacy: 'TC-DEPLOY-01a: LocalReadiness'
       status: deferred
       reason: live legacy behavior requires non-deterministic infrastructure; retained for bucket parity tracking

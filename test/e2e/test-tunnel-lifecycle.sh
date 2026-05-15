@@ -114,25 +114,19 @@ preflight() {
   install_nemoclaw
 
   if ! command -v cloudflared >/dev/null 2>&1; then
-    log "Installing cloudflared..."
-    local arch
-    arch=$(uname -m)
-    case "$arch" in
-      x86_64) arch="amd64" ;;
-      aarch64 | arm64) arch="arm64" ;;
-      *)
-        log "WARNING: Unsupported arch $arch for cloudflared — skipping install"
-        return 0
-        ;;
-    esac
-    local cf_url="${CLOUDFLARED_DOWNLOAD_URL:-https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}}"
-    if curl -fsSL "$cf_url" -o /tmp/cloudflared \
-      && chmod +x /tmp/cloudflared \
-      && sudo mv /tmp/cloudflared /usr/local/bin/cloudflared 2>/dev/null; then
-      log "cloudflared installed"
-    else
-      log "WARNING: Could not install cloudflared"
-    fi
+    # Install via Cloudflare's GPG-signed APT repo — trust anchor for secret-bearing
+    # CI; APT verifies GPG-signed Release → package SHA256 (no per-version SHA pin).
+    local cf_version="${CLOUDFLARED_VERSION:-2026.5.0}"
+    log "Installing cloudflared ${cf_version} via Cloudflare APT repo..."
+    sudo mkdir -p --mode=0755 /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+      | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" \
+      | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y "cloudflared=${cf_version}*" \
+      || { log "ERROR: cloudflared ${cf_version} not available in Cloudflare APT repo"; exit 1; }
+    log "cloudflared ${cf_version} installed (GPG verified via Cloudflare APT repo)"
   fi
 
   log "nemoclaw: $(nemoclaw --version 2>/dev/null || echo unknown)"
@@ -242,8 +236,10 @@ wait_local_dashboard_ready() {
 test_tunnel_lifecycle() {
   log "=== TC-DEPLOY-01a/b/c: Start / Probe / Stop ==="
 
+  # Fail closed: skip would let a broken install path silently pass.
   if ! command -v cloudflared >/dev/null 2>&1; then
-    skip "TC-DEPLOY-01a / TC-DEPLOY-01b / TC-DEPLOY-01c" "cloudflared not installed"
+    fail "TC-DEPLOY-01a / TC-DEPLOY-01b / TC-DEPLOY-01c" \
+      "cloudflared not available — required for tunnel validation. Preflight install should have run; check earlier log."
     return
   fi
 
