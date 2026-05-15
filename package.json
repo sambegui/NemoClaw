@@ -19,6 +19,7 @@
   "scripts": {
     "preinstall": "node scripts/check-node-version.js",
     "test": "vitest run",
+    "coverage:cli:src": "vitest run --project cli --coverage --coverage.reporter=text-summary --coverage.reporter=json-summary --coverage.reportsDirectory=coverage/cli-src --coverage.include='src/**/*.ts' --coverage.include='bin/**/*.js' --coverage.exclude='**/*.test.ts' --coverage.exclude='dist/**'",
     "check": "npx prek run --all-files",
     "checks": "tsx scripts/checks/run.ts",
     "lint": "npx @biomejs/biome lint . && npm run checks",
