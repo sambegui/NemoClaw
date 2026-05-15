@@ -364,6 +364,7 @@ Architecture <reference/architecture>
 CLI Commands Reference <reference/commands>
 CLI Selection Guide <reference/cli-selection-guide>
 Network Policies <reference/network-policies>
+Testing and Coverage <reference/testing-coverage>
 Troubleshooting <reference/troubleshooting>
 ```
 
