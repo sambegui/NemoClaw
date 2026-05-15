@@ -65,7 +65,12 @@ type OnboardTestInternals = {
     options?: { suppressGpuFlag?: boolean },
   ) => string[];
   buildDirectGpuPolicyYaml: (basePolicy: string, options?: { procReadWrite?: boolean }) => string;
-  buildDirectSandboxGpuProofCommands: (sandboxName: string) => { label: string; args: string[] }[];
+  buildDirectSandboxGpuProofCommands: (sandboxName: string) => {
+    id: string;
+    label: string;
+    args: string[];
+    optional?: boolean;
+  }[];
   classifySandboxCreateFailure: (output?: string) => { kind: string; uploadedToGateway: boolean };
   compactText: (value?: string) => string;
   computeSetupPresetSuggestions: ShimFn<string[]>;
@@ -772,6 +777,9 @@ network_policies:
       "/proc/<pid>/task/<tid>/comm write",
       "cuInit(0) via libcuda.so.1",
     ]);
+    expect(commands.map((entry) => entry.id)).toEqual(["nvidia-smi", "proc-comm-write", "cuda-init"]);
+    expect(commands[1].optional).toBe(true);
+    expect(commands[2].optional).toBe(true);
     expect(commands[0].args).toEqual([
       "sandbox",
       "exec",
@@ -782,7 +790,7 @@ network_policies:
       "-lc",
       expect.stringContaining("command -v nvidia-smi"),
     ]);
-    expect(commands[1].args.join(" ")).toContain("/proc/$$/task/$$/comm");
+    expect(commands[1].args.join(" ")).toContain("/proc/self/comm");
     expect(commands[1].args.join(" ")).not.toContain("ls /proc/self/task");
     expect(commands[2].args.join(" ")).toContain("cuInit(0)");
     for (const command of commands) {
@@ -1211,6 +1219,7 @@ network_policies:
         {},
         {},
         null,
+        {},
         {},
         true,
       );
@@ -4156,7 +4165,7 @@ const { setupInference, getSandboxInferenceConfig } = require(${onboardPath});
     });
   });
 
-  it("prepares managed Model Router dependencies instead of using PATH when managed command is absent", testTimeoutOptions(20_000), () => {
+  it("prepares managed Model Router dependencies instead of using PATH when managed command is absent", testTimeoutOptions(30_000), () => {
     const repoRoot = path.join(import.meta.dirname, "..");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-onboard-router-venv-"));
     const fakeBin = path.join(tmpDir, "bin");

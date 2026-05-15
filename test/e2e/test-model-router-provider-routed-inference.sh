@@ -64,6 +64,7 @@ open(path, "w").write(text)
 PY
 }
 
+# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap.
 cleanup() {
   local rc=$?
   redact_file "$ONBOARD_LOG"
@@ -74,7 +75,7 @@ cleanup() {
   fi
   exit "$rc"
 }
-trap cleanup EXIT
+trap cleanup EXIT # invoked by EXIT trap
 
 section "Prerequisites"
 if docker info >/dev/null 2>&1; then
@@ -110,13 +111,14 @@ section "Onboard with Model Router provider"
 rm -f "$HOME/.nemoclaw/onboard.lock" 2>/dev/null || true
 nemoclaw "$SANDBOX_NAME" destroy --yes >/dev/null 2>&1 || true
 
-NEMOCLAW_SANDBOX_NAME="$SANDBOX_NAME" \
+env \
+  NEMOCLAW_PROVIDER_KEY="$NVIDIA_API_KEY" \
+  NEMOCLAW_SANDBOX_NAME="$SANDBOX_NAME" \
   NEMOCLAW_NON_INTERACTIVE=1 \
   NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
   NEMOCLAW_POLICY_TIER="open" \
   NEMOCLAW_PROVIDER="routed" \
-  NEMOCLAW_PROVIDER_KEY="${NVIDIA_API_KEY}" \
-  NVIDIA_API_KEY="${NVIDIA_API_KEY}" \
+  NVIDIA_API_KEY="$NVIDIA_API_KEY" \
   "$TIMEOUT_CMD" 1500 nemoclaw onboard --fresh --non-interactive --yes-i-accept-third-party-software \
   >"$ONBOARD_LOG" 2>&1
 onboard_rc=$?
