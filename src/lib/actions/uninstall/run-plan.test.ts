@@ -7,7 +7,8 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { buildRunPlan, runUninstallPlan, type RunResult } from "./run-plan";
+import type { RunResult } from "./run-plan";
+import { buildRunPlan, runUninstallPlan } from "../../../../dist/lib/actions/uninstall/run-plan";
 
 function ok(stdout = ""): RunResult {
   return { status: 0, stdout, stderr: "" };

@@ -27,12 +27,12 @@ vi.mock("../shields/audit", () => ({
   appendAuditEntry: vi.fn(),
 }));
 
+import type { InferenceSetDeps } from "./inference-set";
 import {
-  type InferenceSetDeps,
   patchHermesInferenceConfig,
   patchOpenClawInferenceConfig,
   runInferenceSet,
-} from "./inference-set";
+} from "../../../dist/lib/actions/inference-set";
 
 const OPENCLAW_TARGET: AgentConfigTarget = {
   agentName: "openclaw",
