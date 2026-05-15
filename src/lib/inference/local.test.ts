@@ -613,7 +613,13 @@ describe("local inference helpers", () => {
   });
 
   it("fails ollama model validation when the probe times out or returns nothing", () => {
-    const result = validateOllamaModel("nemotron-3-nano:30b", () => "");
+    // The probe inside validateOllamaModel uses runCaptureEx (4th arg), not
+    // runCapture (2nd arg). Mocking only runCapture leaves the real probe
+    // running against the host, which makes the test environment-dependent
+    // (passes on CI where no ollama is installed, fails locally when one is).
+    // Mock both so the empty-output branch is exercised deterministically.
+    const captureEx = () => ({ stdout: "", exitCode: 0, timedOut: false });
+    const result = validateOllamaModel("nemotron-3-nano:30b", () => "", undefined, captureEx);
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/did not answer the local probe in time/);
   });
