@@ -231,6 +231,19 @@ export function parseDockerCdiSpecDirs(info = ""): string[] {
   return Array.from(match[1].matchAll(/"([^"]+)"/g), (m) => m[1]).filter(Boolean);
 }
 
+function normalizeCdiSpecDir(specDir: string | undefined): string {
+  const trimmed = String(specDir || "/etc/cdi")
+    .trim()
+    .replace(/\/+$/, "");
+  return trimmed || "/etc/cdi";
+}
+
+export function getNvidiaCdiSpecPath(
+  assessment: Pick<HostAssessment, "dockerCdiSpecDirs">,
+): string {
+  return path.join(normalizeCdiSpecDir(assessment.dockerCdiSpecDirs[0]), "nvidia.yaml");
+}
+
 // True when at least one CDI spec under the configured directories declares
 // `kind: nvidia.com/gpu` (the device class OpenShell injects with `--gpu`).
 // Specs are typically YAML, but the JSON shape is also accepted because
@@ -727,9 +740,11 @@ export function planHostRemediation(assessment: HostAssessment): RemediationActi
   }
 
   if (assessment.cdiNvidiaGpuSpecMissing) {
-    const specDir = assessment.dockerCdiSpecDirs[0] ?? "/etc/cdi";
+    const specPath = getNvidiaCdiSpecPath(assessment);
+    const specDir = path.dirname(specPath);
     const generateCommands = [
-      `sudo nvidia-ctk cdi generate --output=${specDir.replace(/\/+$/, "")}/nvidia.yaml`,
+      `sudo mkdir -p ${specDir}`,
+      `sudo nvidia-ctk cdi generate --output=${specPath}`,
       "nvidia-ctk cdi list   # verify nvidia.com/gpu entries appear",
       "nemoclaw onboard      # or rerun with --no-gpu to skip GPU passthrough",
     ];
