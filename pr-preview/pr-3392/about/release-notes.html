@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=f6dceb5e"></script>
+    <script src="../_static/documentation_options.js?v=770d0c87"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.42';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.44';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -508,6 +508,28 @@
 <section class="tex2jax_ignore mathjax_ignore" id="release-notes">
 <h1>Release Notes<a class="headerlink" href="#release-notes" title="Link to this heading">#</a></h1>
 <p>NVIDIA NemoClaw is available in early preview starting March 16, 2026. Use this page to track changes.</p>
+<section id="v0-0-44">
+<h2>v0.0.44<a class="headerlink" href="#v0-0-44" title="Link to this heading">#</a></h2>
+<p>NemoClaw v0.0.44 improves onboarding reliability, GPU sandbox networking, local inference verification, messaging recovery, and remote dashboard access:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">onboard</span></code> handles DGX Spark and Jetson hosts more conservatively. Unified-memory GPU detection works for Spark, Jetson defaults to CPU-only sandbox passthrough unless you opt in, and local Ollama validation tolerates slow unified-memory model loads that still fit host memory.</p></li>
+<li><p>Linux Docker-driver GPU sandboxes preserve <code class="docutils literal notranslate"><span class="pre">host.openshell.internal</span></code> during recreation and inject a reachable DNS resolver when the host uses a systemd-resolved loopback nameserver, which keeps local inference and external DNS working after GPU patching.</p></li>
+<li><p>Onboarding and sandbox builds fail less often on first run. Preflight can guide missing NVIDIA Container Toolkit setup, Docker builds force BuildKit for Dockerfile bind mounts, npm installs retry transient registry resets, and compatible-endpoint onboarding runs a final inference smoke check before reporting success.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">connect</span></code> repairs stale <code class="docutils literal notranslate"><span class="pre">inference.local</span></code> routes before opening the shell, reports local Ollama backend and auth-proxy diagnostics when repair fails, and <code class="docutils literal notranslate"><span class="pre">--probe-only</span></code> keeps dashboard and process recovery from failing just because inference repair needs follow-up.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">&lt;name&gt;</span> <span class="pre">channels</span> <span class="pre">add</span> <span class="pre">&lt;channel&gt;</span></code> applies the matching built-in network policy preset before rebuild, and rebuilds preserve paused channel state so stopped messaging channels stay disabled after destroy and recreate.</p></li>
+<li><p>Remote hosts can opt into dashboard forwarding on all interfaces with <code class="docutils literal notranslate"><span class="pre">NEMOCLAW_DASHBOARD_BIND=0.0.0.0</span></code>, and gateway drift checks now stop backup, status, rebuild, recover, and upgrade flows before they trust stale OpenShell state.</p></li>
+<li><p>Workspace restore uploads backed-up directories file by file, dashboard forwards retry while stopped ports are still releasing, and the in-sandbox OpenClaw gateway respawns after unexpected exits.</p></li>
+</ul>
+</section>
+<section id="v0-0-43">
+<h2>v0.0.43<a class="headerlink" href="#v0-0-43" title="Link to this heading">#</a></h2>
+<p>NemoClaw v0.0.43 improves GPU onboarding and uninstall cleanup on Linux Docker-driver hosts:</p>
+<ul class="simple">
+<li><p>The standard installer can repair missing NVIDIA CDI device specs before onboarding by enabling the NVIDIA CDI refresh service, then falling back to direct <code class="docutils literal notranslate"><span class="pre">nvidia-ctk</span></code> spec generation when needed.</p></li>
+<li><p>Linux Docker-driver GPU onboarding handles the Docker flags and sandbox policy needed for NVIDIA GPU proof writes to <code class="docutils literal notranslate"><span class="pre">/proc/&lt;pid&gt;/task/&lt;tid&gt;/comm</span></code>, which fixes DGX Spark installs that previously failed with a permission error during direct GPU proof.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nemoclaw</span> <span class="pre">uninstall</span></code> removes the Linux gateway state directory under <code class="docutils literal notranslate"><span class="pre">~/.local/state/nemoclaw</span></code>, including gateway PID, SQLite, audit log, and VM-driver state left by Docker-driver gateways.</p></li>
+</ul>
+</section>
 <section id="v0-0-42">
 <h2>v0.0.42<a class="headerlink" href="#v0-0-42" title="Link to this heading">#</a></h2>
 <p>NemoClaw v0.0.42 improves onboarding, status diagnostics, local inference checks, and messaging setup:</p>
@@ -654,6 +676,8 @@ See <a class="reference internal" href="../reference/commands.html#checking-the-
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-44">v0.0.44</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-43">v0.0.43</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-42">v0.0.42</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-41">v0.0.41</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#v0-0-40">v0.0.40</a></li>

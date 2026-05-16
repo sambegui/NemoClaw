@@ -45,7 +45,7 @@
 
 
 
-    <script src="../_static/documentation_options.js?v=f6dceb5e"></script>
+    <script src="../_static/documentation_options.js?v=770d0c87"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -56,7 +56,7 @@
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = '../versions1.json';
-        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.42';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.0.44';
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             false;
         </script>
@@ -1640,8 +1640,9 @@ The CLI runs the local <code class="docutils literal notranslate"><span class="p
 If that local script is missing, the CLI does not auto-fetch a remote copy.
 It prints the versioned URL of the matching <code class="docutils literal notranslate"><span class="pre">uninstall.sh</span></code> so you can download, review, and run it manually.</p>
 <p>Uninstall also stops any orphaned <code class="docutils literal notranslate"><span class="pre">openshell</span></code> host processes left behind by previous onboard or destroy cycles, including <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">sandbox</span> <span class="pre">create</span></code>, <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">ssh-proxy</span></code>, and SSH sessions spawned by OpenShell.
-Earlier releases only stopped <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">forward</span></code> processes, so those orphans accumulated across runs.
-For Local Ollama setups, uninstall also stops matching Ollama auth proxy processes before deleting <code class="docutils literal notranslate"><span class="pre">~/.nemoclaw</span></code> state so stale proxy listeners do not block a later reinstall.</p>
+Earlier releases only stopped <code class="docutils literal notranslate"><span class="pre">openshell</span> <span class="pre">forward</span></code> processes, so those orphans accumulated across runs.</p>
+<p>For Local Ollama setups, uninstall also stops matching Ollama auth proxy processes before deleting <code class="docutils literal notranslate"><span class="pre">~/.nemoclaw</span></code> state so stale proxy listeners do not block a later reinstall.</p>
+<p>On Linux, uninstall removes <code class="docutils literal notranslate"><span class="pre">~/.local/state/nemoclaw</span></code>, which contains Docker-driver gateway PID files, SQLite data, audit logs, and VM-driver state.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Flag</p></th>
