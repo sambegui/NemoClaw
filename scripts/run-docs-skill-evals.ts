@@ -57,6 +57,7 @@ type Options = {
 };
 
 type PreparedEval = {
+  runId: string;
   evalCase: DocsEvalCase;
   prompt: string;
   expectedOutput: string;
@@ -307,6 +308,7 @@ function prepareEval(
   evalFile: DocsEvalFile,
   evalCase: DocsEvalCase,
   iterationDir: string,
+  index: number,
 ): PreparedEval {
   const prompt = renderTemplate(evalFile.prompt_template, evalCase);
   const expectedOutput = renderTemplate(evalFile.expected_output_template, evalCase);
@@ -314,13 +316,15 @@ function prepareEval(
     renderTemplate(assertion, evalCase),
   );
   const skillPath = skillPathForContext(evalCase.terget_context);
+  const runId = String(index + 1).padStart(3, "0");
   return {
+    runId,
     evalCase,
     prompt,
     expectedOutput,
     assertions,
     skillPath,
-    runDir: path.join(iterationDir, evalCase.id),
+    runDir: path.join(iterationDir, runId),
   };
 }
 
@@ -334,7 +338,8 @@ function writePreparedEval(prepared: PreparedEval): void {
     path.join(prepared.runDir, "eval-case.json"),
     `${JSON.stringify(
       {
-        id: prepared.evalCase.id,
+        run_id: prepared.runId,
+        source_eval_id: prepared.evalCase.id,
         group: prepared.evalCase.group,
         prompt: prepared.prompt,
         expected_output: prepared.expectedOutput,
@@ -360,7 +365,7 @@ function writePreparedEval(prepared: PreparedEval): void {
 function buildInstructions(prepared: PreparedEval, lane: RunLane): string {
   const outputDir = path.relative(REPO_ROOT, path.join(prepared.runDir, lane, "outputs"));
   const lines = [
-    `# Eval ${prepared.evalCase.id} (${lane})`,
+    `# Eval ${prepared.runId} (${lane})`,
     "",
     "Execute the task in a clean context. Save any produced files under:",
     "",
@@ -429,7 +434,7 @@ function buildOutputContract(prepared: PreparedEval, lane: RunLane): string[] {
     "```json",
     JSON.stringify(
       {
-        eval_id: prepared.evalCase.id,
+        eval_id: prepared.runId,
         lane,
         answer_file: "answer.md",
         context_used: [contextDescription],
@@ -459,7 +464,7 @@ function runAgentCommand(commandTemplate: string, prepared: PreparedEval, lane: 
     instructions: instructionsPath,
     output_dir: outputDir,
     run_dir: runDir,
-    eval_id: prepared.evalCase.id,
+    eval_id: prepared.runId,
     lane,
     prompt: prepared.prompt,
   });
@@ -498,7 +503,7 @@ function runAgentCommand(commandTemplate: string, prepared: PreparedEval, lane: 
   );
 
   if (result.status !== 0) {
-    throw new Error(`Agent command failed for ${prepared.evalCase.id} ${lane}`);
+    throw new Error(`Agent command failed for eval ${prepared.runId} ${lane}`);
   }
 }
 
@@ -646,7 +651,10 @@ function writeBenchmark(iterationDir: string, preparedEvals: PreparedEval[]): vo
           "time_seconds and tokens come from timing.json first, then outputs/run-report.json.",
           "target_context_pass_rate is only computed for local_skills after --grade-context writes target-context-grading.json.",
         ],
-        eval_ids: preparedEvals.map((prepared) => prepared.evalCase.id),
+        eval_ids: preparedEvals.map((prepared) => ({
+          run_id: prepared.runId,
+          source_eval_id: prepared.evalCase.id,
+        })),
       },
       null,
       2,
@@ -808,8 +816,8 @@ function main(): void {
   const iterationDir = absoluteRepoPath(path.join(options.outDir, options.iteration));
   fs.mkdirSync(iterationDir, { recursive: true });
 
-  const preparedEvals = selectedEvalCases.map((evalCase) =>
-    prepareEval(evalFile, evalCase, iterationDir),
+  const preparedEvals = selectedEvalCases.map((evalCase, index) =>
+    prepareEval(evalFile, evalCase, iterationDir, index),
   );
 
   for (const prepared of preparedEvals) {
