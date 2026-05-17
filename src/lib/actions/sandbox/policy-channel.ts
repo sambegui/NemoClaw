@@ -669,6 +669,40 @@ function applyChannelPresetIfAvailable(sandboxName: string, channelName: string)
   }
 }
 
+// Mirror of applyChannelPresetIfAvailable. When the channel-named built-in
+// preset is currently applied to the sandbox, un-apply it so `policy-list`
+// no longer reports it active and the L7 proxy stops allow-listing the
+// channel's upstream API (defense-in-depth: bridge is gone, egress to
+// api.telegram.org / discord.com / slack.com should follow). Warns but does
+// not abort the remove flow — the bridge teardown has already succeeded;
+// the operator can run `policy-remove <channel>` manually if cleanup falters.
+function removeChannelPresetIfPresent(sandboxName: string, channelName: string): void {
+  const builtinPresets = new Set(policies.listPresets().map((p) => p.name));
+  if (!builtinPresets.has(channelName)) {
+    return;
+  }
+  if (!policies.getAppliedPresets(sandboxName).includes(channelName)) {
+    return;
+  }
+  try {
+    const removed = policies.removePreset(sandboxName, channelName);
+    if (!removed) {
+      console.error(
+        `  ${YW}⚠${R} Channel '${channelName}' bridge removed but its policy preset failed to un-apply.`,
+      );
+      console.error(
+        `    Run manually after rebuild with: ${CLI_NAME} ${sandboxName} policy-remove ${channelName}`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`  ${YW}⚠${R} Failed to remove '${channelName}' policy preset: ${msg}`);
+    console.error(
+      `    Run manually after rebuild with: ${CLI_NAME} ${sandboxName} policy-remove ${channelName}`,
+    );
+  }
+}
+
 export async function removeSandboxChannel(sandboxName: string, args: string[] = []): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const rawChannelArg = args.find((arg) => !arg.startsWith("-"));
@@ -702,6 +736,9 @@ export async function removeSandboxChannel(sandboxName: string, args: string[] =
     getChannelTokenKeys(channel),
   );
   console.log(`  ${G}✓${R} Removed ${canonical} bridge from the OpenShell gateway.`);
+
+  removeChannelPresetIfPresent(sandboxName, canonical);
+
   await promptAndRebuild(sandboxName, `remove '${canonical}'`);
 }
 
