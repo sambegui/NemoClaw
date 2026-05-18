@@ -63,6 +63,7 @@ COPY --from=builder /opt/nemoclaw/dist/ /opt/nemoclaw/dist/
 COPY nemoclaw/openclaw.plugin.json /opt/nemoclaw/
 COPY nemoclaw/package.json nemoclaw/package-lock.json /opt/nemoclaw/
 COPY nemoclaw-blueprint/ /opt/nemoclaw-blueprint/
+COPY scripts/patch-openclaw-chat-send-queue.py /opt/nemoclaw/scripts/patch-openclaw-chat-send-queue.py
 RUN chmod -R a+rX /opt/nemoclaw-blueprint/
 
 # Install runtime dependencies only (no devDependencies, no build step)
@@ -221,6 +222,19 @@ RUN set -eu; \
     test -n "$hto_files" || { echo "ERROR: handshake-timeout constant not found" >&2; exit 1; }; \
     printf '%s\n' "$hto_files" | xargs sed -i -E 's|DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 1e4|DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 6e4|g'; \
     if grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 1e4' "$OC_DIST"; then echo "ERROR: Patch 5 left a 1e4 constant" >&2; exit 1; fi
+
+# Patch OpenClaw WebChat/TUI rapid-send correlation (#2603).
+#
+# Pinned OpenClaw 2026.4.24 can process overlapping chat.send turns for the
+# same session. That lets later user turns enter the transcript before the
+# active turn finishes, producing empty finals, mismatched runIds, and duplicate
+# user turns in chat.history. Queue the transcript update + dispatch section per
+# session while preserving each client idempotency key/runId.
+#
+# Removal criteria: drop this once the pinned OpenClaw version includes a
+# server-side chat.send/session-history correlation fix for #2603.
+# hadolint ignore=DL3059
+RUN python3 /opt/nemoclaw/scripts/patch-openclaw-chat-send-queue.py /usr/local/lib/node_modules/openclaw/dist
 
 # Set up blueprint for local resolution.
 # Blueprints are immutable at runtime; DAC protection (root ownership) is applied

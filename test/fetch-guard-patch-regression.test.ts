@@ -8,6 +8,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const DOCKERFILE = path.join(import.meta.dirname, "..", "Dockerfile");
+const CHAT_SEND_PATCHER = path.join(
+  import.meta.dirname,
+  "..",
+  "scripts",
+  "patch-openclaw-chat-send-queue.py",
+);
 
 function dockerRunCommandBetween(startMarker: string, endMarker: string): string {
   const dockerfile = fs.readFileSync(DOCKERFILE, "utf-8");
@@ -137,6 +143,104 @@ if (globalThis.proxyChecks.length !== 0) throw new Error('sandbox proxy validati
       );
       expect(verify.status).toBe(0);
       expect(verify.stderr).toBe("");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("patches pinned OpenClaw chat.send to queue transcript dispatch per session", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-chat-send-queue-"));
+    const dist = path.join(tmp, "dist");
+    fs.mkdirSync(dist, { recursive: true });
+    const modulePath = path.join(dist, "chat-test.js");
+    fs.writeFileSync(
+      modulePath,
+      [
+        "function dispatchInboundMessage() { return Promise.resolve(); }",
+        "function augmentChatHistoryWithCanvasBlocks(messages) { return messages; }",
+        "function sanitizeChatHistoryMessages(messages) { return messages; }",
+        "function stripEnvelopeFromMessages(messages) { return messages; }",
+        "function extractChatHistoryBlockText(message) { return message?.content?.[0]?.text; }",
+        "function formatForLog(value) { return String(value); }",
+        "const activeRunAbort = { cleanup() {} };",
+        "const clientRunId = 'run-1';",
+        "const sessionKey = 'session-1';",
+        "const rawMessages = [];",
+        "const max = 200;",
+        "const effectiveMaxChars = 8000;",
+        "    const normalized = augmentChatHistoryWithCanvasBlocks(sanitizeChatHistoryMessages(stripEnvelopeFromMessages(rawMessages.length > max ? rawMessages.slice(-max) : rawMessages), effectiveMaxChars));",
+        "const chatHandlers = {",
+        '  "chat.send": async ({ params, respond, context, client }) => {',
+        "    try {",
+        "      const deliveredReplies = [];",
+        "      let appendedWebchatAgentMedia = false;",
+        "      let userTranscriptUpdatePromise = null;",
+        '      const trimmedMessage = "hello";',
+        "      const emitUserTranscriptUpdate = async () => {};",
+        "      const appendWebchatAgentMediaTranscriptIfNeeded = async () => {",
+        "        if (!agentRunStarted || appendedWebchatAgentMedia || deliveredReplies.length < 0) return;",
+        "      };",
+        "      emitUserTranscriptUpdate().catch((transcriptErr) => {",
+        "        context.logGateway.warn(`webchat eager user transcript update failed: ${formatForLog(transcriptErr)}`);",
+        "      });",
+        "      let agentRunStarted = false;",
+        "      dispatchInboundMessage({",
+        "        replyOptions: {",
+        "          onAgentRunStart: (runId) => {",
+        "            agentRunStarted = true;",
+        "            emitUserTranscriptUpdate();",
+        "            void runId;",
+        "          }",
+        "        }",
+        "      }).then(async () => {",
+        "        if (!agentRunStarted) {",
+        "          await emitUserTranscriptUpdate();",
+        "          await appendWebchatAgentMediaTranscriptIfNeeded({});",
+        "        } else emitUserTranscriptUpdate();",
+        "        setGatewayDedupeEntry({});",
+        "      }).catch((err) => {",
+        "        emitUserTranscriptUpdate().catch((transcriptErr) => {",
+        "          context.logGateway.warn(`webchat user transcript update failed after error: ${formatForLog(transcriptErr)}`);",
+        "        });",
+        "      }).finally(() => {",
+        "        activeRunAbort.cleanup();",
+        "        context.removeChatRun(clientRunId, clientRunId, sessionKey);",
+        "      });",
+        "    } catch (err) {",
+        "      context.chatAbortControllers.delete(clientRunId);",
+        "    }",
+        "  }",
+        "};",
+        "void chatHandlers;",
+        "",
+      ].join("\n").replaceAll("  ", "\t"),
+    );
+
+    try {
+      const patch = spawnSync("python3", [CHAT_SEND_PATCHER, dist], {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      expect(patch.status, `${patch.stdout}${patch.stderr}`).toBe(0);
+      const patched = fs.readFileSync(modulePath, "utf-8");
+      expect(patched).toContain("function nemoclawQueueChatSend(sessionKey, runId, work)");
+      expect(patched).toContain("function nemoclawDedupeChatHistoryMessages(messages)");
+      expect(patched).toContain("const normalized = nemoclawDedupeChatHistoryMessages(");
+      expect(patched).toContain("let agentRunStarted = false;\n\t\t\tlet userTranscriptUpdatePromise");
+      expect(patched).toContain("nemoclawQueueChatSend(sessionKey, clientRunId, () => {");
+      expect(patched).toContain('if (trimmedMessage && !trimmedMessage.startsWith("/")) agentRunStarted = true;');
+      expect(patched).toContain("return dispatchInboundMessage({");
+      expect(patched).toContain(
+        'if (!agentRunStarted && (!trimmedMessage || trimmedMessage.startsWith("/"))) {',
+      );
+      expect(patched).not.toContain("webchat eager user transcript update failed");
+      expect(patched).not.toContain("agentRunStarted = true; emitUserTranscriptUpdate();");
+      expect(patched).not.toContain("} else emitUserTranscriptUpdate();");
+      const check = spawnSync(process.execPath, ["--check", modulePath], {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      expect(check.status, check.stderr).toBe(0);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
