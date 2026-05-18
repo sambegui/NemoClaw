@@ -575,11 +575,6 @@ scripts:
       reason: new regression test (issue #3462 Test 2); pending scenario-framework migration
       owner: e2e-maintainers
       runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
-    - legacy: 'C4d: egress probe inconclusive (network instability or unexpected proxy response)'
-      status: deferred
-      reason: new regression test (issue #3462 Test 2); pending scenario-framework migration
-      owner: e2e-maintainers
-      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
     - legacy: 'C4d: egress to api.telegram.org blocked by proxy (preset not in effect)'
       status: deferred
       reason: new regression test (issue #3462 Test 2); pending scenario-framework migration
