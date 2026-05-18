@@ -394,20 +394,67 @@ gateway_issue_script=$(
       SLACK_PAIRING_USER="$slack_pairing_user" \
       node --input-type=module <<'NODE'
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-function loadConversationRuntime() {
-  let globalRoot = "/usr/local/lib/node_modules";
+function findOpenClawPackageRootFromBinary() {
+  let binary = "";
   try {
-    globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+    binary = execFileSync("sh", ["-lc", "command -v openclaw"], { encoding: "utf8" }).trim();
   } catch {
-    // Keep the common Debian/Node Docker global prefix fallback.
+    return null;
   }
-  return import(pathToFileURL(path.join(globalRoot, "openclaw/dist/plugin-sdk/conversation-runtime.js")).href);
+  if (!binary) return null;
+
+  let current = "";
+  try {
+    current = fs.realpathSync(binary);
+  } catch {
+    return null;
+  }
+  if (fs.statSync(current).isFile()) current = path.dirname(current);
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const manifest = path.join(current, "package.json");
+    if (fs.existsSync(manifest)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
+        if (pkg?.name === "openclaw") return current;
+      } catch {
+        // Keep walking toward the filesystem root.
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+function loadConversationRuntime() {
+  const candidates = [];
+  const binaryRoot = findOpenClawPackageRootFromBinary();
+  if (binaryRoot) candidates.push(binaryRoot);
+  try {
+    const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+    if (globalRoot) candidates.push(path.join(globalRoot, "openclaw"));
+  } catch {
+    // Keep the explicit global-root fallbacks below.
+  }
+  candidates.push(
+    "/usr/local/lib/node_modules/openclaw",
+    "/usr/lib/node_modules/openclaw",
+  );
+  const uniqueCandidates = [...new Set(candidates)];
+  for (const root of uniqueCandidates) {
+    const runtime = path.join(root, "dist/plugin-sdk/conversation-runtime.js");
+    if (fs.existsSync(runtime)) return import(pathToFileURL(runtime).href);
+  }
+  throw new Error(`OpenClaw conversation runtime not found; checked: ${uniqueCandidates.join(", ")}`);
 }
 
 function parseProxyTarget() {
