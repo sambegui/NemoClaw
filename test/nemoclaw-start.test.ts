@@ -222,6 +222,10 @@ describe("nemoclaw-start non-root fallback", () => {
         'printf "OPENCLAW_GATEWAY_PORT=%s\\n" "$OPENCLAW_GATEWAY_PORT"',
         'printf "OPENCLAW_GATEWAY_URL=%s\\n" "$OPENCLAW_GATEWAY_URL"',
         'printf "SANDBOX_HOME=%s\\n" "$_SANDBOX_HOME"',
+        'printf "OPENCLAW_HOME=%s\\n" "$OPENCLAW_HOME"',
+        'printf "OPENCLAW_STATE_DIR=%s\\n" "$OPENCLAW_STATE_DIR"',
+        'printf "OPENCLAW_CONFIG_PATH=%s\\n" "$OPENCLAW_CONFIG_PATH"',
+        'printf "OPENCLAW_OAUTH_DIR=%s\\n" "$OPENCLAW_OAUTH_DIR"',
         'printf "CMD=%s\\n" "${NEMOCLAW_CMD[*]}"',
       ].join("\n");
       fs.writeFileSync(scriptPath, script, { mode: 0o700 });
@@ -247,6 +251,10 @@ describe("nemoclaw-start non-root fallback", () => {
       expect(injected.stdout).toContain("OPENCLAW_GATEWAY_PORT=19000");
       expect(injected.stdout).toContain("OPENCLAW_GATEWAY_URL=ws://127.0.0.1:19000");
       expect(injected.stdout).toContain("SANDBOX_HOME=/sandbox");
+      expect(injected.stdout).toContain("OPENCLAW_HOME=/sandbox");
+      expect(injected.stdout).toContain("OPENCLAW_STATE_DIR=/sandbox/.openclaw");
+      expect(injected.stdout).toContain("OPENCLAW_CONFIG_PATH=/sandbox/.openclaw/openclaw.json");
+      expect(injected.stdout).toContain("OPENCLAW_OAUTH_DIR=/sandbox/.openclaw/credentials");
       expect(injected.stdout).toContain("CMD=openclaw agent --agent main");
 
       const bakedCustomPort = runScenario("set -- nemoclaw-start openclaw agent", {
@@ -257,6 +265,10 @@ describe("nemoclaw-start non-root fallback", () => {
       expect(bakedCustomPort.stdout).toContain("PUBLIC_PORT=18790");
       expect(bakedCustomPort.stdout).toContain("OPENCLAW_GATEWAY_PORT=18790");
       expect(bakedCustomPort.stdout).toContain("OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18790");
+      expect(bakedCustomPort.stdout).toContain("OPENCLAW_STATE_DIR=/sandbox/.openclaw");
+      expect(bakedCustomPort.stdout).toContain(
+        "OPENCLAW_OAUTH_DIR=/sandbox/.openclaw/credentials",
+      );
       expect(bakedCustomPort.stdout).toContain("CMD=openclaw agent");
 
       const baked = runScenario("set -- nemoclaw-start openclaw agent", {
@@ -268,6 +280,7 @@ describe("nemoclaw-start non-root fallback", () => {
       expect(baked.stdout).toContain("OPENCLAW_GATEWAY_PORT=18789");
       expect(baked.stdout).toContain("OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789");
       expect(baked.stdout).toContain("SANDBOX_HOME=/sandbox");
+      expect(baked.stdout).toContain("OPENCLAW_STATE_DIR=/sandbox/.openclaw");
       expect(baked.stdout).toContain("CMD=openclaw agent");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -487,6 +500,10 @@ describe("nemoclaw-start gateway token export (#1114)", () => {
         `export OPENCLAW_GATEWAY_TOKEN=${JSON.stringify(initialToken)}`,
         `export OPENCLAW_GATEWAY_PORT=${JSON.stringify(port)}`,
         `export OPENCLAW_GATEWAY_URL=${JSON.stringify(`ws://127.0.0.1:${port}`)}`,
+        'export OPENCLAW_HOME="/sandbox"',
+        'export OPENCLAW_STATE_DIR="/sandbox/.openclaw"',
+        'export OPENCLAW_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"',
+        'export OPENCLAW_OAUTH_DIR="/sandbox/.openclaw/credentials"',
         `PUBLIC_PORT=${JSON.stringify(port)}`,
         'CHAT_UI_URL="https://remote.example.test/ui"',
         'PROXY_HOST="10.200.0.1"',
@@ -561,6 +578,21 @@ describe("nemoclaw-start gateway token export (#1114)", () => {
     expect(envFile).toContain("export OPENCLAW_GATEWAY_PORT='18790'");
     expect(envFile).toContain("export OPENCLAW_GATEWAY_URL='ws://127.0.0.1:18790'");
     expect(envFile).toContain("export OPENCLAW_GATEWAY_TOKEN='token'");
+  });
+
+  it("#3730: writes OpenClaw state env for connect-shell pairing approval", () => {
+    const { result, envFile } = runGatewayTokenHarness(
+      JSON.stringify({ gateway: { auth: { token: "token" } } }),
+    );
+
+    expect(result.status).toBe(0);
+    expect(envFile).toContain("export OPENCLAW_HOME='/sandbox'");
+    expect(envFile).toContain("export OPENCLAW_STATE_DIR='/sandbox/.openclaw'");
+    expect(envFile).toContain("export OPENCLAW_CONFIG_PATH='/sandbox/.openclaw/openclaw.json'");
+    expect(envFile).toContain("export OPENCLAW_OAUTH_DIR='/sandbox/.openclaw/credentials'");
+    expect(envFile.indexOf("export OPENCLAW_STATE_DIR=")).toBeLessThan(
+      envFile.indexOf("export OPENCLAW_GATEWAY_TOKEN="),
+    );
   });
 
   it("#3256: generates a gateway token before writing the runtime shell env", () => {

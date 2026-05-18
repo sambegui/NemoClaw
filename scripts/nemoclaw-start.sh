@@ -225,6 +225,18 @@ export OPENCLAW_GATEWAY_PORT="$_DASHBOARD_PORT"
 export OPENCLAW_GATEWAY_URL="ws://127.0.0.1:${_DASHBOARD_PORT}"
 OPENCLAW="$(command -v openclaw)" # Resolve once, use absolute path everywhere
 _SANDBOX_HOME="/sandbox"          # Home dir for the sandbox user (useradd -d /sandbox in Dockerfile.base)
+_OPENCLAW_STATE_DIR="${_SANDBOX_HOME}/.openclaw"
+_OPENCLAW_CREDENTIALS_DIR="${_OPENCLAW_STATE_DIR}/credentials"
+
+# OpenClaw 2026.4.x stores channel pairing requests under
+# resolveOAuthDir(resolveStateDir(...))/<channel>-pairing.json. The gateway
+# runs as the gateway user while connect-shell commands run as sandbox, so
+# relying on HOME/os.homedir() can split pending requests across users. Force
+# every OpenClaw process in the sandbox to the persistent shared state root.
+export OPENCLAW_HOME="${_SANDBOX_HOME}"
+export OPENCLAW_STATE_DIR="${_OPENCLAW_STATE_DIR}"
+export OPENCLAW_CONFIG_PATH="${_OPENCLAW_STATE_DIR}/openclaw.json"
+export OPENCLAW_OAUTH_DIR="${_OPENCLAW_CREDENTIALS_DIR}"
 
 # ── Config integrity check (delegates to shared library) ────────
 # verify_config_integrity_if_locked is provided by sandbox-init.sh. OpenClaw
@@ -1580,6 +1592,13 @@ export http_proxy="$_PROXY_URL"
 export https_proxy="$_PROXY_URL"
 export no_proxy="$_NO_PROXY_VAL"
 PROXYEOF
+    local _openclaw_env_name _openclaw_env_value _escaped_openclaw_env_value
+    for _openclaw_env_name in OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH OPENCLAW_OAUTH_DIR; do
+      _openclaw_env_value="${!_openclaw_env_name:-}"
+      [ -n "$_openclaw_env_value" ] || continue
+      _escaped_openclaw_env_value="$(printf '%s' "$_openclaw_env_value" | sed "s/'/'\\\\''/g")"
+      printf "export %s='%s'\n" "$_openclaw_env_name" "$_escaped_openclaw_env_value"
+    done
     if [ -n "${OPENCLAW_GATEWAY_PORT:-}" ]; then
       _escaped_gateway_port="$(printf '%s' "$OPENCLAW_GATEWAY_PORT" | sed "s/'/'\\\\''/g")"
       printf "export OPENCLAW_GATEWAY_PORT='%s'\n" "$_escaped_gateway_port"
