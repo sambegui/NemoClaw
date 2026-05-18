@@ -68,7 +68,9 @@ const {
   getSelectionDrift,
 }: typeof import("./onboard/selection-drift") = require("./onboard/selection-drift");
 const { isLinuxDockerDriverGatewayEnabled }: typeof import("./onboard/docker-driver-platform") = require("./onboard/docker-driver-platform");
-const { shouldInspectLegacyGatewayGpuPassthrough }: typeof import("./onboard/gateway-gpu-passthrough") = require("./onboard/gateway-gpu-passthrough");
+const {
+  reconcileGatewayGpuReuseForGpuIntent,
+}: typeof import("./onboard/gateway-gpu-passthrough") = require("./onboard/gateway-gpu-passthrough");
 const {
   syncPresetSelection,
 }: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
@@ -1527,7 +1529,7 @@ async function replaceNamedCredential(
     saveCredential(envName, key);
     process.env[envName] = key;
     console.log("");
-    console.log(`  ${envName} staged. Onboarding will register it with the OpenShell gateway.`);
+    console.log("  Credential staged. Onboarding will register it with the OpenShell gateway.");
     console.log("");
     return key;
   }
@@ -1938,7 +1940,7 @@ function verifyCompatibleEndpointSandboxSmoke(options: {
     !providerDetails.includes(options.credentialEnv)
   ) {
     console.warn(
-      `  ⚠ Gateway provider '${options.provider}' did not report ${options.credentialEnv}.`,
+      `  ⚠ Gateway provider '${options.provider}' did not report the selected credential binding.`,
     );
   }
 
@@ -2742,13 +2744,16 @@ async function refreshDockerDriverGatewayReuseState(
   return "stale";
 }
 
-function destroyGateway(): boolean {
+function destroyGateway(
+  clearRegistry: () => void = registry.clearAll,
+  isDockerDriverGatewayEnabledForDestroy: () => boolean = isLinuxDockerDriverGatewayEnabled,
+): boolean {
   return destroyGatewayWithVolumeCleanup({
-    clearRegistry: registry.clearAll,
+    clearRegistry,
     dockerRemoveVolumesByPrefix,
     gatewayName: GATEWAY_NAME,
     hasLifecycleCommands: () => gatewayCliSupportsLifecycleCommands(runCaptureOpenshell),
-    isDockerDriverGatewayEnabled: isLinuxDockerDriverGatewayEnabled,
+    isDockerDriverGatewayEnabled: isDockerDriverGatewayEnabledForDestroy,
     removeDockerDriverGatewayRegistration,
     runOpenshell,
     stopDockerDriverGatewayProcess,
@@ -5384,12 +5389,12 @@ async function createSandbox(
       .filter(Boolean);
     for (const serverId of serverIds) {
       if (!DISCORD_SNOWFLAKE_RE.test(serverId)) {
-        console.warn(`  Warning: Discord server ID '${serverId}' does not look like a snowflake.`);
+        console.warn("  Warning: configured Discord server ID does not look like a snowflake.");
       }
     }
     for (const userId of userIds) {
       if (!DISCORD_SNOWFLAKE_RE.test(userId)) {
-        console.warn(`  Warning: Discord user ID '${userId}' does not look like a snowflake.`);
+        console.warn("  Warning: configured Discord user ID does not look like a snowflake.");
       }
     }
     const requireMention = process.env.DISCORD_REQUIRE_MENTION !== "0";
@@ -6521,7 +6526,7 @@ async function setupNim(
             if (isNonInteractive()) {
               if (!resolveHermesNousApiKey()) {
                 console.error(
-                  `  ${HERMES_NOUS_API_KEY_CREDENTIAL_ENV} (or NEMOCLAW_PROVIDER_KEY) is required for Hermes Provider Nous API Key in non-interactive mode.`,
+                  "  Hermes Provider Nous API Key is required in non-interactive mode.",
                 );
                 process.exit(1);
               }
@@ -9681,27 +9686,22 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       }
     }
 
-    const canReuseHealthyGateway = gatewayReuseState === "healthy";
-
-    // Verify legacy reusable gateway GPU passthrough; Docker-driver gateways use live CLI health.
-    if (shouldInspectLegacyGatewayGpuPassthrough(
+    gatewayReuseState = reconcileGatewayGpuReuseForGpuIntent({
       gatewayReuseState,
       gpuPassthrough,
-      isLinuxDockerDriverGatewayEnabled(),
-      gatewayCliSupportsLifecycleCommands(runCaptureOpenshell),
-    )) {
-      const container = `openshell-cluster-${GATEWAY_NAME}`;
-      const gpuCheck = docker.dockerInspect(
-        ["--type", "container", "--format", "{{json .HostConfig.DeviceRequests}}", container],
-        { ignoreError: true, suppressOutput: true },
-      );
-      const gpuOutput = String(gpuCheck.stdout || "").trim();
-      const gatewayHasGpu = gpuCheck.status === 0 && gpuOutput !== "null" && gpuOutput !== "[]";
-      if (!gatewayHasGpu) {
-        reportGpuPassthroughRecovery(console.error);
-        process.exit(1);
-      }
-    }
+      gatewayName: GATEWAY_NAME,
+      currentSandboxName: recordedSandboxName || requestedSandboxName,
+      recreateSandbox: isRecreateSandbox(),
+      confirmedDockerDriverGateway:
+        isLinuxDockerDriverGatewayEnabled() &&
+        gatewayReuseState === "healthy" &&
+        !gatewayCliSupportsLifecycleCommands(runCaptureOpenshell),
+      stopDashboardForwards: stopAllDashboardForwards,
+      retireLegacyGatewayForDockerDriverUpgrade,
+      destroyGatewayRuntimeForGpuReuse: () => destroyGateway(() => undefined, () => false),
+    });
+
+    const canReuseHealthyGateway = gatewayReuseState === "healthy";
 
     const resumeGateway =
       resume && session?.steps?.gateway?.status === "complete" && canReuseHealthyGateway;
