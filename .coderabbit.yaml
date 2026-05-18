@@ -130,10 +130,12 @@ reviews:
         - `sandbox-survival-e2e` — gateway restart recovery
         - `sandbox-operations-e2e` — process recovery after gateway kill
         - `cloud-e2e` — full onboard + cloud inference
+        - `openclaw-slack-pairing-e2e` — gateway/connect-shell OpenClaw
+          pairing state root parity for Slack
 
         To run selectively:
         ```
-        gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=sandbox-survival-e2e,sandbox-operations-e2e,cloud-e2e
+        gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=sandbox-survival-e2e,sandbox-operations-e2e,cloud-e2e,openclaw-slack-pairing-e2e
         ```
 
     - path: "scripts/lib/sandbox-init.sh"
@@ -348,6 +350,51 @@ reviews:
         To run selectively:
         ```
         gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=hermes-slack-e2e
+        ```
+
+    - path: "test/e2e/test-openclaw-slack-pairing.sh"
+      instructions: |
+        This script validates OpenClaw Slack DM pairing across the gateway
+        and connect-shell runtime contexts with a hermetic fake Slack Socket
+        Mode event and fake chat.postMessage reply.
+
+        **E2E test recommendation:**
+        - `openclaw-slack-pairing-e2e` - Slack pairing request approval and
+          allowFrom state root parity
+
+        To run selectively:
+        ```
+        gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=openclaw-slack-pairing-e2e
+        ```
+
+    - path: "test/e2e/lib/fake-slack-api.cjs"
+      instructions: |
+        This helper backs hermetic Slack REST and Socket Mode tests. Changes
+        can alter Slack credential rewrite assertions, fake Socket Mode
+        envelopes, or chat.postMessage capture.
+
+        **E2E test recommendation:**
+        - `messaging-providers-e2e` - Slack REST provider placeholder rewrite
+        - `openclaw-slack-pairing-e2e` - fake Slack Socket Mode pairing flow
+
+        To run selectively:
+        ```
+        gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=messaging-providers-e2e,openclaw-slack-pairing-e2e
+        ```
+
+    - path: "test/e2e/lib/slack-api-proof.sh"
+      instructions: |
+        This helper applies hermetic Slack REST and Socket Mode policies for
+        messaging E2E scripts. Changes can affect REST credential rewrite
+        probes and native websocket policy coverage.
+
+        **E2E test recommendation:**
+        - `messaging-providers-e2e` - Slack REST provider placeholder rewrite
+        - `openclaw-slack-pairing-e2e` - fake Slack Socket Mode pairing flow
+
+        To run selectively:
+        ```
+        gh workflow run nightly-e2e.yaml --ref <branch> -f jobs=messaging-providers-e2e,openclaw-slack-pairing-e2e
         ```
 
     - path: "nemoclaw-blueprint/policies/**"
