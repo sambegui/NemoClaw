@@ -606,7 +606,7 @@
           "text": "C7a: channels remove telegram completed on a live sandbox",
           "polarity": "pass",
           "normalized_id": "c7a.channels.remove.telegram.completed.on.a.live.sandbox",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -614,7 +614,7 @@
           "text": "C7a: channels remove telegram failed",
           "polarity": "fail",
           "normalized_id": "c7a.channels.remove.telegram.failed",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -622,7 +622,7 @@
           "text": "C7b: channels remove queued rebuild",
           "polarity": "pass",
           "normalized_id": "c7b.channels.remove.queued.rebuild",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -630,7 +630,7 @@
           "text": "C7b: channels remove did not queue a rebuild",
           "polarity": "fail",
           "normalized_id": "c7b.channels.remove.did.not.queue.a.rebuild",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -638,7 +638,7 @@
           "text": "C7c: telegram-bridge provider still exists after channels remove",
           "polarity": "fail",
           "normalized_id": "c7c.telegram.bridge.provider.still.exists.after.channels.remove",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -646,7 +646,7 @@
           "text": "C7c: telegram-bridge provider deleted from gateway",
           "polarity": "pass",
           "normalized_id": "c7c.telegram.bridge.provider.deleted.from.gateway",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -654,7 +654,7 @@
           "text": "C7d: registry.messagingChannels still contains telegram after remove (got: ${post_remove_messaging})",
           "polarity": "fail",
           "normalized_id": "c7d.registry.messagingchannels.still.contains.telegram.after.remove.got.post.remove.messaging",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -662,7 +662,7 @@
           "text": "C7d: registry.messagingChannels no longer contains telegram (${post_remove_messaging})",
           "polarity": "pass",
           "normalized_id": "c7d.registry.messagingchannels.no.longer.contains.telegram.post.remove.messaging",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -670,7 +670,7 @@
           "text": "C7e: registry.providerCredentialHashes still contains TELEGRAM_BOT_TOKEN after remove (got: ${post_remove_hashes})",
           "polarity": "fail",
           "normalized_id": "c7e.registry.providercredentialhashes.still.contains.telegram.bot.token.after.remove.got.post.remove.hashes",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -678,7 +678,7 @@
           "text": "C7e: registry.providerCredentialHashes no longer contains TELEGRAM_BOT_TOKEN (${post_remove_hashes})",
           "polarity": "pass",
           "normalized_id": "c7e.registry.providercredentialhashes.no.longer.contains.telegram.bot.token.post.remove.hashes",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -686,7 +686,7 @@
           "text": "C7f: telegram policy preset still active after channels remove",
           "polarity": "fail",
           "normalized_id": "c7f.telegram.policy.preset.still.active.after.channels.remove",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -694,7 +694,7 @@
           "text": "C7f: telegram policy preset no longer active after channels remove",
           "polarity": "pass",
           "normalized_id": "c7f.telegram.policy.preset.no.longer.active.after.channels.remove",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -702,7 +702,7 @@
           "text": "C7f: policy-list did not include telegram preset status",
           "polarity": "fail",
           "normalized_id": "c7f.policy.list.did.not.include.telegram.preset.status",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -710,7 +710,7 @@
           "text": "C7f: policy-list failed after channels remove",
           "polarity": "fail",
           "normalized_id": "c7f.policy.list.failed.after.channels.remove",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -718,7 +718,7 @@
           "text": "C8a: rebuild (post-remove) completed",
           "polarity": "pass",
           "normalized_id": "c8a.rebuild.post.remove.completed",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -726,7 +726,7 @@
           "text": "C8a: rebuild (post-remove) failed",
           "polarity": "fail",
           "normalized_id": "c8a.rebuild.post.remove.failed",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -734,7 +734,7 @@
           "text": "C8b: REGRESSION — openclaw.json still contains 'telegram' after remove+rebuild (#3671)",
           "polarity": "fail",
           "normalized_id": "c8b.regression.openclaw.json.still.contains.telegram.after.remove.rebuild.3671",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -742,7 +742,7 @@
           "text": "C8b: could not read openclaw.json inside sandbox post-remove",
           "polarity": "fail",
           "normalized_id": "c8b.could.not.read.openclaw.json.inside.sandbox.post.remove",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -750,7 +750,7 @@
           "text": "C8b: openclaw.json excludes 'telegram' after remove+rebuild (#3671 fixed)",
           "polarity": "pass",
           "normalized_id": "c8b.openclaw.json.excludes.telegram.after.remove.rebuild.3671.fixed",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -758,7 +758,7 @@
           "text": "C8c: registry.messagingChannels restored telegram after remove+rebuild (got: ${post_rebuild_remove_messaging})",
           "polarity": "fail",
           "normalized_id": "c8c.registry.messagingchannels.restored.telegram.after.remove.rebuild.got.post.rebuild.remove.messaging",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         },
         {
           "script": "test/e2e/test-channels-stop-start.sh",
@@ -766,7 +766,7 @@
           "text": "C8c: registry.messagingChannels still excludes telegram after remove+rebuild (${post_rebuild_remove_messaging})",
           "polarity": "pass",
           "normalized_id": "c8c.registry.messagingchannels.still.excludes.telegram.after.remove.rebuild.post.rebuild.remove.messaging",
-          "mapping_status": "unmapped"
+          "mapping_status": "deferred"
         }
       ]
     },

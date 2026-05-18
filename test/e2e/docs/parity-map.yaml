@@ -645,6 +645,111 @@ scripts:
       reason: new regression test (issue #3462 Test 1); pending scenario-framework migration
       owner: e2e-maintainers
       runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7a: channels remove telegram completed on a live sandbox'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7a: channels remove telegram failed'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7b: channels remove queued rebuild'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7b: channels remove did not queue a rebuild'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7c: telegram-bridge provider still exists after channels remove'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7c: telegram-bridge provider deleted from gateway'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7d: registry.messagingChannels still contains telegram after remove (got: ${post_remove_messaging})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7d: registry.messagingChannels no longer contains telegram (${post_remove_messaging})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7e: registry.providerCredentialHashes still contains TELEGRAM_BOT_TOKEN after remove (got: ${post_remove_hashes})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7e: registry.providerCredentialHashes no longer contains TELEGRAM_BOT_TOKEN (${post_remove_hashes})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7f: telegram policy preset still active after channels remove'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7f: telegram policy preset no longer active after channels remove'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7f: policy-list did not include telegram preset status'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C7f: policy-list failed after channels remove'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8a: rebuild (post-remove) completed'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8a: rebuild (post-remove) failed'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8b: REGRESSION — openclaw.json still contains ''telegram'' after remove+rebuild (#3671)'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8b: could not read openclaw.json inside sandbox post-remove'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8b: openclaw.json excludes ''telegram'' after remove+rebuild (#3671 fixed)'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8c: registry.messagingChannels restored telegram after remove+rebuild (got: ${post_rebuild_remove_messaging})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
+    - legacy: 'C8c: registry.messagingChannels still excludes telegram after remove+rebuild (${post_rebuild_remove_messaging})'
+      status: deferred
+      reason: new regression test (issue #3671); pending scenario-framework migration
+      owner: e2e-maintainers
+      runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs and NVIDIA_API_KEY
   test-credential-migration.sh:
     scenario: ubuntu-repo-cloud-openclaw
     status: migrated
