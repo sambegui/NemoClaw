@@ -335,12 +335,45 @@ const ws = new WebSocket("ws://127.0.0.1:18789/ws", { headers: { Origin: "http:/
 const events = [];
 const pending = new Map();
 let requestId = 0;
+const STARTUP_CHAT_HISTORY_RETRY_TIMEOUT_MS = 60_000;
+const STARTUP_CHAT_HISTORY_DEFAULT_RETRY_MS = 500;
+const STARTUP_CHAT_HISTORY_MAX_RETRY_MS = 5_000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toGatewayError(frame) {
+  const raw = frame.error;
+  const message = raw && typeof raw === "object" && typeof raw.message === "string" ? raw.message : JSON.stringify(raw ?? frame);
+  const error = new Error(message);
+  if (raw && typeof raw === "object") {
+    if (typeof raw.code === "string") error.code = raw.code;
+    if (typeof raw.retryable === "boolean") error.retryable = raw.retryable;
+    if (typeof raw.retryAfterMs === "number") error.retryAfterMs = raw.retryAfterMs;
+    if (raw.details && typeof raw.details === "object") error.details = raw.details;
+  }
+  return error;
+}
+
+function isRetryableStartupUnavailable(error, method) {
+  if (!error || typeof error !== "object") return false;
+  if (error.code !== "UNAVAILABLE" || error.retryable !== true) return false;
+  const details = error.details;
+  if (!details || typeof details !== "object") return true;
+  const detailMethod = details.method;
+  return typeof detailMethod !== "string" || detailMethod === method;
+}
+
+function resolveStartupRetryDelayMs(error) {
+  const retryAfterMs = typeof error?.retryAfterMs === "number" ? error.retryAfterMs : STARTUP_CHAT_HISTORY_DEFAULT_RETRY_MS;
+  return Math.min(Math.max(retryAfterMs, 100), STARTUP_CHAT_HISTORY_MAX_RETRY_MS);
+}
 
 function request(method, params = {}, timeoutMs = 30_000) {
   const id = ` +
     "`r${++requestId}`" +
     String.raw`;
-  ws.send(JSON.stringify({ type: "req", id, method, params }));
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       pending.delete(id);
@@ -349,7 +382,37 @@ function request(method, params = {}, timeoutMs = 30_000) {
     String.raw`));
     }, timeoutMs);
     pending.set(id, { resolve, reject, timeout });
+    try {
+      ws.send(JSON.stringify({ type: "req", id, method, params }));
+    } catch (error) {
+      pending.delete(id);
+      clearTimeout(timeout);
+      reject(error);
+    }
   });
+}
+
+async function loadHistoryWithStartupRetry(sessionKey, limit) {
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      return await request("chat.history", { sessionKey, limit });
+    } catch (error) {
+      if (Date.now() - startedAt < STARTUP_CHAT_HISTORY_RETRY_TIMEOUT_MS && isRetryableStartupUnavailable(error, "chat.history")) {
+        await sleep(resolveStartupRetryDelayMs(error));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+function rejectPending(error) {
+  for (const [id, entry] of pending.entries()) {
+    pending.delete(id);
+    clearTimeout(entry.timeout);
+    entry.reject(error);
+  }
 }
 
 function textFromMessage(message) {
@@ -371,7 +434,7 @@ ws.on("message", (data) => {
     const entry = pending.get(frame.id);
     pending.delete(frame.id);
     clearTimeout(entry.timeout);
-    if (frame.ok === false || frame.error) entry.reject(new Error(JSON.stringify(frame.error ?? frame)));
+    if (frame.ok === false || frame.error) entry.reject(toGatewayError(frame));
     else entry.resolve(frame.payload ?? frame.result ?? frame);
     return;
   }
@@ -384,6 +447,13 @@ ws.on("error", (error) => {
   console.error(` +
     "`ISSUE2603_ERROR ${String(error)}`" +
     String.raw`);
+  rejectPending(error);
+});
+
+ws.on("close", (code, reason) => {
+  rejectPending(new Error(` +
+    "`gateway closed (${code}): ${String(reason)}`" +
+    String.raw`));
 });
 
 ws.on("open", async () => {
@@ -404,7 +474,7 @@ ws.on("open", async () => {
       auth: { token },
     });
 
-    await request("chat.history", { sessionKey, limit: 20 });
+    await loadHistoryWithStartupRetry(sessionKey, 20);
 
     const sentRuns = [];
     const messages = [
@@ -417,22 +487,22 @@ ws.on("open", async () => {
       const idempotencyKey = randomUUID();
       const response = await request("chat.send", { sessionKey, message, deliver: false, timeoutMs: 90_000, idempotencyKey });
       sentRuns.push({ promptToken, replyToken, message, runId: response.runId ?? idempotencyKey });
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await sleep(1_000);
     }
 
     const submittedRunIds = new Set(sentRuns.map((entry) => entry.runId));
     const hasEmptyFinalForSubmittedRun = () => events.some((event) => event.event === "chat" && event.payload?.state === "final" && submittedRunIds.has(event.payload?.runId) && !textFromMessage(event.payload?.message).trim());
 
     if (hasEmptyFinalForSubmittedRun()) {
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await sleep(2_000);
     } else {
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline && !sawAllReplies(messages.map((entry) => entry[1]))) {
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await sleep(2_000);
       }
     }
 
-    const history = await request("chat.history", { sessionKey, limit: 50 });
+    const history = await loadHistoryWithStartupRetry(sessionKey, 50);
     console.log(` +
     "`ISSUE2603_RESULT ${JSON.stringify({ sessionKey, sentRuns, events, historyMessages: history.messages ?? [] })}`" +
     String.raw`);
