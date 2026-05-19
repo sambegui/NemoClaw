@@ -184,6 +184,13 @@ else
 fi
 
 section "Phase 5: Live TUI/WebChat correlation proof"
+info "Installing repository dev dependencies for Vitest..."
+if ! npm ci --ignore-scripts --include=dev --no-audit --no-fund >>"$INSTALL_LOG" 2>&1; then
+  echo "ERROR: Failed to install repository dev dependencies for Vitest."
+  tail -80 "$INSTALL_LOG" || true
+  exit 1
+fi
+
 NEMOCLAW_ISSUE_3145_LIVE=1 \
   NEMOCLAW_ISSUE_3145_SANDBOX="$SANDBOX_NAME" \
   npx vitest run test/openclaw-tui-chat-correlation.test.ts
