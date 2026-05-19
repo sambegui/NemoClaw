@@ -71,9 +71,8 @@ const { isLinuxDockerDriverGatewayEnabled }: typeof import("./onboard/docker-dri
 const {
   reconcileGatewayGpuReuseForGpuIntent,
 }: typeof import("./onboard/gateway-gpu-passthrough") = require("./onboard/gateway-gpu-passthrough");
-const {
-  syncPresetSelection,
-}: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
+const { syncPresetSelection }: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
+const { maybeForceE2eStepFailure }: typeof import("./onboard/e2e-failure-injection") = require("./onboard/e2e-failure-injection");
 const {
   gatherWechatConfig,
   hasWechatConfigDrift,
@@ -9184,6 +9183,7 @@ function startRecordedStep(
       return session;
     });
   }
+  maybeForceE2eStepFailure(stepName);
 }
 
 const ONBOARD_STEP_INDEX: Record<string, { number: number; title: string }> = {
