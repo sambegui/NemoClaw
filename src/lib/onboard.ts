@@ -82,6 +82,7 @@ const {
 const {
   setupSelectedMessagingChannels,
 } = require("./onboard/messaging-channel-setup") as typeof import("./onboard/messaging-channel-setup");
+const { buildVllmMenuEntries }: typeof import("./onboard/vllm-menu") = require("./onboard/vllm-menu");
 const crypto = require("node:crypto");
 const fs = require("fs");
 const os = require("os");
@@ -335,8 +336,8 @@ const openshellPinFlow: typeof import("./onboard/openshell-pin") =
 const sandboxCreateFailureDiagnostics: typeof import("./onboard/sandbox-create-failure") =
   require("./onboard/sandbox-create-failure");
 
-import type { AgentDefinition } from "./agent/defs";
 import type { CurlProbeResult } from "./adapters/http/probe";
+import type { AgentDefinition } from "./agent/defs";
 import type { WebSearchConfig } from "./inference/web-search";
 import {
   hydrateMessagingChannelConfig,
@@ -6228,24 +6229,14 @@ async function setupNim(
   if (EXPERIMENTAL && gpu && gpu.nimCapable) {
     options.push({ key: "nim-local", label: "Local NVIDIA NIM [experimental]" });
   }
-  // vLLM: an already-running local server is safe to offer in-place because
-  // selecting it is an explicit user action. Managed install/start remains
-  // gated by NEMOCLAW_PROVIDER=install-vllm or NEMOCLAW_EXPERIMENTAL because it
-  // pulls images and starts containers.
-  // Read NEMOCLAW_PROVIDER directly so interactive runs with an explicit
-  // env-var opt-in surface the menu entry too — requestedProvider is null
-  // outside non-interactive mode.
-  const explicitProvider = (process.env.NEMOCLAW_PROVIDER || "").trim().toLowerCase();
-  const userChoseManagedVllm = explicitProvider === "install-vllm";
-  if (vllmRunning) {
-    options.push({
-      key: "vllm",
-      label: `Local vLLM [experimental] (localhost:${VLLM_PORT}) — running (suggested)`,
-    });
-  } else if (vllmProfile && (userChoseManagedVllm || EXPERIMENTAL)) {
-    const verb = hasVllmImage ? "Start" : "Install";
-    options.push({ key: "install-vllm", label: `${verb} vLLM (${vllmProfile.name})` });
-  }
+  options.push(
+    ...buildVllmMenuEntries({
+      vllmRunning,
+      vllmProfile,
+      experimental: EXPERIMENTAL,
+      hasVllmImage,
+    }),
+  );
   // Skipped when Windows-host already won the cache: the running entry
   // above already covers that case.
   if (hasWindowsOllama && ollamaHost !== "host.docker.internal") {
