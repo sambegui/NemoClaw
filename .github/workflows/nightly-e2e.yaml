@@ -7,12 +7,18 @@
 #   messaging-providers-e2e  Validates messaging credential provider/placeholder/L7-proxy chain
 #                            for Telegram + Discord + Slack. Uses fake tokens. Slack additionally
 #                            exercises OpenShell provider-shaped alias resolution (#2085 follow-up).
+#   openclaw-slack-pairing-e2e
+#                            Validates hermetic Slack Socket Mode pairing request approval across
+#                            gateway and connect-shell OpenClaw state roots (#3730/#3737).
 #   messaging-compatible-endpoint-e2e
 #                            Validates Telegram + OpenAI-compatible endpoint inference routing
 #                            through inference.local with a hermetic local mock (#2766).
 #   kimi-inference-compat-e2e
 #                            Validates Kimi K2.6 safe exec splitting through OpenClaw trajectories
 #                            with a hermetic OpenAI-compatible mock (#2620).
+#   bedrock-runtime-compatible-anthropic-e2e
+#                            Validates the silent Bedrock Runtime custom Anthropic endpoint path
+#                            through a hermetic fake Bedrock Runtime host for OpenClaw and Hermes.
 #   token-rotation-e2e       Validates that rotating a messaging token and re-running onboard
 #                            propagates the new credential to the sandbox. Combined Telegram +
 #                            Discord + Slack coverage with cross-talk assertions. See issue #1903.
@@ -66,8 +72,10 @@ on:
           Comma-separated job names to run (empty = all).
           Valid: cloud-e2e, cloud-onboard-e2e, cloud-inference-e2e,
           skill-agent-e2e, docs-validation-e2e, messaging-providers-e2e,
+          openclaw-slack-pairing-e2e,
           messaging-compatible-endpoint-e2e,
           kimi-inference-compat-e2e,
+          bedrock-runtime-compatible-anthropic-e2e,
           token-rotation-e2e, sandbox-survival-e2e,
           openshell-gateway-upgrade-e2e,
           issue-2478-crash-loop-recovery-e2e, hermes-e2e,
@@ -337,6 +345,43 @@ jobs:
             /tmp/nemoclaw-e2e-whatsapp-*.log
           if-no-files-found: ignore
 
+  # ── OpenClaw Slack Pairing E2E (#3730/#3737) ──────────────────
+  # Hermetic Socket Mode inbound event + chat.postMessage reply path, then
+  # connect-shell `openclaw pairing approve slack <code>` against shared state.
+  openclaw-slack-pairing-e2e:
+    if: >-
+      github.repository == 'NVIDIA/NemoClaw' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.jobs == '' ||
+       contains(format(',{0},', inputs.jobs), ',openclaw-slack-pairing-e2e,'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.target_ref || github.ref }}
+
+      - name: Run OpenClaw Slack pairing E2E test
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NEMOCLAW_NON_INTERACTIVE: "1"
+          NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+          NEMOCLAW_POLICY_TIER: "open"
+          NEMOCLAW_SANDBOX_NAME: "e2e-openclaw-slack-pairing"
+          GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: "xoxb-fake-slack-pairing-e2e"
+          SLACK_APP_TOKEN: "xapp-fake-slack-pairing-e2e"
+        run: bash test/e2e/test-openclaw-slack-pairing.sh
+
+      - name: Upload install log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-log-openclaw-slack-pairing
+          path: /tmp/nemoclaw-e2e-openclaw-slack-pairing-install.log
+          if-no-files-found: ignore
+
   # ── Messaging + compatible endpoint regression (#2766) ───────
   # Hermetic Telegram + OpenAI-compatible endpoint path. Uses a local mock
   # endpoint and fake Telegram token, then asserts sandbox inference.local
@@ -520,6 +565,70 @@ jobs:
         with:
           name: agent-log-kimi-inference-compat
           path: /tmp/nemoclaw-e2e-kimi-inference-compat-agent.log
+          if-no-files-found: ignore
+
+  # ── Bedrock Runtime compatible Anthropic endpoint (#3767) ─────
+  # Hermetic fake Bedrock Runtime endpoint path. The sandbox only sees
+  # inference.local; the host-side OpenShell provider owns the hidden adapter
+  # token and the upstream Bedrock bearer derived from the fake pasted key.
+  bedrock-runtime-compatible-anthropic-e2e:
+    if: >-
+      github.repository == 'NVIDIA/NemoClaw' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.jobs == '' ||
+       contains(format(',{0},', inputs.jobs), ',bedrock-runtime-compatible-anthropic-e2e,'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [openclaw, hermes]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.target_ref || github.ref }}
+
+      - name: Run Bedrock Runtime compatible Anthropic E2E test
+        env:
+          NEMOCLAW_NON_INTERACTIVE: "1"
+          NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+          NEMOCLAW_RECREATE_SANDBOX: "1"
+          NEMOCLAW_AGENT: ${{ matrix.agent }}
+          NEMOCLAW_SANDBOX_NAME: e2e-bedrock-${{ matrix.agent }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash test/e2e/test-bedrock-runtime-compatible-anthropic.sh
+
+      - name: Upload onboard log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboard-log-bedrock-runtime-compatible-anthropic-${{ matrix.agent }}
+          path: /tmp/nemoclaw-e2e-bedrock-runtime-${{ matrix.agent }}-onboard.log
+          if-no-files-found: ignore
+
+      - name: Upload build/setup log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-bedrock-runtime-compatible-anthropic-${{ matrix.agent }}
+          path: /tmp/nemoclaw-e2e-bedrock-runtime-${{ matrix.agent }}-build.log
+          if-no-files-found: ignore
+
+      - name: Upload fake Bedrock Runtime log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-log-bedrock-runtime-compatible-anthropic-${{ matrix.agent }}
+          path: /tmp/nemoclaw-e2e-bedrock-runtime-${{ matrix.agent }}-mock.log
+          if-no-files-found: ignore
+
+      - name: Upload Bedrock Runtime adapter log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adapter-log-bedrock-runtime-compatible-anthropic-${{ matrix.agent }}
+          path: ~/.nemoclaw/bedrock-runtime-adapter.log
           if-no-files-found: ignore
 
   # ── Token rotation (credential propagation to L7 proxy) ─────
@@ -2031,10 +2140,12 @@ jobs:
         skill-agent-e2e,
         docs-validation-e2e,
         messaging-providers-e2e,
+        openclaw-slack-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-stop-start-e2e,
         brave-search-e2e,
         kimi-inference-compat-e2e,
+        bedrock-runtime-compatible-anthropic-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,
         issue-2478-crash-loop-recovery-e2e,
@@ -2124,10 +2235,12 @@ jobs:
         skill-agent-e2e,
         docs-validation-e2e,
         messaging-providers-e2e,
+        openclaw-slack-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-stop-start-e2e,
         brave-search-e2e,
         kimi-inference-compat-e2e,
+        bedrock-runtime-compatible-anthropic-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,
         issue-2478-crash-loop-recovery-e2e,
@@ -2274,10 +2387,12 @@ jobs:
         skill-agent-e2e,
         docs-validation-e2e,
         messaging-providers-e2e,
+        openclaw-slack-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-stop-start-e2e,
         brave-search-e2e,
         kimi-inference-compat-e2e,
+        bedrock-runtime-compatible-anthropic-e2e,
         token-rotation-e2e,
         sandbox-survival-e2e,
         issue-2478-crash-loop-recovery-e2e,
