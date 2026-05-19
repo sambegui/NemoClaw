@@ -21,51 +21,23 @@ function extractShellFunctionFromSource(src: string, name: string): string {
   return `${name}() {${match[1]}\n}`;
 }
 
-function runTirithBootstrap(opts: { markerReason: string; failInstall?: boolean }) {
+function runTirithMarkerBootstrap(opts: {
+  markerReason?: string;
+  symlinkMarker?: boolean;
+}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-tirith-"));
   const hermesHome = path.join(tmpDir, ".hermes");
-  const fakeRoot = path.join(tmpDir, "fake-python");
-  const toolsDir = path.join(fakeRoot, "tools");
   const marker = path.join(hermesHome, ".tirith-install-failed");
-  const callsPath = path.join(tmpDir, "calls.log");
+  const target = path.join(tmpDir, "marker-target");
   const scriptPath = path.join(tmpDir, "run.sh");
 
   fs.mkdirSync(hermesHome, { recursive: true });
-  fs.mkdirSync(toolsDir, { recursive: true });
-  fs.writeFileSync(marker, opts.markerReason);
-  fs.writeFileSync(path.join(toolsDir, "__init__.py"), "");
-  fs.writeFileSync(
-    path.join(toolsDir, "tirith_security.py"),
-    `
-import os
-
-def _failure_marker_path():
-    return os.path.join(os.environ["HERMES_HOME"], ".tirith-install-failed")
-
-def _clear_install_failed():
-    try:
-        os.unlink(_failure_marker_path())
-    except FileNotFoundError:
-        pass
-
-def _mark_install_failed(reason=""):
-    with open(_failure_marker_path(), "w", encoding="utf-8") as fh:
-        fh.write(reason)
-
-def _install_tirith(log_failures=True):
-    with open(os.environ["CALLS_PATH"], "a", encoding="utf-8") as fh:
-        fh.write("install\\n")
-    if os.environ.get("TIRITH_FAIL") == "1":
-        return None, "download_failed"
-    bin_dir = os.path.join(os.environ["HERMES_HOME"], "bin")
-    os.makedirs(bin_dir, exist_ok=True)
-    dest = os.path.join(bin_dir, "tirith")
-    with open(dest, "w", encoding="utf-8") as fh:
-        fh.write("#!/bin/sh\\nexit 0\\n")
-    os.chmod(dest, 0o644)
-    return dest, ""
-`.trimStart(),
-  );
+  if (opts.symlinkMarker) {
+    fs.writeFileSync(target, opts.markerReason ?? "download_failed");
+    fs.symlinkSync(target, marker);
+  } else if (opts.markerReason !== undefined) {
+    fs.writeFileSync(marker, opts.markerReason);
+  }
 
   const src = fs.readFileSync(START_SCRIPT, "utf-8");
   fs.writeFileSync(
@@ -73,10 +45,9 @@ def _install_tirith(log_failures=True):
     [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
-      extractShellFunctionFromSource(src, "bootstrap_tirith_after_download_failure"),
+      extractShellFunctionFromSource(src, "retry_tirith_marker_if_needed"),
       `HERMES_DIR=${shellQuote(hermesHome)}`,
-      `HERMES_HOME=${shellQuote(hermesHome)}`,
-      "bootstrap_tirith_after_download_failure",
+      "retry_tirith_marker_if_needed",
     ].join("\n"),
     { mode: 0o700 },
   );
@@ -85,58 +56,50 @@ def _install_tirith(log_failures=True):
     const result = spawnSync("bash", [scriptPath], {
       encoding: "utf-8",
       timeout: 5000,
-      env: {
-        ...process.env,
-        PYTHONPATH: fakeRoot,
-        CALLS_PATH: callsPath,
-        TIRITH_FAIL: opts.failInstall ? "1" : "0",
-      },
+      env: process.env,
     });
-    const tirithPath = path.join(hermesHome, "bin", "tirith");
     return {
       result,
-      calls: fs.existsSync(callsPath) ? fs.readFileSync(callsPath, "utf-8") : "",
       markerExists: fs.existsSync(marker),
+      markerIsSymlink: fs.existsSync(marker) && fs.lstatSync(marker).isSymbolicLink(),
       markerContent: fs.existsSync(marker) ? fs.readFileSync(marker, "utf-8") : "",
-      tirithExecutable:
-        fs.existsSync(tirithPath) && (fs.statSync(tirithPath).mode & 0o111) !== 0,
+      targetContent: fs.existsSync(target) ? fs.readFileSync(target, "utf-8") : "",
     };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
-describe("agents/hermes/start.sh Tirith bootstrap", () => {
-  it("retries a download_failed marker, installs tirith executable, and clears the marker", () => {
-    const run = runTirithBootstrap({ markerReason: "download_failed" });
+describe("agents/hermes/start.sh Tirith marker bootstrap", () => {
+  it("removes a retryable download_failed marker so Hermes runtime fallback can retry", () => {
+    const run = runTirithMarkerBootstrap({ markerReason: "download_failed" });
 
     expect(run.result.status).toBe(0);
-    expect(run.calls).toBe("install\n");
-    expect(run.tirithExecutable).toBe(true);
     expect(run.markerExists).toBe(false);
-    expect(run.result.stderr).toContain("Retrying Tirith install after download_failed marker");
-    expect(run.result.stderr).toContain("Tirith ready");
+    expect(run.result.stderr).toContain(
+      "download_failed marker present; letting Hermes runtime fallback retry Tirith",
+    );
   });
 
-  it("leaves unknown marker reasons untouched and does not retry", () => {
-    const run = runTirithBootstrap({ markerReason: "checksum_failed" });
+  it("leaves unknown marker reasons untouched", () => {
+    const run = runTirithMarkerBootstrap({ markerReason: "checksum_failed" });
 
     expect(run.result.status).toBe(0);
-    expect(run.calls).toBe("");
-    expect(run.tirithExecutable).toBe(false);
     expect(run.markerExists).toBe(true);
     expect(run.markerContent).toBe("checksum_failed");
     expect(run.result.stderr).toContain("is not retryable");
   });
 
-  it("continues startup when the retry fails and leaves the marker reason for diagnostics", () => {
-    const run = runTirithBootstrap({ markerReason: "download_failed", failInstall: true });
+  it("refuses to read or remove an unsafe symlink marker", () => {
+    const run = runTirithMarkerBootstrap({
+      markerReason: "download_failed",
+      symlinkMarker: true,
+    });
 
     expect(run.result.status).toBe(0);
-    expect(run.calls).toBe("install\n");
-    expect(run.tirithExecutable).toBe(false);
     expect(run.markerExists).toBe(true);
-    expect(run.markerContent).toBe("download_failed");
-    expect(run.result.stderr).toContain("Tirith retry failed; gateway startup will continue");
+    expect(run.markerIsSymlink).toBe(true);
+    expect(run.targetContent).toBe("download_failed");
+    expect(run.result.stderr).toContain("unsafe Tirith install marker");
   });
 });
