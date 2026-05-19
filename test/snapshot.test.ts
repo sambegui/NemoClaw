@@ -330,6 +330,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "src",
       selector: null,
+      force: false,
+      yes: false,
     });
   });
 
@@ -338,6 +340,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "src",
       selector: "v3",
+      force: false,
+      yes: false,
     });
   });
 
@@ -346,6 +350,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "src",
       selector: "before-upgrade",
+      force: false,
+      yes: false,
     });
   });
 
@@ -354,6 +360,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "dst",
       selector: null,
+      force: false,
+      yes: false,
     });
   });
 
@@ -362,6 +370,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "dst",
       selector: "v3",
+      force: false,
+      yes: false,
     });
   });
 
@@ -370,6 +380,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "dst",
       selector: "v3",
+      force: false,
+      yes: false,
     });
   });
 
@@ -379,6 +391,8 @@ describe("parseRestoreArgs", () => {
         ok: true,
         targetSandbox: "dst",
         selector: "2026-04-21T14-00-00-000Z",
+        force: false,
+        yes: false,
       },
     );
   });
@@ -408,6 +422,8 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "src",
       selector: null,
+      force: false,
+      yes: false,
     });
   });
 
@@ -418,6 +434,38 @@ describe("parseRestoreArgs", () => {
       ok: true,
       targetSandbox: "src",
       selector: "v1",
+      force: false,
+      yes: false,
+    });
+  });
+
+  it("extracts --force when --to names another sandbox (#3756)", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "dst", "--force"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: null,
+      force: true,
+      yes: false,
+    });
+  });
+
+  it("accepts --force --yes together for non-interactive confirm-skip", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "dst", "--force", "--yes"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: null,
+      force: true,
+      yes: true,
+    });
+  });
+
+  it("accepts -y as an alias for --yes", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "dst", "--force", "-y"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: null,
+      force: true,
+      yes: true,
     });
   });
 });

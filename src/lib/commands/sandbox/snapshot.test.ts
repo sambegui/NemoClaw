@@ -48,6 +48,21 @@ describe("snapshot oclif commands", () => {
     expect(sandboxSnapshot).toHaveBeenCalledWith("alpha", ["restore", "v2", "--to", "beta"]);
   });
 
+  it("threads --force and --yes through restore (#3756)", async () => {
+    const sandboxSnapshot = vi.fn().mockResolvedValue(undefined);
+    setSnapshotRuntimeBridgeFactoryForTest(() => ({ sandboxSnapshot }));
+
+    await SnapshotRestoreCommand.run(["alpha", "--to", "beta", "--force", "--yes"], rootDir);
+
+    expect(sandboxSnapshot).toHaveBeenCalledWith("alpha", [
+      "restore",
+      "--to",
+      "beta",
+      "--force",
+      "--yes",
+    ]);
+  });
+
   it("runs snapshot create with an optional label", async () => {
     const sandboxSnapshot = vi.fn().mockResolvedValue(undefined);
     setSnapshotRuntimeBridgeFactoryForTest(() => ({ sandboxSnapshot }));

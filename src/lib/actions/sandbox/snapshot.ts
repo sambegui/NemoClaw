@@ -8,13 +8,16 @@ import path from "node:path";
 import { CLI_NAME } from "../../cli/branding";
 import { dockerCapture, dockerInspect } from "../../adapters/docker";
 import { stripAnsi } from "../../adapters/openshell/client";
+import { prompt as askPrompt } from "../../credentials/store";
+import { getSandboxDeleteOutcome } from "../../domain/sandbox/destroy";
 import { parseLiveSandboxNames } from "../../runtime-recovery";
 import { ROOT, run, shellQuote, validateName } from "../../runner";
-import { captureOpenshell, getOpenshellBinary } from "../../adapters/openshell/runtime";
+import { captureOpenshell, getOpenshellBinary, runOpenshell } from "../../adapters/openshell/runtime";
 import * as policies from "../../policy";
 import * as registry from "../../state/registry";
 import type { SandboxEntry } from "../../state/registry";
 import * as sandboxState from "../../state/sandbox";
+import { removeSandboxRegistryEntry } from "./destroy";
 
 const { parseRestoreArgs } = sandboxState;
 
@@ -202,6 +205,26 @@ async function autoCreateSandboxFromSource(
   console.log(`  ${G}\u2713${R} Sandbox '${dstName}' created`);
 }
 
+// Delete an existing destination sandbox so `snapshot restore --to <dst> --force`
+// can recreate it from the source's image. Mirrors the delete sequence in
+// rebuild.ts (`openshell sandbox delete` + getSandboxDeleteOutcome + clear the
+// NemoClaw registry entry). Exits non-zero on failure so the caller does not
+// proceed into a partially-deleted target.
+function deleteSandboxForRestore(name: string): void {
+  console.log(`  Deleting existing destination '${name}' before restore...`);
+  const deleteResult = runOpenshell(["sandbox", "delete", name], {
+    ignoreError: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const { alreadyGone } = getSandboxDeleteOutcome(deleteResult);
+  if (deleteResult.status !== 0 && !alreadyGone) {
+    console.error(`  Failed to delete '${name}' (exit ${deleteResult.status}). Aborting restore.`);
+    process.exit(1);
+  }
+  removeSandboxRegistryEntry(name);
+  console.log(`  ${G}\u2713${R} '${name}' deleted`);
+}
+
 // Returns true only when the gateway Docker container is confirmed running.
 // `openshell sandbox list` reads a local registry and exits 0 even when the
 // gateway is stopped (#2673), so we probe the container directly instead.
@@ -304,16 +327,58 @@ export async function runSandboxSnapshot(sandboxName: string, subArgs: string[])
       }
       const isLive = captureOpenshell(["sandbox", "list"], { ignoreError: true });
       const liveNames = parseLiveSandboxNames(isLive.output || "");
-      if (!liveNames.has(targetSandbox)) {
-        // Self-restore: cannot auto-create, there is no source to clone from.
-        if (targetSandbox === sandboxName) {
+      const isCrossSandboxRestore = targetSandbox !== sandboxName;
+      const targetExists = liveNames.has(targetSandbox);
+      if (!isCrossSandboxRestore) {
+        // Self-restore: target is `sandboxName`. Cannot auto-create; the
+        // source pod is the target, so it must already be live.
+        if (!targetExists) {
           console.error(`  Sandbox '${targetSandbox}' is not running. Cannot restore snapshot.`);
           process.exit(1);
         }
-        // Cross-sandbox restore into a sandbox that doesn't exist yet:
-        // auto-create it by cloning the source's running pod image. The
-        // source must exist so we can probe its image via kubectl; the
-        // registry entry is used to seed dst's agent/model/provider fields.
+      } else if (targetExists) {
+        // #3756: cross-sandbox restore into a destination that already exists
+        // used to overlay onto the live filesystem silently. Refuse by
+        // default; with --force, delete the destination and let the existing
+        // auto-create path recreate it cleanly. Confirm before deleting
+        // unless --yes (or NEMOCLAW_NON_INTERACTIVE=1) is set.
+        if (!parsed.force) {
+          console.error(`  Destination sandbox '${targetSandbox}' already exists.`);
+          console.error(
+            "  Restoring into an existing sandbox is unsupported because it would silently mutate its filesystem.",
+          );
+          console.error(
+            `  Re-run with --force to delete '${targetSandbox}' and recreate it from the snapshot, or pick a different name.`,
+          );
+          process.exit(1);
+        }
+        const nonInteractive = process.env.NEMOCLAW_NON_INTERACTIVE === "1";
+        if (!parsed.yes && !nonInteractive) {
+          const answer = (
+            await askPrompt(
+              `  This will DELETE sandbox '${targetSandbox}' and restore the snapshot into a fresh copy.\n` +
+                `  Type '${targetSandbox}' to confirm: `,
+            )
+          ).trim();
+          if (answer !== targetSandbox) {
+            console.error("  Confirmation did not match — aborting.");
+            process.exit(1);
+          }
+        }
+        if (!liveNames.has(sandboxName)) {
+          console.error(
+            `  Cannot recreate '${targetSandbox}' from snapshot: source '${sandboxName}' not found.`,
+          );
+          process.exit(1);
+        }
+        deleteSandboxForRestore(targetSandbox);
+        const srcEntry = registry.getSandbox(sandboxName) || { name: sandboxName };
+        await autoCreateSandboxFromSource(sandboxName, targetSandbox, srcEntry);
+      } else {
+        // Cross-sandbox restore into a destination that does not exist yet:
+        // auto-create by cloning the source's running pod image. The source
+        // must exist so we can probe its image; the registry entry is used
+        // to seed dst's agent/model/provider fields.
         if (!liveNames.has(sandboxName)) {
           console.error(
             `  Cannot auto-create '${targetSandbox}': source '${sandboxName}' not found.`,
