@@ -53,6 +53,26 @@ describe("warnIfHostProxyMissesLoopback (#2616)", () => {
     expect(lines).toEqual([]);
   });
 
+  it("warns when NO_PROXY only has localhost (127.0.0.1 still proxied) (CodeRabbit #3801)", () => {
+    const lines: string[] = [];
+    const fired = warnIfHostProxyMissesLoopback(
+      { http_proxy: "http://127.0.0.1:8118", NO_PROXY: "localhost" },
+      (line) => lines.push(line),
+    );
+    expect(fired).toBe(true);
+    expect(lines.join("\n")).toContain("export NO_PROXY=localhost,127.0.0.1");
+  });
+
+  it("warns when NO_PROXY only has 127.0.0.1 (localhost still proxied) (CodeRabbit #3801)", () => {
+    const lines: string[] = [];
+    const fired = warnIfHostProxyMissesLoopback(
+      { http_proxy: "http://127.0.0.1:8118", NO_PROXY: "127.0.0.1" },
+      (line) => lines.push(line),
+    );
+    expect(fired).toBe(true);
+    expect(lines.join("\n")).toContain("export NO_PROXY=localhost,127.0.0.1");
+  });
+
   it("warns when HTTP_PROXY is set without NO_PROXY=localhost", () => {
     const lines: string[] = [];
     const fired = warnIfHostProxyMissesLoopback(

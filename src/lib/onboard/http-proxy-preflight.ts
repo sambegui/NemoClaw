@@ -19,7 +19,12 @@ export function warnIfHostProxyMissesLoopback(
   const proxyEnv = env.HTTP_PROXY || env.http_proxy;
   if (!proxyEnv) return false;
   const noProxyEnv = env.NO_PROXY || env.no_proxy || "";
-  if (/(^|,)\s*(localhost|127\.0\.0\.1)\s*(,|$)/.test(noProxyEnv)) return false;
+  // Require BOTH entries — HTTP libraries match the literal hostname against
+  // NO_PROXY, so `NO_PROXY=localhost` alone still proxies `127.0.0.1` requests
+  // (and vice versa). Only suppress the warning when both are present.
+  const hasLocalhost = /(^|,)\s*localhost\s*(,|$)/.test(noProxyEnv);
+  const hasLoopback = /(^|,)\s*127\.0\.0\.1\s*(,|$)/.test(noProxyEnv);
+  if (hasLocalhost && hasLoopback) return false;
   warn("  ⚠ HTTP_PROXY/http_proxy is set without NO_PROXY=localhost,127.0.0.1.");
   warn(`    Detected proxy: ${redactProxyCredentials(proxyEnv)}`);
   warn("    NemoClaw injects NO_PROXY for its own subprocess spawns, but any tool you run");
