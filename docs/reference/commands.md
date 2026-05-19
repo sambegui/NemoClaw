@@ -333,6 +333,26 @@ $ nemoclaw my-assistant connect [--probe-only]
 The `--probe-only` flag verifies the sandbox is reachable over SSH and exits without opening a shell.
 Use it for health checks and scripted readiness probes.
 
+### `nemoclaw <name> exec`
+
+Run a single command non-interactively in a running sandbox via the OpenShell exec endpoint.
+The command runs as the sandbox user with `HOME=/sandbox`, so in-sandbox tooling resolves NemoClaw-provisioned config under `/sandbox/.openclaw` the same way it does for `connect` and `openshell sandbox connect`.
+This is the supported substitute for `docker exec` on the sandbox container; raw `docker exec` runs as root and lands on `HOME=/root`, where the agent config is not present and `openclaw agent` falls back to its built-in defaults.
+
+```console
+$ nemoclaw my-assistant exec -- openclaw agent -m "What is 2+2?"
+$ nemoclaw my-assistant exec --workdir /sandbox/workspace -- ls -la
+```
+
+Everything after `--` is forwarded verbatim to the sandbox command, including flags the inner command needs.
+The exit code is the remote command's exit code.
+
+| Flag | Description |
+|------|-------------|
+| `--workdir <dir>` | Working directory inside the sandbox |
+| `--tty` / `--no-tty` | Allocate a pseudo-terminal; defaults to auto-detection (on when stdin and stdout are terminals) |
+| `--timeout <seconds>` | Timeout in seconds (`0` means no timeout) |
+
 ### `nemoclaw <name> recover`
 
 Restart the in-sandbox gateway and re-establish the host-side dashboard port-forward without opening an SSH session.
@@ -591,7 +611,7 @@ $ nemoclaw my-assistant hosts-remove searxng.local
 
 ### `nemoclaw <name> channels list`
 
-List the messaging channels NemoClaw knows about (`telegram`, `discord`, `slack`) with a short description.
+List the messaging channels NemoClaw knows about (`telegram`, `discord`, `slack`, `wechat`, `whatsapp`) with a short description.
 The command is a static reference; it does not consult credentials or the running sandbox.
 
 ```console
@@ -600,11 +620,19 @@ $ nemoclaw my-assistant channels list
 
 ### `nemoclaw <name> channels add <channel>`
 
-Store credentials for a messaging channel (`telegram`, `discord`, or `slack`) and rebuild the sandbox so the image picks up the new channel.
-The command prompts for any missing token, registers it with the OpenShell gateway, then asks whether to rebuild immediately.
-Running `add` for an already-configured channel simply overwrites the stored tokens — the operation is idempotent.
+Register a messaging channel with the sandbox and rebuild so the image picks up the new channel.
+Channels fall into three login modes:
+
+- **Token paste** (`telegram`, `discord`, `slack`): the command prompts for any missing token and registers it with the OpenShell gateway.
+- **Host-side QR** (`wechat`): the command runs an interactive host-side QR scan to capture a static session token, then registers it with the gateway.
+- **In-sandbox QR** (`whatsapp`): the command records the channel without a host-side token or OpenShell credential provider.
+  NemoClaw advertises WhatsApp for OpenClaw and Hermes sandboxes; after rebuild, run `openclaw channels login --channel whatsapp` for OpenClaw or `hermes whatsapp` for Hermes.
+  This intentionally leaves QR-created mutable session state in the sandbox until you unpair it or clear the durable agent state.
+
+After registering the channel, NemoClaw asks whether to rebuild immediately.
+Running `add` for an already-configured channel simply overwrites the stored credentials where applicable — the operation is idempotent.
 Channel names are trimmed and lowercased before NemoClaw stores credentials, names bridge providers, or prints rebuild messages.
-After a successful add, NemoClaw prints a `policy-add <channel>` hint when a matching built-in network policy preset exists but is not applied to the sandbox yet.
+If a matching built-in network policy preset exists, NemoClaw applies it to the sandbox before the rebuild so the bridge has egress to its upstream API; if applying the preset fails, NemoClaw warns and tells you to re-apply manually with `nemoclaw <sandbox> policy-add <channel>`.
 
 ```console
 $ nemoclaw my-assistant channels add telegram
@@ -622,7 +650,7 @@ When `NEMOCLAW_NON_INTERACTIVE=1` is set, any missing token fails fast and no re
 Clear the stored credentials for a messaging channel and rebuild the sandbox so the image drops the channel.
 Running `remove` for a channel that was never configured is a no-op against the credentials file and still triggers the rebuild prompt.
 When the bridge provider is attached to a live sandbox, NemoClaw detaches it before deleting the provider from the OpenShell gateway.
-If the matching built-in policy preset is applied, such as `telegram`, `discord`, or `slack`, NemoClaw also removes that preset so the upstream API is no longer allow-listed after the channel is gone.
+If the matching built-in policy preset is applied, such as `telegram`, `discord`, `slack`, `wechat`, or `whatsapp`, NemoClaw also removes that preset so the upstream API is no longer allow-listed after the channel is gone.
 
 ```console
 $ nemoclaw my-assistant channels remove telegram
@@ -634,11 +662,11 @@ $ nemoclaw my-assistant channels remove telegram
 
 As with `channels add`, `NEMOCLAW_NON_INTERACTIVE=1` skips the rebuild prompt and queues the change for a manual `nemoclaw <name> rebuild`.
 
-Host-side removal is the supported path because `/sandbox/.openclaw/openclaw.json` is baked into the container image at build time; `openclaw channels remove` inside the sandbox would modify the running config but not persist changes across rebuilds.
+Host-side removal is the supported path because agent channel config is baked into the container image at build time (`/sandbox/.openclaw/openclaw.json` for OpenClaw and `/sandbox/.hermes/.env` for Hermes); agent-specific channel removals inside the sandbox would modify the running config but not persist changes across rebuilds.
 
 ### `nemoclaw <name> channels stop <channel>`
 
-Pause a single messaging bridge (`telegram`, `discord`, or `slack`) without clearing its credentials.
+Pause a single messaging bridge (`telegram`, `discord`, `slack`, `wechat`, or `whatsapp`) without clearing its credentials.
 The channel is marked disabled in the per-sandbox registry, and the sandbox is rebuilt so the onboard step skips registering the bridge with the gateway.
 The provider stays registered with the OpenShell gateway, so a later `channels start` brings the bridge back without re-entering tokens.
 
@@ -1134,6 +1162,9 @@ Defaults are unchanged when no variable is set.
 If `NEMOCLAW_DASHBOARD_PORT` or the port from `CHAT_UI_URL` is already occupied by another sandbox, onboarding scans `18789` through `18799` and uses the next free dashboard port.
 Pass `--control-ui-port <N>` to require a specific port.
 
+Hermes Provider sandboxes that use Nous Portal OAuth and selected managed Nous tools also start a Hermes-owned host broker on port `11436`.
+That broker is not part of the default OpenClaw service set; it is started only for Hermes managed-tool gateway sessions.
+
 ### Onboarding Configuration
 
 These variables let you tune onboarding without editing the Dockerfile or passing repeated flags.
@@ -1145,6 +1176,8 @@ Set them before running `nemoclaw onboard`.
 | `NEMOCLAW_HERMES_AUTH_METHOD` | `oauth` | Selects Hermes Provider authentication in non-interactive onboarding. Valid values: `oauth`, `nous-portal-oauth`, `api-key`, `nous-api-key`. |
 | `NEMOCLAW_HERMES_AUTH` | same as `NEMOCLAW_HERMES_AUTH_METHOD` | Back-compatible alias for Hermes Provider authentication selection. |
 | `NEMOCLAW_NOUS_AUTH_METHOD` | same as `NEMOCLAW_HERMES_AUTH_METHOD` | Nous-specific alias for Hermes Provider authentication selection. |
+| `NEMOCLAW_HERMES_TOOL_GATEWAYS` | comma-separated managed-tool presets | Selects Hermes managed Nous tools in non-interactive OAuth onboarding. Valid values: `nous-web`, `nous-image`, `nous-audio`, `nous-browser`, `nous-code`. These require Nous Portal OAuth/subscription; API-key mode remains inference-only. |
+| `NEMOCLAW_HERMES_TOOL_GATEWAY_PRESETS` | same as `NEMOCLAW_HERMES_TOOL_GATEWAYS` | Back-compatible alias for selecting Hermes managed-tool presets. |
 | `NEMOCLAW_ENDPOINT_URL` | URL | Custom OpenAI-compatible endpoint URL. Used together with `NEMOCLAW_PROVIDER=compatible`. |
 | `NEMOCLAW_PREFERRED_API` | `completions` (currently the only honored value) | Forces the validation probe to use the `/v1/chat/completions` API path instead of the newer `/v1/responses` API. |
 | `NEMOCLAW_INFERENCE_INPUTS` | comma-separated list of `text` and/or `image` | Declares model input modalities for vision-capable models. Validated strictly; unknown tokens are ignored. |
