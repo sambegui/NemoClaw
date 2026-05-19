@@ -136,6 +136,11 @@ function decodeToolCallArguments(value) {
   return null;
 }
 
+function encodeToolCallArgumentsLike(original, command) {
+  if (typeof original === "string") return JSON.stringify({ command });
+  return { command };
+}
+
 function splitSafeExecCommand(command) {
   if (typeof command !== "string") return null;
   if (!command.includes(";")) return null;
@@ -151,12 +156,7 @@ function buildSplitToolCallId(originalId, index, command) {
   return `${baseId}_split_${index + 1}_${command}`;
 }
 
-function getSafeCombinedExecToolCall(message) {
-  if (!message || typeof message !== "object") return null;
-  const content = message.content;
-  if (!Array.isArray(content) || content.length !== 1) return null;
-
-  const toolCall = content[0];
+function getSafeCombinedExecToolCallFromBlock(toolCall) {
   if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall)) return null;
   if (toolCall.type !== "toolCall" || toolCall.name !== "exec") return null;
 
@@ -173,27 +173,92 @@ function getSafeCombinedExecToolCall(message) {
   return { commands, toolCall };
 }
 
-function applySafeExecSplitToMessage(message, split) {
-  if (!message || typeof message !== "object" || !split) return false;
-  const { commands, toolCall } = split;
+function getExecToolCallCommand(toolCall) {
+  if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall)) return null;
+  if (toolCall.type !== "toolCall" || toolCall.name !== "exec") return null;
+  const args = decodeToolCallArguments(toolCall.arguments);
+  if (!args) return null;
+  const argKeys = Object.keys(args);
+  if (argKeys.length !== 1 || argKeys[0] !== "command" || typeof args.command !== "string") {
+    return null;
+  }
+  return args.command;
+}
 
-  message.content = commands.map((command, index) => ({
+function buildSplitToolCalls(toolCall, commands) {
+  return commands.map((command, index) => ({
     type: "toolCall",
     id: buildSplitToolCallId(toolCall.id, index, command),
     name: "exec",
     arguments: { command },
   }));
+}
+
+function dedupeSafeExecToolCalls(content) {
+  const seenSafeExecCommands = new Set();
+  const deduped = [];
+  for (const block of content) {
+    const command = getExecToolCallCommand(block);
+    if (SAFE_SPLIT_EXEC_COMMANDS.has(command)) {
+      if (seenSafeExecCommands.has(command)) continue;
+      seenSafeExecCommands.add(command);
+    }
+    deduped.push(block);
+  }
+  return deduped;
+}
+
+function rewriteSafeCombinedExecToolCallsInContent(content) {
+  if (!Array.isArray(content)) return { changed: false, content };
+
+  let changed = false;
+  const expanded = [];
+  for (const block of content) {
+    const split = getSafeCombinedExecToolCallFromBlock(block);
+    if (split) {
+      expanded.push(...buildSplitToolCalls(split.toolCall, split.commands));
+      changed = true;
+    } else {
+      expanded.push(block);
+    }
+  }
+  if (!changed) return { changed: false, content };
+
+  return { changed: true, content: dedupeSafeExecToolCalls(expanded) };
+}
+
+function applySafeExecSplitToMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  const rewritten = rewriteSafeCombinedExecToolCallsInContent(message.content);
+  if (!rewritten.changed) return false;
+  message.content = rewritten.content;
+  if (message.stopReason === "stop") message.stopReason = "toolUse";
+  return true;
+}
+
+function applySafeExecSplitAtContentIndex(message, split) {
+  if (!message || typeof message !== "object" || !Array.isArray(message.content) || !split) {
+    return false;
+  }
+  const index = Number.isInteger(split.contentIndex) ? split.contentIndex : 0;
+  if (index < 0 || index >= message.content.length) return false;
+  const replacement = buildSplitToolCalls(split.toolCall, split.commands);
+  message.content = dedupeSafeExecToolCalls([
+    ...message.content.slice(0, index),
+    ...replacement,
+    ...message.content.slice(index + 1),
+  ]);
   if (message.stopReason === "stop") message.stopReason = "toolUse";
   return true;
 }
 
 function rewriteSafeCombinedExecToolCallInMessage(message) {
-  return applySafeExecSplitToMessage(message, getSafeCombinedExecToolCall(message));
+  return applySafeExecSplitToMessage(message);
 }
 
 function getSafeCombinedExecToolCallFromEventDelta(event) {
   if (!event || typeof event !== "object") return null;
-  if (event.type !== "toolcall_delta" || typeof event.delta !== "string") return null;
+  if (event.type !== "toolcall_delta") return null;
   const partial = event.partial;
   if (!partial || typeof partial !== "object" || !Array.isArray(partial.content)) return null;
   const index = Number.isInteger(event.contentIndex) ? event.contentIndex : 0;
@@ -210,33 +275,33 @@ function getSafeCombinedExecToolCallFromEventDelta(event) {
 
   const commands = splitSafeExecCommand(args.command);
   if (!commands) return null;
-  return { commands, toolCall };
+  return { commands, toolCall, contentIndex: index };
 }
 
 function rewriteSafeCombinedExecToolCallInEvent(event) {
   if (!event || typeof event !== "object") return false;
-  const split =
-    getSafeCombinedExecToolCall(event.partial) ||
-    getSafeCombinedExecToolCall(event.message) ||
-    getSafeCombinedExecToolCallFromEventDelta(event);
-  if (!split) return false;
+  const deltaSplit = getSafeCombinedExecToolCallFromEventDelta(event);
+  let changed = false;
 
-  applySafeExecSplitToMessage(event.partial, split);
-  applySafeExecSplitToMessage(event.message, split);
+  changed = applySafeExecSplitToMessage(event.partial) || changed;
+  changed = applySafeExecSplitToMessage(event.message) || changed;
 
-  if (event.type === "toolcall_delta" && typeof event.delta === "string") {
-    event.delta = JSON.stringify({ command: split.commands[0] });
+  if (deltaSplit) {
+    changed = true;
+    applySafeExecSplitAtContentIndex(event.partial, deltaSplit);
+    applySafeExecSplitAtContentIndex(event.message, deltaSplit);
+    const targetIndex = Math.min(
+      Math.max(Number.isInteger(deltaSplit.contentIndex) ? deltaSplit.contentIndex : 0, 0),
+      deltaSplit.commands.length - 1,
+    );
+    const targetCommand = deltaSplit.commands[targetIndex];
+    event.delta = encodeToolCallArgumentsLike(event.delta, targetCommand);
+    if (event.toolCall && typeof event.toolCall === "object" && !Array.isArray(event.toolCall)) {
+      event.toolCall = buildSplitToolCalls(deltaSplit.toolCall, deltaSplit.commands)[targetIndex];
+    }
   }
-  if (event.toolCall && typeof event.toolCall === "object" && !Array.isArray(event.toolCall)) {
-    event.toolCall = {
-      type: "toolCall",
-      id: buildSplitToolCallId(split.toolCall.id, 0, split.commands[0]),
-      name: "exec",
-      arguments: { command: split.commands[0] },
-    };
-  }
 
-  return true;
+  return changed;
 }
 
 function wrapStreamFinalMessages(stream) {

@@ -274,20 +274,7 @@ check_openclaw_agent_turn() {
     2>/dev/null) || rc=$?
   rm -f "$ssh_config"
 
-  reply=$(printf '%s' "$raw" | python3 -c '
-import json
-import sys
-try:
-    doc = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-result = doc.get("result") or {}
-parts = []
-for payload in result.get("payloads") or []:
-    if isinstance(payload, dict) and isinstance(payload.get("text"), str):
-        parts.append(payload["text"])
-print("\n".join(parts))
-' 2>/dev/null) || true
+  reply=$(printf '%s' "$raw" | python3 "${E2E_DIR}/lib/openclaw-agent-json.py" 2>/dev/null) || true
 
   if [ "$rc" -eq 0 ] && grep -qE '(^|[^0-9])42([^0-9]|$)' <<<"$reply"; then
     pass "OpenClaw agent answered through the switched inference route"

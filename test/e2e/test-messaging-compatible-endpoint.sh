@@ -525,19 +525,7 @@ check_openclaw_agent_turn() {
     return
   fi
 
-  reply=$(printf '%s' "$raw" | python3 -c "
-import json, sys
-try:
-    doc = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-result = doc.get('result') or {}
-parts = []
-for p in result.get('payloads') or []:
-    if isinstance(p, dict) and isinstance(p.get('text'), str):
-        parts.append(p['text'])
-print('\n'.join(parts))
-" 2>/dev/null) || true
+  reply=$(printf '%s' "$raw" | python3 "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-agent-json.py" 2>/dev/null) || true
 
   if [ "$rc" -eq 0 ] && printf '%s' "$reply" | grep -qi "PONG"; then
     pass "C8: openclaw agent completed turn via compatible endpoint (http-proxy-fix.js FORWARD-mode path exercised)"

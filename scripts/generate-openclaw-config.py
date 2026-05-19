@@ -465,8 +465,8 @@ def build_config(env: dict | None = None) -> dict:
     )
     # NEMOCLAW_WECHAT_CONFIG_B64 is intentionally not decoded here. The
     # WeChat plugin's per-account state (accountId/baseUrl/userId) is read by
-    # seed-wechat-accounts.py, which the Dockerfile invokes separately after
-    # `openclaw plugins install` registers the openclaw-weixin channel id.
+    # seed-wechat-accounts.py, which runs after the base image has installed
+    # the WeChat plugin and registered its metadata/channel id.
     # Decoding it here too would create a misleading second consumer that
     # nothing acts on.
 
@@ -532,12 +532,12 @@ def build_config(env: dict | None = None) -> dict:
                 }
         _ch_cfg[ch] = {"accounts": {"default": account}}
 
-    # WeChat (openclaw-weixin) is NOT added to channels.* here — writing
-    # channels.openclaw-weixin upfront makes `openclaw plugins install` fail
-    # with "unknown channel id: openclaw-weixin" because the plugin registry
-    # hasn't seen the channel yet (chicken-and-egg). The block is written
-    # AFTER `openclaw plugins install` runs, by scripts/seed-wechat-accounts.py,
-    # which adds:
+    # WeChat (openclaw-weixin) is NOT added to channels.* here in build
+    # contexts where the plugin has not been installed yet — writing it upfront
+    # makes `openclaw plugins install` fail with "unknown channel id:
+    # openclaw-weixin" because the plugin registry hasn't seen the channel yet
+    # (chicken-and-egg). When the base image has already installed the plugin,
+    # scripts/seed-wechat-accounts.py adds:
     #   channels.openclaw-weixin.channelConfigUpdatedAt = <ISO timestamp>
     #   channels.openclaw-weixin.accounts.<accountId>.enabled = true
     # The upstream plugin's auth/accounts.ts reads that block at boot to
@@ -770,8 +770,39 @@ def _has_plugin_install(config: dict, plugin_id: str) -> bool:
     return isinstance(installs, dict) and plugin_id in installs
 
 
-def _seed_wechat_accounts_if_installed(config: dict) -> None:
-    if not _has_plugin_install(config, "openclaw-weixin"):
+def _has_installed_wechat_plugin_metadata() -> bool:
+    extensions_dir = Path(os.path.expanduser("~/.openclaw/extensions"))
+    if not extensions_dir.exists():
+        return False
+
+    for root, dirs, files in os.walk(extensions_dir):
+        dirs[:] = [
+            item
+            for item in dirs
+            if item not in {"node_modules", "plugin-runtime-deps", ".git"}
+        ]
+        root_path = Path(root)
+        for filename in files:
+            if filename not in {"openclaw.plugin.json", "package.json"}:
+                continue
+            path = root_path / filename
+            try:
+                metadata = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            if (
+                metadata.get("id") == "openclaw-weixin"
+                or metadata.get("name") == "@tencent-weixin/openclaw-weixin"
+                or "openclaw-weixin" in str(path).lower()
+            ):
+                return True
+    return False
+
+
+def _seed_wechat_accounts_if_available(config: dict) -> None:
+    if not _has_plugin_install(config, "openclaw-weixin") and not _has_installed_wechat_plugin_metadata():
         return
 
     seed_script = Path(__file__).resolve().with_name("seed-wechat-accounts.py")
@@ -793,7 +824,7 @@ def main() -> None:
     with open(path, "w") as f:
         json.dump(config, f, indent=2)
     os.chmod(path, 0o600)
-    _seed_wechat_accounts_if_installed(config)
+    _seed_wechat_accounts_if_available(config)
 
 
 if __name__ == "__main__":

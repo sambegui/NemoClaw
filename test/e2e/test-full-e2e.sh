@@ -371,8 +371,8 @@ fi
 #     routeLogsToStderr() (openclaw/src/commands/agent-via-gateway.ts:57),
 #     so stdout is a clean JSON envelope; prompt-echo on stderr cannot
 #     pollute the assertion.
-#   * Asserts on the model's reply text inside `result.payloads[].text`,
-#     not on the merged stdout/stderr.
+#   * Asserts on the model's reply payload text from OpenClaw JSON, not on
+#     the merged stdout/stderr.
 #   * The expected token (the integer 42) is not a literal substring of the
 #     prompt, so an error path that quoted the prompt back cannot satisfy
 #     the grep.
@@ -394,19 +394,7 @@ if openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_config" 2>/dev/null; then
 fi
 rm -f "$ssh_config"
 
-agent_reply=$(echo "$agent_response" | python3 -c "
-import json, sys
-try:
-    doc = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-result = doc.get('result') or {}
-parts = []
-for p in result.get('payloads') or []:
-    if isinstance(p, dict) and isinstance(p.get('text'), str):
-        parts.append(p['text'])
-print('\n'.join(parts))
-" 2>/dev/null) || true
+agent_reply=$(printf '%s' "$agent_response" | python3 "$REPO/test/e2e/lib/openclaw-agent-json.py" 2>/dev/null) || true
 
 if grep -qE "(^|[^0-9])42([^0-9]|$)" <<<"$agent_reply"; then
   pass "[LIVE] openclaw agent: model answered 6×7=42 through openclaw → inference.local"
