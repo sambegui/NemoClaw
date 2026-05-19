@@ -924,6 +924,7 @@ const { setupInference } = require(${onboardPath});
     assert.ok(providerCommand, "expected ollama-local provider create command");
     assert.match(providerCommand.command, /--credential NEMOCLAW_OLLAMA_PROXY_TOKEN/);
     assert.equal(providerCommand.env?.NEMOCLAW_OLLAMA_PROXY_TOKEN, "proxy-token");
+    assert.doesNotMatch(providerCommand.command, /proxy-token/);
     assert.ok(
       payload.commands.some((entry) =>
         entry.command.includes("inference set --no-verify --provider ollama-local"),
