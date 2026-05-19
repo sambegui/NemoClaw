@@ -118,8 +118,7 @@ reviews:
     # matched path, so reviewers know which E2E jobs to run before merge.
     #
     # When adding a new E2E job to nightly-e2e.yaml, add a matching
-    # path_instructions entry below. The cross-validation test in
-    # test/validate-e2e-coverage.test.ts verifies consistency.
+    # path_instructions entry below.
 
     - path: "scripts/nemoclaw-start.sh"
       instructions: &e2e-entrypoint |
@@ -572,13 +571,12 @@ reviews:
         This is the nightly E2E workflow definition. Changes here affect
         which tests run and how they are triggered.
 
-        If a new E2E job is added, verify a corresponding
-        `path_instructions` entry exists in `.coderabbit.yaml` for the
-        source files it covers. The cross-validation test in
-        `test/validate-e2e-coverage.test.ts` checks this automatically.
+        If a new E2E job is added, verify corresponding
+        `path_instructions` entries exist in `.coderabbit.yaml` for the
+        source files it covers.
 
-        If a job is renamed or removed, update the corresponding
-        `.coderabbit.yaml` path_instructions entries and the
-        `notify-on-failure` needs list.
+        If a job is renamed or removed, update the corresponding aggregate
+        job `needs` lists (`notify-on-failure`, `report-to-pr`, and
+        `scorecard`).
 chat:
   auto_reply: true
