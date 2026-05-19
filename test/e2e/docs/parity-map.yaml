@@ -30,6 +30,11 @@ scripts:
       reason: regression guard validates fix PR #3594 before migration to scenario framework
       owner: e2e-maintainers
       runner_requirement: local CLI build with mocked OpenShell runner
+  test-onboard-negative-paths.sh:
+    scenario: ubuntu-repo-cloud-openclaw
+    status: deferred
+    bucket: onboarding-negative-paths
+    assertions: []
   test-brave-search-e2e.sh:
     scenario: ubuntu-repo-cloud-openclaw
     status: migrated

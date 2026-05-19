@@ -9881,6 +9881,355 @@
       ]
     },
     {
+      "script": "test/e2e/test-onboard-negative-paths.sh",
+      "assertions": [
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 264,
+          "text": "Node.js available",
+          "polarity": "pass",
+          "normalized_id": "node.js.available",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 266,
+          "text": "Node.js not found",
+          "polarity": "fail",
+          "normalized_id": "node.js.not.found",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 272,
+          "text": "CLI build output available",
+          "polarity": "pass",
+          "normalized_id": "cli.build.output.available",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 274,
+          "text": "Could not build CLI",
+          "polarity": "fail",
+          "normalized_id": "could.not.build.cli",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 280,
+          "text": "Docker is running",
+          "polarity": "pass",
+          "normalized_id": "docker.is.running",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 282,
+          "text": "Docker is not running",
+          "polarity": "fail",
+          "normalized_id": "docker.is.not.running",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 288,
+          "text": "openshell CLI installed",
+          "polarity": "pass",
+          "normalized_id": "openshell.cli.installed",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 290,
+          "text": "openshell CLI not found",
+          "polarity": "fail",
+          "normalized_id": "openshell.cli.not.found",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 296,
+          "text": "NVIDIA_API_KEY is set",
+          "polarity": "pass",
+          "normalized_id": "nvidia.api.key.is.set",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 298,
+          "text": "NVIDIA_API_KEY not set or invalid; required for live onboard scenarios",
+          "polarity": "fail",
+          "normalized_id": "nvidia.api.key.not.set.or.invalid.required.for.live.onboard.scenarios",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 314,
+          "text": "Pre-cleanup complete",
+          "polarity": "pass",
+          "normalized_id": "pre.cleanup.complete",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 319,
+          "text": "NEMOCLAW_POLICY_MODE=restricted falls back to suggested presets",
+          "polarity": "pass",
+          "normalized_id": "nemoclaw.policy.mode.restricted.falls.back.to.suggested.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 321,
+          "text": "NEMOCLAW_POLICY_MODE=restricted did not fall back cleanly",
+          "polarity": "fail",
+          "normalized_id": "nemoclaw.policy.mode.restricted.did.not.fall.back.cleanly",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 325,
+          "text": "NEMOCLAW_POLICY_MODE=nonexistent falls back to suggested presets",
+          "polarity": "pass",
+          "normalized_id": "nemoclaw.policy.mode.nonexistent.falls.back.to.suggested.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 327,
+          "text": "NEMOCLAW_POLICY_MODE=nonexistent did not fall back cleanly",
+          "polarity": "fail",
+          "normalized_id": "nemoclaw.policy.mode.nonexistent.did.not.fall.back.cleanly",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 348,
+          "text": "Invalid NVIDIA API key exited 1",
+          "polarity": "pass",
+          "normalized_id": "invalid.nvidia.api.key.exited.1",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 350,
+          "text": "Invalid NVIDIA API key exited $invalid_key_exit (expected 1)",
+          "polarity": "fail",
+          "normalized_id": "invalid.nvidia.api.key.exited.invalid.key.exit.expected.1",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 354,
+          "text": "Invalid NVIDIA API key message is explicit",
+          "polarity": "pass",
+          "normalized_id": "invalid.nvidia.api.key.message.is.explicit",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 356,
+          "text": "Invalid NVIDIA API key message missing",
+          "polarity": "fail",
+          "normalized_id": "invalid.nvidia.api.key.message.missing",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 360,
+          "text": "Invalid NVIDIA API key path did not print a stack trace",
+          "polarity": "pass",
+          "normalized_id": "invalid.nvidia.api.key.path.did.not.print.a.stack.trace",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 362,
+          "text": "Invalid NVIDIA API key path printed a stack trace",
+          "polarity": "fail",
+          "normalized_id": "invalid.nvidia.api.key.path.printed.a.stack.trace",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 366,
+          "text": "Provider-aware credential validation accepts non-NVIDIA key prefixes",
+          "polarity": "pass",
+          "normalized_id": "provider.aware.credential.validation.accepts.non.nvidia.key.prefixes",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 368,
+          "text": "Provider-aware credential validation rejected a non-NVIDIA key prefix",
+          "polarity": "fail",
+          "normalized_id": "provider.aware.credential.validation.rejected.a.non.nvidia.key.prefix",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 374,
+          "text": "Held gateway port ${PORT_CONFLICT_PORT} with a host listener",
+          "polarity": "pass",
+          "normalized_id": "held.gateway.port.port.conflict.port.with.a.host.listener",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 401,
+          "text": "Onboard rejected occupied gateway port",
+          "polarity": "pass",
+          "normalized_id": "onboard.rejected.occupied.gateway.port",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 403,
+          "text": "Occupied gateway port exited $port_conflict_exit (expected 1)",
+          "polarity": "fail",
+          "normalized_id": "occupied.gateway.port.exited.port.conflict.exit.expected.1",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 407,
+          "text": "Port conflict message is user-friendly",
+          "polarity": "pass",
+          "normalized_id": "port.conflict.message.is.user.friendly",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 409,
+          "text": "Port conflict message missing",
+          "polarity": "fail",
+          "normalized_id": "port.conflict.message.missing",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 413,
+          "text": "Port conflict path did not print a stack trace",
+          "polarity": "pass",
+          "normalized_id": "port.conflict.path.did.not.print.a.stack.trace",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 415,
+          "text": "Port conflict path printed a stack trace",
+          "polarity": "fail",
+          "normalized_id": "port.conflict.path.printed.a.stack.trace",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 436,
+          "text": "Live non-interactive onboard completed",
+          "polarity": "pass",
+          "normalized_id": "live.non.interactive.onboard.completed",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 438,
+          "text": "Live non-interactive onboard exited $live_exit",
+          "polarity": "fail",
+          "normalized_id": "live.non.interactive.onboard.exited.live.exit",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 445,
+          "text": "Live onboard selected requested cloud model",
+          "polarity": "pass",
+          "normalized_id": "live.onboard.selected.requested.cloud.model",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 447,
+          "text": "Live onboard output did not confirm requested cloud model",
+          "polarity": "fail",
+          "normalized_id": "live.onboard.output.did.not.confirm.requested.cloud.model",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 470,
+          "text": "Registry recorded requested provider, model, and policy presets",
+          "polarity": "pass",
+          "normalized_id": "registry.recorded.requested.provider.model.and.policy.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 472,
+          "text": "Registry did not record requested provider, model, and policy presets",
+          "polarity": "fail",
+          "normalized_id": "registry.did.not.record.requested.provider.model.and.policy.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 491,
+          "text": "Session recorded requested provider, model, and policy presets",
+          "polarity": "pass",
+          "normalized_id": "session.recorded.requested.provider.model.and.policy.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 493,
+          "text": "Session did not record requested provider, model, and policy presets",
+          "polarity": "fail",
+          "normalized_id": "session.did.not.record.requested.provider.model.and.policy.presets",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 507,
+          "text": "Sandbox '$SANDBOX_NAME' still exists after cleanup",
+          "polarity": "fail",
+          "normalized_id": "sandbox.sandbox.name.still.exists.after.cleanup",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 509,
+          "text": "Sandbox '$SANDBOX_NAME' cleaned up",
+          "polarity": "pass",
+          "normalized_id": "sandbox.sandbox.name.cleaned.up",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 513,
+          "text": "Onboard session file still exists after cleanup",
+          "polarity": "fail",
+          "normalized_id": "onboard.session.file.still.exists.after.cleanup",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 515,
+          "text": "Onboard session file cleaned up",
+          "polarity": "pass",
+          "normalized_id": "onboard.session.file.cleaned.up",
+          "mapping_status": "unmapped"
+        },
+        {
+          "script": "test/e2e/test-onboard-negative-paths.sh",
+          "line": 518,
+          "text": "Final cleanup complete",
+          "polarity": "pass",
+          "normalized_id": "final.cleanup.complete",
+          "mapping_status": "unmapped"
+        }
+      ]
+    },
+    {
       "script": "test/e2e/test-onboard-repair.sh",
       "assertions": [
         {
@@ -9965,7 +10314,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 187,
+          "line": 184,
           "text": "First onboard exited 1 (expected interrupted run)",
           "polarity": "pass",
           "normalized_id": "first.onboard.exited.1.expected.interrupted.run",
@@ -9973,7 +10322,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 189,
+          "line": 186,
           "text": "First onboard exited $first_exit (expected 1)",
           "polarity": "fail",
           "normalized_id": "first.onboard.exited.first.exit.expected.1",
@@ -9981,7 +10330,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 195,
+          "line": 192,
           "text": "Onboard session file created",
           "polarity": "pass",
           "normalized_id": "onboard.session.file.created",
@@ -9989,7 +10338,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 197,
+          "line": 194,
           "text": "Onboard session file missing after interrupted run",
           "polarity": "fail",
           "normalized_id": "onboard.session.file.missing.after.interrupted.run",
@@ -9997,7 +10346,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 201,
+          "line": 198,
           "text": "First run failed at policy setup as intended",
           "polarity": "pass",
           "normalized_id": "first.run.failed.at.policy.setup.as.intended",
@@ -10005,7 +10354,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 203,
+          "line": 200,
           "text": "First run did not fail at the expected policy step",
           "polarity": "fail",
           "normalized_id": "first.run.did.not.fail.at.the.expected.policy.step",
@@ -10013,7 +10362,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 207,
+          "line": 204,
           "text": "Sandbox '$SANDBOX_NAME' exists after interrupted run",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.exists.after.interrupted.run",
@@ -10021,7 +10370,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 209,
+          "line": 206,
           "text": "Sandbox '$SANDBOX_NAME' not found after interrupted run",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.not.found.after.interrupted.run",
@@ -10029,7 +10378,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 222,
+          "line": 219,
           "text": "Sandbox '$SANDBOX_NAME' removed to simulate stale recorded state",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.removed.to.simulate.stale.recorded.state",
@@ -10037,7 +10386,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 224,
+          "line": 221,
           "text": "Sandbox '$SANDBOX_NAME' still exists after forced deletion",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.still.exists.after.forced.deletion",
@@ -10045,7 +10394,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 239,
+          "line": 236,
           "text": "Resume completed after repairing missing sandbox",
           "polarity": "pass",
           "normalized_id": "resume.completed.after.repairing.missing.sandbox",
@@ -10053,7 +10402,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 241,
+          "line": 238,
           "text": "Resume exited $repair_exit during missing-sandbox repair",
           "polarity": "fail",
           "normalized_id": "resume.exited.repair.exit.during.missing.sandbox.repair",
@@ -10061,7 +10410,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 247,
+          "line": 244,
           "text": "Repair resume skipped preflight",
           "polarity": "pass",
           "normalized_id": "repair.resume.skipped.preflight",
@@ -10069,7 +10418,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 249,
+          "line": 246,
           "text": "Repair resume did not skip preflight",
           "polarity": "fail",
           "normalized_id": "repair.resume.did.not.skip.preflight",
@@ -10077,7 +10426,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 253,
+          "line": 250,
           "text": "Repair resume skipped gateway",
           "polarity": "pass",
           "normalized_id": "repair.resume.skipped.gateway",
@@ -10085,7 +10434,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 255,
+          "line": 252,
           "text": "Repair resume did not skip gateway",
           "polarity": "fail",
           "normalized_id": "repair.resume.did.not.skip.gateway",
@@ -10093,7 +10442,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 259,
+          "line": 256,
           "text": "Repair resume detected missing sandbox",
           "polarity": "pass",
           "normalized_id": "repair.resume.detected.missing.sandbox",
@@ -10101,7 +10450,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 261,
+          "line": 258,
           "text": "Repair resume did not report missing sandbox recreation",
           "polarity": "fail",
           "normalized_id": "repair.resume.did.not.report.missing.sandbox.recreation",
@@ -10109,7 +10458,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 266,
+          "line": 263,
           "text": "Repair resume recreated sandbox",
           "polarity": "pass",
           "normalized_id": "repair.resume.recreated.sandbox",
@@ -10117,7 +10466,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 268,
+          "line": 265,
           "text": "Repair resume did not rerun sandbox creation",
           "polarity": "fail",
           "normalized_id": "repair.resume.did.not.rerun.sandbox.creation",
@@ -10125,7 +10474,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 272,
+          "line": 269,
           "text": "Repaired sandbox '$SANDBOX_NAME' is manageable",
           "polarity": "pass",
           "normalized_id": "repaired.sandbox.sandbox.name.is.manageable",
@@ -10133,7 +10482,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 274,
+          "line": 271,
           "text": "Repaired sandbox '$SANDBOX_NAME' status failed",
           "polarity": "fail",
           "normalized_id": "repaired.sandbox.sandbox.name.status.failed",
@@ -10141,7 +10490,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 295,
+          "line": 293,
           "text": "Re-created interrupted session for conflict tests",
           "polarity": "pass",
           "normalized_id": "re.created.interrupted.session.for.conflict.tests",
@@ -10149,7 +10498,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 311,
+          "line": 309,
           "text": "Resume rejected conflicting sandbox name",
           "polarity": "pass",
           "normalized_id": "resume.rejected.conflicting.sandbox.name",
@@ -10157,7 +10506,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 313,
+          "line": 311,
           "text": "Resume exited $sandbox_conflict_exit for conflicting sandbox (expected 1)",
           "polarity": "fail",
           "normalized_id": "resume.exited.sandbox.conflict.exit.for.conflicting.sandbox.expected.1",
@@ -10165,7 +10514,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 317,
+          "line": 315,
           "text": "Conflicting sandbox message is explicit",
           "polarity": "pass",
           "normalized_id": "conflicting.sandbox.message.is.explicit",
@@ -10173,7 +10522,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 319,
+          "line": 317,
           "text": "Conflicting sandbox message missing or incorrect",
           "polarity": "fail",
           "normalized_id": "conflicting.sandbox.message.missing.or.incorrect",
@@ -10181,7 +10530,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 342,
+          "line": 340,
           "text": "Resume rejected conflicting provider/model",
           "polarity": "pass",
           "normalized_id": "resume.rejected.conflicting.provider.model",
@@ -10189,7 +10538,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 344,
+          "line": 342,
           "text": "Resume exited $provider_conflict_exit for conflicting provider/model (expected 1)",
           "polarity": "fail",
           "normalized_id": "resume.exited.provider.conflict.exit.for.conflicting.provider.model.expected.1",
@@ -10197,7 +10546,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 348,
+          "line": 346,
           "text": "Conflicting provider message is explicit",
           "polarity": "pass",
           "normalized_id": "conflicting.provider.message.is.explicit",
@@ -10205,7 +10554,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 350,
+          "line": 348,
           "text": "Conflicting provider message missing or incorrect",
           "polarity": "fail",
           "normalized_id": "conflicting.provider.message.missing.or.incorrect",
@@ -10213,7 +10562,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 354,
+          "line": 352,
           "text": "Conflicting model message is explicit",
           "polarity": "pass",
           "normalized_id": "conflicting.model.message.is.explicit",
@@ -10221,7 +10570,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 356,
+          "line": 354,
           "text": "Conflicting model message missing or incorrect",
           "polarity": "fail",
           "normalized_id": "conflicting.model.message.missing.or.incorrect",
@@ -10229,7 +10578,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 375,
+          "line": 373,
           "text": "Sandbox '$SANDBOX_NAME' still exists after cleanup",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.still.exists.after.cleanup",
@@ -10237,7 +10586,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 377,
+          "line": 375,
           "text": "Sandbox '$SANDBOX_NAME' cleaned up",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.cleaned.up",
@@ -10245,7 +10594,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 381,
+          "line": 379,
           "text": "Onboard session file still exists after cleanup",
           "polarity": "fail",
           "normalized_id": "onboard.session.file.still.exists.after.cleanup",
@@ -10253,7 +10602,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 383,
+          "line": 381,
           "text": "Onboard session file cleaned up",
           "polarity": "pass",
           "normalized_id": "onboard.session.file.cleaned.up",
@@ -10261,7 +10610,7 @@
         },
         {
           "script": "test/e2e/test-onboard-repair.sh",
-          "line": 386,
+          "line": 384,
           "text": "Final cleanup complete",
           "polarity": "pass",
           "normalized_id": "final.cleanup.complete",
@@ -10370,7 +10719,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 167,
+          "line": 164,
           "text": "First onboard exited 1 (expected interrupted run)",
           "polarity": "pass",
           "normalized_id": "first.onboard.exited.1.expected.interrupted.run",
@@ -10378,7 +10727,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 169,
+          "line": 166,
           "text": "First onboard exited $first_exit (expected 1)",
           "polarity": "fail",
           "normalized_id": "first.onboard.exited.first.exit.expected.1",
@@ -10386,7 +10735,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 175,
+          "line": 172,
           "text": "Sandbox '$SANDBOX_NAME' created before interruption",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.created.before.interruption",
@@ -10394,7 +10743,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 177,
+          "line": 174,
           "text": "Sandbox creation not confirmed in first run output",
           "polarity": "fail",
           "normalized_id": "sandbox.creation.not.confirmed.in.first.run.output",
@@ -10402,7 +10751,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 181,
+          "line": 178,
           "text": "First run failed at policy setup as intended",
           "polarity": "pass",
           "normalized_id": "first.run.failed.at.policy.setup.as.intended",
@@ -10410,7 +10759,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 183,
+          "line": 180,
           "text": "First run did not fail at the expected policy step",
           "polarity": "fail",
           "normalized_id": "first.run.did.not.fail.at.the.expected.policy.step",
@@ -10418,7 +10767,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 187,
+          "line": 184,
           "text": "Sandbox '$SANDBOX_NAME' exists after interrupted run",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.exists.after.interrupted.run",
@@ -10426,7 +10775,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 189,
+          "line": 186,
           "text": "Sandbox '$SANDBOX_NAME' not found after interrupted run",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.not.found.after.interrupted.run",
@@ -10434,7 +10783,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 193,
+          "line": 190,
           "text": "Onboard session file created",
           "polarity": "pass",
           "normalized_id": "onboard.session.file.created",
@@ -10442,7 +10791,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 195,
+          "line": 192,
           "text": "Onboard session file missing after interrupted run",
           "polarity": "fail",
           "normalized_id": "onboard.session.file.missing.after.interrupted.run",
@@ -10450,7 +10799,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 207,
+          "line": 204,
           "text": "Session file recorded openclaw completion and policy failure",
           "polarity": "pass",
           "normalized_id": "session.file.recorded.openclaw.completion.and.policy.failure",
@@ -10458,7 +10807,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 208,
+          "line": 205,
           "text": "Session file did not record the expected interrupted state",
           "polarity": "fail",
           "normalized_id": "session.file.did.not.record.the.expected.interrupted.state",
@@ -10466,7 +10815,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 229,
+          "line": 226,
           "text": "Resume completed successfully",
           "polarity": "pass",
           "normalized_id": "resume.completed.successfully",
@@ -10474,7 +10823,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 231,
+          "line": 228,
           "text": "Resume exited $resume_exit (expected 0)",
           "polarity": "fail",
           "normalized_id": "resume.exited.resume.exit.expected.0",
@@ -10482,7 +10831,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 237,
+          "line": 234,
           "text": "Resume skipped preflight",
           "polarity": "pass",
           "normalized_id": "resume.skipped.preflight",
@@ -10490,7 +10839,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 239,
+          "line": 236,
           "text": "Resume did not skip preflight",
           "polarity": "fail",
           "normalized_id": "resume.did.not.skip.preflight",
@@ -10498,7 +10847,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 243,
+          "line": 240,
           "text": "Resume skipped gateway",
           "polarity": "pass",
           "normalized_id": "resume.skipped.gateway",
@@ -10506,7 +10855,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 245,
+          "line": 242,
           "text": "Resume did not skip gateway",
           "polarity": "fail",
           "normalized_id": "resume.did.not.skip.gateway",
@@ -10514,7 +10863,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 249,
+          "line": 246,
           "text": "Resume skipped sandbox",
           "polarity": "pass",
           "normalized_id": "resume.skipped.sandbox",
@@ -10522,7 +10871,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 251,
+          "line": 248,
           "text": "Resume did not skip sandbox",
           "polarity": "fail",
           "normalized_id": "resume.did.not.skip.sandbox",
@@ -10530,7 +10879,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 255,
+          "line": 252,
           "text": "Resume reran preflight unexpectedly",
           "polarity": "fail",
           "normalized_id": "resume.reran.preflight.unexpectedly",
@@ -10538,7 +10887,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 257,
+          "line": 254,
           "text": "Resume did not rerun preflight",
           "polarity": "pass",
           "normalized_id": "resume.did.not.rerun.preflight",
@@ -10546,7 +10895,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 261,
+          "line": 258,
           "text": "Resume reran gateway startup unexpectedly",
           "polarity": "fail",
           "normalized_id": "resume.reran.gateway.startup.unexpectedly",
@@ -10554,7 +10903,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 263,
+          "line": 260,
           "text": "Resume did not rerun gateway startup",
           "polarity": "pass",
           "normalized_id": "resume.did.not.rerun.gateway.startup",
@@ -10562,7 +10911,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 267,
+          "line": 264,
           "text": "Resume reran sandbox creation unexpectedly",
           "polarity": "fail",
           "normalized_id": "resume.reran.sandbox.creation.unexpectedly",
@@ -10570,7 +10919,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 269,
+          "line": 266,
           "text": "Resume did not rerun sandbox creation",
           "polarity": "pass",
           "normalized_id": "resume.did.not.rerun.sandbox.creation",
@@ -10578,7 +10927,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 276,
+          "line": 273,
           "text": "Resume re-ran inference setup",
           "polarity": "pass",
           "normalized_id": "resume.re.ran.inference.setup",
@@ -10586,7 +10935,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 278,
+          "line": 275,
           "text": "Resume skipped inference (already configured)",
           "polarity": "pass",
           "normalized_id": "resume.skipped.inference.already.configured",
@@ -10594,7 +10943,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 280,
+          "line": 277,
           "text": "Resume neither ran nor skipped inference setup",
           "polarity": "fail",
           "normalized_id": "resume.neither.ran.nor.skipped.inference.setup",
@@ -10602,7 +10951,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 284,
+          "line": 281,
           "text": "Sandbox '$SANDBOX_NAME' is manageable after resume",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.is.manageable.after.resume",
@@ -10610,7 +10959,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 286,
+          "line": 283,
           "text": "Sandbox '$SANDBOX_NAME' status failed after resume",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.status.failed.after.resume",
@@ -10618,7 +10967,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 304,
+          "line": 301,
           "text": "Session file recorded full completion after resume",
           "polarity": "pass",
           "normalized_id": "session.file.recorded.full.completion.after.resume",
@@ -10626,7 +10975,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 305,
+          "line": 302,
           "text": "Session file did not record the expected completed state after resume",
           "polarity": "fail",
           "normalized_id": "session.file.did.not.record.the.expected.completed.state.after.resume",
@@ -10634,7 +10983,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 309,
+          "line": 306,
           "text": "Registry contains resumed sandbox entry",
           "polarity": "pass",
           "normalized_id": "registry.contains.resumed.sandbox.entry",
@@ -10642,7 +10991,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 311,
+          "line": 308,
           "text": "Registry does not contain resumed sandbox entry",
           "polarity": "fail",
           "normalized_id": "registry.does.not.contain.resumed.sandbox.entry",
@@ -10650,7 +10999,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 326,
+          "line": 323,
           "text": "Sandbox '$SANDBOX_NAME' still exists after cleanup",
           "polarity": "fail",
           "normalized_id": "sandbox.sandbox.name.still.exists.after.cleanup",
@@ -10658,7 +11007,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 328,
+          "line": 325,
           "text": "Sandbox '$SANDBOX_NAME' cleaned up",
           "polarity": "pass",
           "normalized_id": "sandbox.sandbox.name.cleaned.up",
@@ -10666,7 +11015,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 332,
+          "line": 329,
           "text": "Onboard session file still exists after cleanup",
           "polarity": "fail",
           "normalized_id": "onboard.session.file.still.exists.after.cleanup",
@@ -10674,7 +11023,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 334,
+          "line": 331,
           "text": "Onboard session file cleaned up",
           "polarity": "pass",
           "normalized_id": "onboard.session.file.cleaned.up",
@@ -10682,7 +11031,7 @@
         },
         {
           "script": "test/e2e/test-onboard-resume.sh",
-          "line": 337,
+          "line": 334,
           "text": "Final cleanup complete",
           "polarity": "pass",
           "normalized_id": "final.cleanup.complete",
@@ -16347,8 +16696,8 @@
     }
   ],
   "totals": {
-    "scripts": 52,
-    "assertions": 2010,
+    "scripts": 53,
+    "assertions": 2053,
     "zero_assertion_scripts": 2
   }
 }
