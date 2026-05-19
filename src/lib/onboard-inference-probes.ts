@@ -26,12 +26,26 @@ const {
 // Hostnames that only resolve from inside the OpenShell sandbox network.
 // Probing them from the host always fails with curl exit 6 ("Could not
 // resolve host"), so we skip host-side validation for these URLs. See #893.
-const SANDBOX_INTERNAL_HOSTS = ["host.openshell.internal", "host.docker.internal"];
+const SANDBOX_INTERNAL_HOSTS = ["host.openshell.internal"];
+
+// host.docker.internal is not a stable host-service route from OpenShell k3s
+// sandboxes. Depending on the platform it may fail DNS resolution or resolve to
+// a gateway/bridge address where the user's host service is not forwarded. See
+// issue #3136. Always steer users to a NemoClaw-managed proxy URL instead.
+const HOST_DOCKER_INTERNAL = "host.docker.internal";
 
 function isSandboxInternalUrl(url) {
   try {
     const { hostname } = new URL(String(url));
     return SANDBOX_INTERNAL_HOSTS.includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isHijackedDockerInternalUrl(url) {
+  try {
+    return new URL(String(url)).hostname === HOST_DOCKER_INTERNAL;
   } catch {
     return false;
   }
@@ -299,6 +313,30 @@ function probeOpenAiLikeEndpoint(endpointUrl, model, apiKey, options = {}) {
     };
   }
 
+  if (isHijackedDockerInternalUrl(endpointUrl)) {
+    return {
+      ok: false,
+      message:
+        `${HOST_DOCKER_INTERNAL} does not reach the host machine from inside the sandbox: ` +
+        `OpenShell k3s sandboxes do not provide it as a reliable host-service route. ` +
+        `It may fail DNS resolution or resolve to a gateway/bridge address where port ` +
+        `11434 is not forwarded. For local Ollama, use the auth-proxy URL ` +
+        `http://host.openshell.internal:11435/v1 (the URL NemoClaw onboard configures ` +
+        `automatically when you pick "Local Ollama"). See issue #3136.`,
+      failures: [
+        {
+          name: "host.docker.internal reachability",
+          httpStatus: 0,
+          curlStatus: 0,
+          message:
+            `${HOST_DOCKER_INTERNAL} is not a reliable host-service route from ` +
+            `OpenShell k3s sandboxes and cannot be used as an inference base URL.`,
+          body: "",
+        },
+      ],
+    };
+  }
+
   const useQueryParam = options.authMode === "query-param";
   const normalizedKey = apiKey ? normalizeCredentialValue(apiKey) : "";
   const baseUrl = String(endpointUrl).replace(/\/+$/, "");
@@ -555,6 +593,7 @@ function probeAnthropicEndpoint(endpointUrl, model, apiKey) {
 
 module.exports = {
   isSandboxInternalUrl,
+  isHijackedDockerInternalUrl,
   parseJsonObject,
   hasResponsesToolCall,
   shouldRequireResponsesToolCalling,

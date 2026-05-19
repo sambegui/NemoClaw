@@ -11,6 +11,7 @@ const {
   getChatCompletionsProbePayload,
   getDeepSeekV4ProValidationProbeCurlArgs,
   getKimiK26ValidationProbeCurlArgs,
+  isHijackedDockerInternalUrl,
   isSandboxInternalUrl,
   probeOpenAiLikeEndpoint,
   RETRIABLE_HTTP_PROBE_STATUSES,
@@ -95,15 +96,23 @@ describe("OpenAI-compatible inference probes", () => {
   });
 
   describe("sandbox-internal URL handling", () => {
-    it("identifies host.openshell.internal and host.docker.internal as sandbox-internal", () => {
+    it("identifies host.openshell.internal as sandbox-internal", () => {
       expect(isSandboxInternalUrl("http://host.openshell.internal:8001/v1")).toBe(true);
-      expect(isSandboxInternalUrl("http://host.docker.internal:11434/v1")).toBe(true);
     });
 
     it("does not treat normal hostnames as sandbox-internal", () => {
       expect(isSandboxInternalUrl("http://localhost:8001/v1")).toBe(false);
       expect(isSandboxInternalUrl("https://api.openai.com/v1")).toBe(false);
       expect(isSandboxInternalUrl("http://127.0.0.1:8001/v1")).toBe(false);
+    });
+
+    // Issue #3136: host.docker.internal is not a stable host route from
+    // OpenShell k3s pods, so it must not be treated as a usable sandbox URL.
+    it("does not treat host.docker.internal as a usable sandbox URL", () => {
+      expect(isSandboxInternalUrl("http://host.docker.internal:11434/v1")).toBe(false);
+      expect(isHijackedDockerInternalUrl("http://host.docker.internal:11434/v1")).toBe(true);
+      expect(isHijackedDockerInternalUrl("http://host.openshell.internal:11435/v1")).toBe(false);
+      expect(isHijackedDockerInternalUrl("https://api.openai.com/v1")).toBe(false);
     });
 
     it("skips the curl probe for sandbox-internal URLs and returns ok with a note", () => {
@@ -120,14 +129,18 @@ describe("OpenAI-compatible inference probes", () => {
       expect(result.note).toMatch(/only resolves inside the sandbox/);
     });
 
-    it("skips the curl probe for host.docker.internal and returns ok with a note", () => {
+    it("rejects host.docker.internal URLs with an actionable proxy hint (#3136)", () => {
       const result = probeOpenAiLikeEndpoint(
         "http://host.docker.internal:11434/v1",
         "openai/nemotron-mini",
         "",
       );
-      expect(result).toMatchObject({ ok: true, api: null });
-      expect(result.note).toMatch(/host\.docker\.internal/);
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/host\.docker\.internal/);
+      expect(result.message).toMatch(/host\.openshell\.internal:11435/);
+      expect(result.failures).toEqual([
+        expect.objectContaining({ name: "host.docker.internal reachability" }),
+      ]);
     });
   });
 

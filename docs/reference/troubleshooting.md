@@ -879,6 +879,38 @@ permissions.
 If the file is missing or unreadable after a host reboot, re-running
 `nemoclaw onboard` regenerates it.
 
+### `host.docker.internal` does not reliably reach the host from the sandbox
+
+Configuring an inference provider with a base URL like
+`http://host.docker.internal:11434/v1` does not reliably reach a host Ollama
+service from inside the OpenShell sandbox.
+OpenShell runs sandboxes inside a k3s network, where `host.docker.internal` is
+not a portable host-service route. Depending on the platform, it may fail DNS
+resolution or resolve to an internal gateway/bridge address where the host's
+port `11434` is not forwarded. The sandbox then sees a DNS failure or
+`connection refused`:
+
+```console
+$ getent hosts host.docker.internal
+172.17.0.1      host.docker.internal host.openshell.internal
+$ no_proxy=host.docker.internal curl -v http://host.docker.internal:11434/api/tags
+* connect to 172.17.0.1 port 11434 failed: Connection refused
+```
+
+For local Ollama, use the auth-proxy URL that NemoClaw's "Local Ollama" onboard
+option configures automatically:
+
+```text
+http://host.openshell.internal:11435/v1
+```
+
+`host.openshell.internal` resolves to the same gateway IP, but port `11435`
+is bound by the [token-gated Ollama auth proxy](#ollama-auth-proxy-did-not-start)
+that forwards requests to `127.0.0.1:11434` on the host.
+If you need a different host service exposed to the sandbox, route it through
+the OpenShell gateway rather than relying on `host.docker.internal`.
+See issue [#3136](https://github.com/NVIDIA/NemoClaw/issues/3136).
+
 ### Local inference health check resolves to IPv6
 
 Local inference health checks now use `127.0.0.1` instead of `localhost`.
