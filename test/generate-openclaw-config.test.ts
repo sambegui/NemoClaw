@@ -61,12 +61,6 @@ function runConfigScript(envOverrides: Record<string, string> = {}): any {
   return JSON.parse(fs.readFileSync(configPath, "utf-8"));
 }
 
-function writeWeChatPluginMetadata(manifest: Record<string, unknown>) {
-  const pluginDir = path.join(tmpDir, ".openclaw", "extensions", "openclaw-weixin");
-  fs.mkdirSync(pluginDir, { recursive: true });
-  fs.writeFileSync(path.join(pluginDir, "openclaw.plugin.json"), JSON.stringify(manifest, null, 2));
-}
-
 function writeRegistryManifest(
   blueprintDir: string,
   relativeManifestPath: string,
@@ -273,7 +267,7 @@ describe("generate-openclaw-config.py: config generation", () => {
     const configPath = path.join(tmpDir, ".openclaw", "openclaw.json");
     const installEntry = {
       source: "npm",
-      spec: "@tencent-weixin/openclaw-weixin@2.4.3",
+      spec: "@tencent-weixin/openclaw-weixin@2.4.2",
     };
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(
@@ -311,49 +305,6 @@ describe("generate-openclaw-config.py: config generation", () => {
     });
   });
 
-  it("seeds channels.openclaw-weixin and restores install registry when installed WeChat plugin metadata exists", () => {
-    writeWeChatPluginMetadata({
-      id: "openclaw-weixin",
-      channels: ["openclaw-weixin"],
-      channelConfigs: { "openclaw-weixin": {} },
-    });
-
-    const channels = Buffer.from(JSON.stringify(["wechat"])).toString("base64");
-    const wechatConfig = Buffer.from(
-      JSON.stringify({ accountId: "primary", baseUrl: "https://example", userId: "u1" }),
-    ).toString("base64");
-    const config = runConfigScript({
-      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
-      NEMOCLAW_WECHAT_CONFIG_B64: wechatConfig,
-    });
-
-    expect(config.plugins?.installs?.["openclaw-weixin"]).toEqual({
-      source: "npm",
-      spec: "@tencent-weixin/openclaw-weixin@2.4.3",
-    });
-    expect(config.channels?.["openclaw-weixin"]?.accounts?.primary).toEqual({
-      enabled: true,
-    });
-    expect(config.channels?.wechat).toBeUndefined();
-  });
-
-  it("seeds channels.openclaw-weixin when the Dockerfile marks the plugin preinstalled", () => {
-    const channels = Buffer.from(JSON.stringify(["wechat"])).toString("base64");
-    const wechatConfig = Buffer.from(
-      JSON.stringify({ accountId: "primary", baseUrl: "https://example", userId: "u1" }),
-    ).toString("base64");
-    const config = runConfigScript({
-      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
-      NEMOCLAW_WECHAT_CONFIG_B64: wechatConfig,
-      NEMOCLAW_OPENCLAW_WECHAT_PLUGIN_PREINSTALLED: "1",
-    });
-
-    expect(config.channels?.["openclaw-weixin"]?.accounts?.primary).toEqual({
-      enabled: true,
-    });
-    expect(config.channels?.wechat).toBeUndefined();
-  });
-
   it("omits channels.openclaw-weixin when no accountId was captured", () => {
     // No QR-login result → seed step bails on the empty accountId and
     // leaves openclaw.json untouched, so the bridge stays dormant.
@@ -376,7 +327,7 @@ describe("generate-openclaw-config.py: config generation", () => {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const installEntry = {
       source: "npm",
-      spec: "@tencent-weixin/openclaw-weixin@2.4.3",
+      spec: "@tencent-weixin/openclaw-weixin@2.4.2",
     };
     fs.writeFileSync(
       configPath,

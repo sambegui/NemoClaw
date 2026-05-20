@@ -2921,7 +2921,7 @@ function getOpenShellDockerSupervisorImage(versionOutput: string | null = null):
   if (shouldUseOpenshellDevChannel() || isOpenshellDevVersion(versionOutput)) {
     return "ghcr.io/nvidia/openshell/supervisor:dev";
   }
-  const supportedVersion = installedVersion ?? getBlueprintMaxOpenshellVersion() ?? "0.0.44";
+  const supportedVersion = installedVersion ?? getBlueprintMaxOpenshellVersion() ?? "0.0.39";
   return `ghcr.io/nvidia/openshell/supervisor:${supportedVersion}`;
 }
 
@@ -4171,7 +4171,7 @@ async function startDockerDriverGateway({ exitOnFailure = true, skipSandboxBridg
   }
   if (!gatewayBin) {
     console.error("  OpenShell Docker-driver gateway binary not found.");
-    console.error("  Install OpenShell v0.0.44, or set NEMOCLAW_OPENSHELL_GATEWAY_BIN.");
+    console.error("  Install OpenShell v0.0.39, or set NEMOCLAW_OPENSHELL_GATEWAY_BIN.");
     if (exitOnFailure) process.exit(1);
     throw new Error("OpenShell gateway binary not found");
   }

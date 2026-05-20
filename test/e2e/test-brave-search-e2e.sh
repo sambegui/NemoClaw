@@ -306,7 +306,19 @@ check_real_brave_search_via_agent() {
     return
   fi
 
-  reply=$(printf '%s' "$raw" | python3 "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-agent-json.py" 2>/dev/null) || true
+  reply=$(printf '%s' "$raw" | python3 -c "
+import json, sys
+try:
+    doc = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+result = doc.get('result') or {}
+parts = []
+for p in result.get('payloads') or []:
+    if isinstance(p, dict) and isinstance(p.get('text'), str):
+        parts.append(p['text'])
+print('\n'.join(parts))
+" 2>/dev/null) || true
 
   # NVIDIA-related phrasing (nvidia, gpu, cuda, geforce) is overwhelmingly
   # likely in any legitimate top-1 web result for the query "NVIDIA".

@@ -11696,7 +11696,7 @@ scripts:
     status: migrated
     bucket: install-upgrade
     assertions:
-    - legacy: Installer hard-failed on sticky OpenShell 0.0.45 instead of reinstalling pinned 0.0.44 (#3474)
+    - legacy: Installer hard-failed on sticky OpenShell 0.0.40 instead of reinstalling pinned 0.0.39 (#3474)
       status: retired
       reason: legacy negative/failure assertion retained by script but not represented as scenario success criterion
       reviewer: e2e-maintainers
@@ -11709,27 +11709,27 @@ scripts:
     - legacy: install-openshell.sh completed
       status: mapped
       id: legacy.openshell.version.pin.install.openshell.sh.completed
-    - legacy: Expected installer to download pinned OpenShell v0.0.44
+    - legacy: Expected installer to download pinned OpenShell v0.0.39
       status: retired
       reason: legacy negative/failure assertion retained by script but not represented as scenario success criterion
       reviewer: e2e-maintainers
       approved_at: '2026-05-13'
-    - legacy: Installer downloaded pinned OpenShell v0.0.44
+    - legacy: Installer downloaded pinned OpenShell v0.0.39
       status: mapped
-      id: legacy.openshell.version.pin.installer.downloaded.pinned.openshell.vv44
-    - legacy: Installer downloaded OpenShell v0.0.45 despite NemoClaw max 0.0.44
+      id: legacy.openshell.version.pin.installer.downloaded.pinned.openshell.vv39
+    - legacy: Installer downloaded OpenShell v0.0.40 despite NemoClaw max 0.0.39
       status: retired
       reason: legacy negative/failure assertion retained by script but not represented as scenario success criterion
       reviewer: e2e-maintainers
       approved_at: '2026-05-13'
-    - legacy: Installer did not download too-new OpenShell v0.0.45
+    - legacy: Installer did not download too-new OpenShell v0.0.40
       status: mapped
-      id: legacy.openshell.version.pin.installer.did.not.download.too.new.openshell.vv45
-    - legacy: openshell binary was not replaced with pinned 0.0.44
+      id: legacy.openshell.version.pin.installer.did.not.download.too.new.openshell.vv40
+    - legacy: openshell binary was not replaced with pinned 0.0.39
       status: retired
       reason: legacy negative/failure assertion retained by script but not represented as scenario success criterion
       reviewer: e2e-maintainers
       approved_at: '2026-05-13'
-    - legacy: Sticky openshell 0.0.45 was replaced with pinned 0.0.44
+    - legacy: Sticky openshell 0.0.40 was replaced with pinned 0.0.39
       status: mapped
-      id: legacy.openshell.version.pin.sticky.openshell.v45.was.replaced.with.pinned.v44
+      id: legacy.openshell.version.pin.sticky.openshell.v40.was.replaced.with.pinned.v39

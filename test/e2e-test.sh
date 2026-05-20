@@ -246,8 +246,7 @@ if node --input-type=module -e "
 
   // Simulate corruption: modify the host config
   const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-  const originalRaw = fs.readFileSync(configPath, 'utf-8');
-  JSON.parse(originalRaw);
+  const original = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   fs.writeFileSync(configPath, JSON.stringify({ corrupted: true }));
 
   // Rollback
@@ -255,10 +254,10 @@ if node --input-type=module -e "
   if (!success) throw new Error('Rollback returned false');
 
   // Verify restoration
-  const restoredRaw = fs.readFileSync(configPath, 'utf-8');
-  const restored = JSON.parse(restoredRaw);
+  const restored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  const version = (restored.meta || {}).lastTouchedVersion;
+  if (version !== '2026.3.11') throw new Error('Restored config wrong: ' + JSON.stringify(restored));
   if ('corrupted' in restored) throw new Error('Config still corrupted after rollback');
-  if (restoredRaw !== originalRaw) throw new Error('Restored config differs from pre-corruption content: ' + JSON.stringify(restored));
   console.log('Restored config: ' + JSON.stringify(restored));
 "; then
   pass "Snapshot rollback restores original config"

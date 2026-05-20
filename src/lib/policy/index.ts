@@ -91,7 +91,7 @@ function loadPreset(name: string): string | null {
  */
 function getPresetEndpoints(content: string): string[] {
   const hosts: string[] = [];
-  const regex = /^[ \t]*(?:-[ \t]*)?host:[ \t]*([^#\s,}]+)/gm;
+  const regex = /host:\s*([^\s,}]+)/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     hosts.push(match[1].replace(/^["']|["']$/g, ""));

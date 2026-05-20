@@ -31,13 +31,6 @@ const ALREADY_PATCHED_REQUIRED_PATTERNS = [
   "\t\t\tconst nemoClawCatalogSourceTools = [...customTools, ...clientToolDefs];",
   "\t\t\tconst allCustomTools = nemoClawCreateToolCatalog(nemoClawCatalogSourceTools);",
 ];
-const NATIVE_TOOL_SEARCH_PATTERNS = [
-  "const uncompactedEffectiveTools = [...tools, ...filteredBundledTools];",
-  "applyToolSearchCatalog({",
-  "buildToolSearchRunPlan({",
-  "const allowedToolNames = toolSearchRunPlan.visibleAllowedToolNames;",
-  "const replayAllowedToolNames = toolSearchRunPlan.replayAllowedToolNames;",
-];
 
 const EFFECTIVE_TOOLS_REPLACEMENT = [
   EFFECTIVE_TOOLS_PATTERN,
@@ -233,10 +226,6 @@ function patchSelectionText(source, filePath) {
     return { patched: false, text: source };
   }
 
-  if (NATIVE_TOOL_SEARCH_PATTERNS.every((pattern) => source.includes(pattern))) {
-    return { patched: false, text: source, status: "native-tool-search" };
-  }
-
   const requiredPatterns = [
     EFFECTIVE_TOOLS_PATTERN,
     ALLOWED_TOOL_NAMES_PATTERN,
@@ -272,11 +261,7 @@ function patchOpenClawToolCatalog(distDir) {
 
   const targetFiles = selectionFiles.filter((file) => {
     const text = fs.readFileSync(file, "utf-8");
-    return (
-      text.includes(ALL_CUSTOM_TOOLS_PATTERN) ||
-      text.includes(MARKER) ||
-      NATIVE_TOOL_SEARCH_PATTERNS.every((pattern) => text.includes(pattern))
-    );
+    return text.includes(ALL_CUSTOM_TOOLS_PATTERN) || text.includes(MARKER);
   });
   if (targetFiles.length !== 1) {
     throw new Error(`Expected exactly one selection-*.js target, found ${targetFiles.length}`);
@@ -284,13 +269,12 @@ function patchOpenClawToolCatalog(distDir) {
 
   const target = targetFiles[0];
   const source = fs.readFileSync(target, "utf-8");
-  const result = patchSelectionText(source, target);
-  const { patched, text } = result;
+  const { patched, text } = patchSelectionText(source, target);
   if (patched) {
     fs.writeFileSync(target, text);
     return { status: "patched", file: target, version };
   }
-  return { status: result.status ?? "already-patched", file: target, version };
+  return { status: "already-patched", file: target, version };
 }
 
 function main(argv) {

@@ -204,12 +204,12 @@ RUN set -eu; \
     sed -i 's/const baseLstat = await fs\.lstat(params\.installBaseDir)/const baseLstat = await fs.stat(params.installBaseDir)/' "$ipd_file"; \
     sed -i 's/baseLstat\.isSymbolicLink()/false \/* nemoclaw: symlink check disabled, realpath guards containment *\//' "$ipd_file"; \
     if grep -q 'fs\.lstat(params\.installBaseDir)' "$ipd_file"; then echo "ERROR: Patch 3b (install-package-dir) left lstat in assertInstallBaseStable" >&2; exit 1; fi; \
-    # --- Patch 5: bump default WS handshake timeout to 60s (#2484) --- \
-    # OpenClaw's WS connect handshake has a hard-coded short timeout on both \
+    # --- Patch 5: bump default WS handshake timeout 10s -> 60s (#2484) --- \
+    # OpenClaw's WS connect handshake has a hard-coded 10s timeout on both \
     # client and server. Server-side connect-handler processing can exceed \
-    # that limit under load (multiple concurrent connects on slow CI infra), \
+    # 10s under load (multiple concurrent connects on slow CI infra), \
     # causing `openclaw agent --json` to fail with "gateway timeout after \
-    # <timeout>ms" and TC-SBX-02 to hit its 90s SSH timeout. \
+    # 10000ms" and TC-SBX-02 to hit its 90s SSH timeout. \
     # \
     # Both env vars (OPENCLAW_HANDSHAKE_TIMEOUT_MS, \
     # OPENCLAW_CONNECT_CHALLENGE_TIMEOUT_MS) are clamped at the same \
@@ -219,12 +219,12 @@ RUN set -eu; \
     # \
     # Removal criteria: drop when openclaw fixes the underlying connect \
     # latency, or exposes the timeout as an unbounded env override. \
-    hto_files="$(grep -RIlE --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)' "$OC_DIST")"; \
+    hto_files="$(grep -RIlE --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 1e4' "$OC_DIST")"; \
     test -n "$hto_files" || { echo "ERROR: handshake-timeout constant not found" >&2; exit 1; }; \
-    printf '%s\n' "$hto_files" | xargs sed -i -E 's#DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)#DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 6e4#g'; \
-    if grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)' "$OC_DIST"; then echo "ERROR: Patch 5 left a short timeout constant" >&2; exit 1; fi
+    printf '%s\n' "$hto_files" | xargs sed -i -E 's|DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 1e4|DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 6e4|g'; \
+    if grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 1e4' "$OC_DIST"; then echo "ERROR: Patch 5 left a 1e4 constant" >&2; exit 1; fi
 
-# Patch OpenClaw's pinned 2026.5.18 compiled selection runtime to expose a
+# Patch OpenClaw's pinned 2026.4.24 compiled selection runtime to expose a
 # compact searchable tool catalog to the model while preserving the full
 # effective tool set behind tool_call. NEMOCLAW_TOOL_CATALOG=0 disables this
 # wrapper if an emergency rollback is needed. The script fails closed if the
@@ -358,7 +358,6 @@ ENV NEMOCLAW_MODEL=${NEMOCLAW_MODEL} \
     NEMOCLAW_DISCORD_GUILDS_B64=${NEMOCLAW_DISCORD_GUILDS_B64} \
     NEMOCLAW_TELEGRAM_CONFIG_B64=${NEMOCLAW_TELEGRAM_CONFIG_B64} \
     NEMOCLAW_WECHAT_CONFIG_B64=${NEMOCLAW_WECHAT_CONFIG_B64} \
-    NEMOCLAW_OPENCLAW_WECHAT_PLUGIN_PREINSTALLED=1 \
     NEMOCLAW_DISABLE_DEVICE_AUTH=${NEMOCLAW_DISABLE_DEVICE_AUTH} \
     NEMOCLAW_PROXY_HOST=${NEMOCLAW_PROXY_HOST} \
     NEMOCLAW_PROXY_PORT=${NEMOCLAW_PROXY_PORT} \

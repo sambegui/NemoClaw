@@ -172,26 +172,6 @@ describe("nemoclaw Kimi inference compat plugin", () => {
     ]);
   });
 
-  it("normalizes mixed already-split and combined exec commands from OpenClaw trajectories", () => {
-    const message = {
-      ...toolMessage("ignored"),
-      content: [
-        toolMessage("hostname", { id: "call_hostname" }).content[0],
-        toolMessage("date", { id: "call_date" }).content[0],
-        toolMessage("hostname; date; uptime", { id: "call_combined" }).content[0],
-      ],
-    };
-
-    expect(plugin.__testing.rewriteSafeCombinedExecToolCallInMessage(message)).toBe(true);
-
-    expect(message.content.map((block: any) => block.arguments.command)).toEqual([
-      "hostname",
-      "date",
-      "uptime",
-    ]);
-    expect(JSON.stringify(message)).not.toContain("hostname; date; uptime");
-  });
-
   it.each([
     "hostname && date && uptime",
     "hostname; date; uptime > /tmp/out",
@@ -361,73 +341,5 @@ describe("nemoclaw Kimi inference compat plugin", () => {
       "date",
       "uptime",
     ]);
-  });
-
-  it("rewrites object tool-call deltas at their content index without retaining compound commands", () => {
-    const event = {
-      type: "toolcall_delta",
-      contentIndex: 2,
-      delta: { command: "hostname; date; uptime" },
-      partial: {
-        ...toolMessage("ignored"),
-        content: [
-          toolMessage("hostname", { id: "call_hostname" }).content[0],
-          toolMessage("date", { id: "call_date" }).content[0],
-          toolMessage("hostname; date; uptime", { id: "call_combined" }).content[0],
-        ],
-      },
-      toolCall: toolMessage("hostname; date; uptime", { id: "call_combined" }).content[0],
-    };
-
-    expect(plugin.__testing.rewriteSafeCombinedExecToolCallInEvent(event)).toBe(true);
-
-    expect(event.delta).toEqual({ command: "uptime" });
-    expect(event.partial.content.map((block: any) => block.arguments.command)).toEqual([
-      "hostname",
-      "date",
-      "uptime",
-    ]);
-    expect(event.toolCall.arguments.command).toBe("uptime");
-    expect(JSON.stringify(event)).not.toContain("hostname; date; uptime");
-  });
-
-  it("does not reapply a delta split at a stale content index after rewriting partial content", () => {
-    const event = {
-      type: "toolcall_delta",
-      contentIndex: 1,
-      delta: { command: "uptime; date" },
-      partial: {
-        ...toolMessage("ignored"),
-        content: [
-          toolMessage("hostname; date", { id: "call_first" }).content[0],
-          toolMessage("uptime; date", { id: "call_second" }).content[0],
-        ],
-      },
-      message: {
-        ...toolMessage("ignored"),
-        content: [
-          toolMessage("hostname; date", { id: "call_first" }).content[0],
-          toolMessage("uptime; date", { id: "call_second" }).content[0],
-        ],
-      },
-      toolCall: toolMessage("uptime; date", { id: "call_second" }).content[0],
-    };
-
-    expect(plugin.__testing.rewriteSafeCombinedExecToolCallInEvent(event)).toBe(true);
-
-    expect(event.partial.content.map((block: any) => block.arguments.command)).toEqual([
-      "hostname",
-      "date",
-      "uptime",
-    ]);
-    expect(event.message.content.map((block: any) => block.arguments.command)).toEqual([
-      "hostname",
-      "date",
-      "uptime",
-    ]);
-    expect(event.delta).toEqual({ command: "date" });
-    expect(event.toolCall.arguments.command).toBe("date");
-    expect(JSON.stringify(event)).not.toContain("hostname; date");
-    expect(JSON.stringify(event)).not.toContain("uptime; date");
   });
 });

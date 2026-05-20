@@ -698,7 +698,23 @@ check_openclaw_agent_turn() {
     return
   fi
 
-  reply=$(printf '%s' "$raw" | python3 "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-agent-json.py" 2>/dev/null) || true
+  reply=$(printf '%s' "$raw" | python3 -c '
+import json
+import sys
+
+text = sys.stdin.read()
+for idx, char in enumerate(text):
+    if char != "{":
+        continue
+    try:
+        doc = json.loads(text[idx:])
+    except Exception:
+        continue
+    payloads = ((doc.get("result") or {}).get("payloads") or [])
+    parts = [p.get("text") for p in payloads if isinstance(p, dict) and isinstance(p.get("text"), str)]
+    print("\n".join(parts))
+    break
+' 2>/dev/null) || true
 
   if [ "$rc" -eq 0 ] && grep -qi "PONG" <<<"$reply"; then
     pass "B8: OpenClaw agent completed a Bedrock-backed turn through inference.local"
