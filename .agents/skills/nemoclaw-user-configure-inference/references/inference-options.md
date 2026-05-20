@@ -30,15 +30,16 @@ NemoClaw uses provider-specific local tokens for those routes, and rebuilds of l
 | Hermes Provider | Hermes only | OpenAI-compatible route | Available when onboarding Hermes Agent through `nemohermes` |
 | Local Ollama | Caveated | Local Ollama API | Available when Ollama is installed or running on the host |
 | Local NVIDIA NIM | Experimental | Local OpenAI-compatible | Requires `NEMOCLAW_EXPERIMENTAL=1` and a NIM-capable GPU |
-| Local vLLM | Experimental | Local OpenAI-compatible | Requires `NEMOCLAW_EXPERIMENTAL=1` and a server already running on `localhost:8000` |
+| Local vLLM (already running) | Caveated | Local OpenAI-compatible | Appears in the onboarding menu when NemoClaw detects a server already on `localhost:8000`. No flag required. |
+| Local vLLM (managed install/start) | Caveated | Local OpenAI-compatible | Appears by default on DGX Spark and DGX Station. Generic Linux NVIDIA GPU hosts require `NEMOCLAW_EXPERIMENTAL=1` or `NEMOCLAW_PROVIDER=install-vllm`. NemoClaw pulls/starts a vLLM container on a supported NVIDIA GPU host. |
 
 ## Provider Options
 
 The onboard wizard presents the following provider options by default.
 The first six are always available.
 Ollama appears when it is installed or running on the host.
-Experimental local vLLM appears when NemoClaw detects a running vLLM server.
-The managed install/start vLLM entry appears when you opt in and NemoClaw detects a supported NVIDIA GPU host profile.
+Local vLLM appears when NemoClaw detects a running vLLM server.
+The managed install/start vLLM entry appears by default on DGX Spark and DGX Station, and appears on generic Linux NVIDIA GPU hosts after opt-in.
 
 | Option | Description | Curated models |
 |--------|-------------|----------------|
@@ -80,15 +81,16 @@ To use the router in scripted setup, set:
 $ NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=<your-key> nemoclaw onboard --non-interactive
 ```
 
-## Experimental Options
+## Caveated Local Options
 
-The following local inference options are experimental.
-Local NIM and managed vLLM install/start require `NEMOCLAW_EXPERIMENTAL=1`; an already-running vLLM server appears directly in the onboarding selection list.
+The following local inference options are caveated.
+Local NIM and generic Linux managed vLLM install/start require `NEMOCLAW_EXPERIMENTAL=1`; DGX Spark and DGX Station managed vLLM entries appear by default.
+An already-running vLLM server appears directly in the onboarding selection list.
 
 | Option | Condition | Notes |
 |--------|-----------|-------|
 | Local NVIDIA NIM | NIM-capable GPU detected | Pulls and manages a NIM container. |
-| Local vLLM | vLLM running on `localhost:8000`, or a supported DGX Spark, DGX Station, or Linux NVIDIA GPU profile | Auto-detects the loaded model when vLLM is already running. Can install or start a managed vLLM container for supported profiles after experimental opt-in. |
+| Local vLLM | vLLM running on `localhost:8000`, or a supported DGX Spark, DGX Station, or Linux NVIDIA GPU profile | Auto-detects the loaded model when vLLM is already running. Can install or start a managed vLLM container by default on DGX Spark/Station and after opt-in on generic Linux NVIDIA GPU hosts. |
 
 For setup instructions, refer to Use a Local Inference Server (use the `nemoclaw-user-configure-inference` skill).
 
