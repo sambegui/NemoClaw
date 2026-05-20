@@ -39,7 +39,9 @@ OLD_HERMES_REGISTRY_VERSION="${OLD_HERMES_VERSION#v}"
 OLD_HERMES_TARBALL_SHA256="5e4529b8cb6e4821eb916b81517e48125109b1764d6d1e68a204a9f0ddf2d98c"
 STALE_BASE_REBUILD="${NEMOCLAW_HERMES_STALE_BASE_REBUILD_E2E:-0}"
 MARKER_FILE="/sandbox/.hermes/memories/rebuild-marker.txt"
+HOOK_MARKER_FILE="/sandbox/.hermes/hooks/rebuild-hook-marker.txt"
 MARKER_CONTENT="REBUILD_HM_E2E_$(date +%s)"
+HOOK_MARKER_CONTENT="REBUILD_HM_HOOK_E2E_$(date +%s)"
 DISCORD_PLACEHOLDER="openshell:resolve:env:DISCORD_BOT_TOKEN"
 DISCORD_FAKE_TOKEN="test-fake-discord-token-rebuild-e2e"
 REGISTRY_FILE="$HOME/.nemoclaw/sandboxes.json"
@@ -227,11 +229,13 @@ pass "Old Hermes sandbox created"
 info "Phase 4: Writing markers and registering sandbox..."
 
 openshell sandbox exec --name "${SANDBOX_NAME}" -- \
-  sh -c "mkdir -p /sandbox/.hermes/memories && echo '${MARKER_CONTENT}' > ${MARKER_FILE}" \
-  || fail "Failed to write marker file"
+  sh -c "mkdir -p /sandbox/.hermes/memories /sandbox/.hermes/hooks && echo '${MARKER_CONTENT}' > ${MARKER_FILE} && echo '${HOOK_MARKER_CONTENT}' > ${HOOK_MARKER_FILE}" \
+  || fail "Failed to write marker files"
 
 VERIFY=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- cat "${MARKER_FILE}" 2>/dev/null || true)
 [ "$VERIFY" = "${MARKER_CONTENT}" ] || fail "Marker verification failed"
+HOOK_VERIFY=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- cat "${HOOK_MARKER_FILE}" 2>/dev/null || true)
+[ "$HOOK_VERIFY" = "${HOOK_MARKER_CONTENT}" ] || fail "Hook marker verification failed"
 PRE_REBUILD_ENV=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- cat /sandbox/.hermes/.env 2>/dev/null || true)
 echo "$PRE_REBUILD_ENV" | grep -Fq "DISCORD_BOT_TOKEN=${DISCORD_PLACEHOLDER}" \
   || fail "Pre-rebuild Hermes .env missing Discord placeholder"
@@ -311,12 +315,19 @@ pass "Rebuild completed"
 # ── Phase 7: Verify ─────────────────────────────────────────────────
 info "Phase 7: Verifying results..."
 
-# Marker file survived
+# Marker files survived
 RESTORED=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- cat "${MARKER_FILE}" 2>/dev/null || true)
 if [ "$RESTORED" = "${MARKER_CONTENT}" ]; then
   pass "Marker file survived rebuild"
 else
   fail "Marker file lost: got '${RESTORED}', expected '${MARKER_CONTENT}'"
+fi
+
+HOOK_RESTORED=$(openshell sandbox exec --name "${SANDBOX_NAME}" -- cat "${HOOK_MARKER_FILE}" 2>/dev/null || true)
+if [ "$HOOK_RESTORED" = "${HOOK_MARKER_CONTENT}" ]; then
+  pass "Hermes hooks marker survived rebuild"
+else
+  fail "Hermes hooks marker lost: got '${HOOK_RESTORED}', expected '${HOOK_MARKER_CONTENT}'"
 fi
 
 # Actual Hermes binary version updated

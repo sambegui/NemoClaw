@@ -495,7 +495,9 @@ describe("Hermes sandbox provisioning", () => {
           "audio_cache",
           "platforms",
         ]) {
-          expect((fs.statSync(path.join(hermesDir, dir)).mode & 0o777).toString(8)).toBe("770");
+          const dirPath = path.join(hermesDir, dir);
+          expect((fs.statSync(dirPath).mode & 0o777).toString(8)).toBe("770");
+          expect(run.calls).toContain(`chown -R sandbox:sandbox ${dirPath}`);
         }
         expect((fs.statSync(path.join(hermesDir, "platforms")).mode & 0o7777).toString(8)).toBe(
           "2770",

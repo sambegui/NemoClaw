@@ -60,7 +60,9 @@ state_dirs:
   - skills
   - plugins
   # Hermes v0.14 discovers user-installed gateway event hooks from
-  # ~/.hermes/hooks. Preserve them across rebuilds.
+  # ~/.hermes/hooks. Preserve them across rebuilds. Runtime media
+  # caches such as image_cache/ and audio_cache/ are intentionally
+  # omitted: the image pre-creates them, but rebuilds may discard them.
   - hooks
   - cron
   - logs
