@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 import { describe, it } from "vitest";
 
-import { buildVllmMenuEntries } from "../../../dist/lib/onboard/vllm-menu";
+import { buildVllmMenuEntries } from "./vllm-menu";
 
 describe("buildVllmMenuEntries", () => {
   it("returns no entries when nothing is running, no profile, and no opt-in", () => {
