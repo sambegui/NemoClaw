@@ -108,7 +108,13 @@ sandbox_exec() {
 # `openclaw` rather than the older `openclaw-gateway` argv. Match the process
 # table directly so readiness does not depend on the legacy rename.
 gateway_pid() {
-  sandbox_exec sh -c "ps -eo pid=,comm=,args= 2>/dev/null | awk '\$2 == \"openclaw\" || \$0 ~ /openclaw[ -]gateway/ { print \$1; exit }'" | tr -d '[:space:]'
+  sandbox_exec sh -c '
+    pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '\''($2 == "openclaw" && $0 ~ /gateway/) || $0 ~ /openclaw[ -]gateway/ { print $1 }'\'' | sort -n | head -n 1)"
+    if [ -z "$pid" ]; then
+      pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '\''$2 == "openclaw" { print $1 }'\'' | sort -n | head -n 1)"
+    fi
+    printf "%s" "$pid"
+  ' | tr -d '[:space:]'
 }
 
 # Read /tmp/nemoclaw-proxy-env.sh — the single source of truth for the
@@ -273,7 +279,11 @@ gateway_runtime_ready() {
   fi
   local status_output
   status_output="$(timeout 20 nemoclaw "$SANDBOX_NAME" status 2>&1)" || true
-  if echo "$status_output" | grep -Eiq 'healthy|ready|running'; then
+  if echo "$status_output" | grep -Eiq '\b(healthy|ready)\b'; then
+    return 0
+  fi
+  if echo "$status_output" | grep -Eiq '\brunning\b' \
+    && ! echo "$status_output" | grep -Eiq '\bnot[[:space:]]+running\b'; then
     return 0
   fi
   return 1

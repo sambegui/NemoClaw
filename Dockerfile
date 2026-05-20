@@ -75,6 +75,8 @@ ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
     NPM_CONFIG_FETCH_TIMEOUT=300000
 RUN npm ci --omit=dev
+COPY scripts/patch-openclaw-tool-catalog.js /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js
+RUN chmod 755 /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js
 
 # Upgrade OpenClaw if the base image is stale.
 #
@@ -221,6 +223,15 @@ RUN set -eu; \
     test -n "$hto_files" || { echo "ERROR: handshake-timeout constant not found" >&2; exit 1; }; \
     printf '%s\n' "$hto_files" | xargs sed -i -E 's#DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)#DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 6e4#g'; \
     if grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)' "$OC_DIST"; then echo "ERROR: Patch 5 left a short timeout constant" >&2; exit 1; fi
+
+# Patch OpenClaw's pinned 2026.5.18 compiled selection runtime to expose a
+# compact searchable tool catalog to the model while preserving the full
+# effective tool set behind tool_call. NEMOCLAW_TOOL_CATALOG=0 disables this
+# wrapper if an emergency rollback is needed. The script fails closed if the
+# pinned selection-*.js shape changes.
+# hadolint ignore=DL3059
+RUN node /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js \
+    /usr/local/lib/node_modules/openclaw/dist
 
 # Set up blueprint for local resolution.
 # Blueprints are immutable at runtime; DAC protection (root ownership) is applied
@@ -393,11 +404,19 @@ ENV NPM_CONFIG_OFFLINE=true \
     NPM_CONFIG_FUND=false
 
 # Install NemoClaw plugin into OpenClaw (local /opt/nemoclaw, no network).
+# This must fail the image build if registration fails; otherwise the sandbox
+# can boot with a discoverable plugin manifest but without the /nemoclaw runtime
+# command registered in the active Gateway.
+# Re-apply WeChat account seeding after OpenClaw doctor/plugin-install touches
+# openclaw.json; the seed script no-ops unless WeChat is actively configured.
 # Prune non-runtime metadata from staged bundled plugin dependencies before
 # this layer is committed; deleting it in a later layer would not reduce the
 # OCI image imported by k3s.
 # hadolint ignore=DL3059,DL4006
-RUN (openclaw plugins install /opt/nemoclaw > /dev/null 2>&1 || true) \
+RUN openclaw plugins install /opt/nemoclaw \
+    && openclaw plugins enable nemoclaw \
+    && openclaw plugins inspect nemoclaw --json > /dev/null \
+    && python3 /usr/local/lib/nemoclaw/seed-wechat-accounts.py \
     && if [ -d /sandbox/.openclaw/plugin-runtime-deps ]; then \
         find /sandbox/.openclaw/plugin-runtime-deps -type f \( \
             -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o \

@@ -390,4 +390,44 @@ describe("nemoclaw Kimi inference compat plugin", () => {
     expect(event.toolCall.arguments.command).toBe("uptime");
     expect(JSON.stringify(event)).not.toContain("hostname; date; uptime");
   });
+
+  it("does not reapply a delta split at a stale content index after rewriting partial content", () => {
+    const event = {
+      type: "toolcall_delta",
+      contentIndex: 1,
+      delta: { command: "uptime; date" },
+      partial: {
+        ...toolMessage("ignored"),
+        content: [
+          toolMessage("hostname; date", { id: "call_first" }).content[0],
+          toolMessage("uptime; date", { id: "call_second" }).content[0],
+        ],
+      },
+      message: {
+        ...toolMessage("ignored"),
+        content: [
+          toolMessage("hostname; date", { id: "call_first" }).content[0],
+          toolMessage("uptime; date", { id: "call_second" }).content[0],
+        ],
+      },
+      toolCall: toolMessage("uptime; date", { id: "call_second" }).content[0],
+    };
+
+    expect(plugin.__testing.rewriteSafeCombinedExecToolCallInEvent(event)).toBe(true);
+
+    expect(event.partial.content.map((block: any) => block.arguments.command)).toEqual([
+      "hostname",
+      "date",
+      "uptime",
+    ]);
+    expect(event.message.content.map((block: any) => block.arguments.command)).toEqual([
+      "hostname",
+      "date",
+      "uptime",
+    ]);
+    expect(event.delta).toEqual({ command: "date" });
+    expect(event.toolCall.arguments.command).toBe("date");
+    expect(JSON.stringify(event)).not.toContain("hostname; date");
+    expect(JSON.stringify(event)).not.toContain("uptime; date");
+  });
 });

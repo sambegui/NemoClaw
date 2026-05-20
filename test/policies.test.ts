@@ -404,7 +404,7 @@ describe("policies", () => {
       const hosts = policies.getPresetEndpoints(content);
       expect(hosts).toContain("ilinkai.weixin.qq.com");
       expect(hosts).toContain("ilinkai.wechat.com");
-      expect(hosts).not.toContain("`");
+      expect(hosts.every((host: string) => !host.includes("`"))).toBe(true);
     });
 
     it("every preset has at least one endpoint", () => {

@@ -252,6 +252,17 @@ function applySafeExecSplitAtContentIndex(message, split) {
   return true;
 }
 
+function targetSplitCommandIndex(event, split) {
+  const rawIndex = Number.isInteger(event && event.contentIndex) ? event.contentIndex : 0;
+  const fallbackIndex = Math.min(Math.max(rawIndex, 0), split.commands.length - 1);
+  const content = event && event.partial && Array.isArray(event.partial.content)
+    ? event.partial.content
+    : [];
+  const commandAtContentIndex = getExecToolCallCommand(content[rawIndex]);
+  const commandIndex = split.commands.findIndex((command) => command === commandAtContentIndex);
+  return commandIndex >= 0 ? commandIndex : fallbackIndex;
+}
+
 function rewriteSafeCombinedExecToolCallInMessage(message) {
   return applySafeExecSplitToMessage(message);
 }
@@ -283,17 +294,15 @@ function rewriteSafeCombinedExecToolCallInEvent(event) {
   const deltaSplit = getSafeCombinedExecToolCallFromEventDelta(event);
   let changed = false;
 
-  changed = applySafeExecSplitToMessage(event.partial) || changed;
-  changed = applySafeExecSplitToMessage(event.message) || changed;
+  const partialChanged = applySafeExecSplitToMessage(event.partial);
+  const messageChanged = applySafeExecSplitToMessage(event.message);
+  changed = partialChanged || messageChanged;
 
   if (deltaSplit) {
+    if (!partialChanged) changed = applySafeExecSplitAtContentIndex(event.partial, deltaSplit) || changed;
+    if (!messageChanged) changed = applySafeExecSplitAtContentIndex(event.message, deltaSplit) || changed;
     changed = true;
-    applySafeExecSplitAtContentIndex(event.partial, deltaSplit);
-    applySafeExecSplitAtContentIndex(event.message, deltaSplit);
-    const targetIndex = Math.min(
-      Math.max(Number.isInteger(deltaSplit.contentIndex) ? deltaSplit.contentIndex : 0, 0),
-      deltaSplit.commands.length - 1,
-    );
+    const targetIndex = targetSplitCommandIndex(event, deltaSplit);
     const targetCommand = deltaSplit.commands[targetIndex];
     event.delta = encodeToolCallArgumentsLike(event.delta, targetCommand);
     if (event.toolCall && typeof event.toolCall === "object" && !Array.isArray(event.toolCall)) {

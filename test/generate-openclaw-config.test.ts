@@ -272,9 +272,8 @@ describe("generate-openclaw-config.py: config generation", () => {
   it("seeds channels.openclaw-weixin when the base plugin install registry exists", () => {
     const configPath = path.join(tmpDir, ".openclaw", "openclaw.json");
     const installEntry = {
-      type: "npm",
+      source: "npm",
       spec: "@tencent-weixin/openclaw-weixin@2.4.3",
-      resolved: "@tencent-weixin/openclaw-weixin@2.4.3",
     };
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(
@@ -312,7 +311,7 @@ describe("generate-openclaw-config.py: config generation", () => {
     });
   });
 
-  it("seeds channels.openclaw-weixin when installed WeChat plugin metadata exists without an install registry", () => {
+  it("seeds channels.openclaw-weixin and restores install registry when installed WeChat plugin metadata exists", () => {
     writeWeChatPluginMetadata({
       id: "openclaw-weixin",
       channels: ["openclaw-weixin"],
@@ -328,7 +327,10 @@ describe("generate-openclaw-config.py: config generation", () => {
       NEMOCLAW_WECHAT_CONFIG_B64: wechatConfig,
     });
 
-    expect(config.plugins?.installs?.["openclaw-weixin"]).toBeUndefined();
+    expect(config.plugins?.installs?.["openclaw-weixin"]).toEqual({
+      source: "npm",
+      spec: "@tencent-weixin/openclaw-weixin@2.4.3",
+    });
     expect(config.channels?.["openclaw-weixin"]?.accounts?.primary).toEqual({
       enabled: true,
     });
@@ -373,9 +375,8 @@ describe("generate-openclaw-config.py: config generation", () => {
     const configPath = path.join(tmpDir, ".openclaw", "openclaw.json");
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     const installEntry = {
-      type: "npm",
+      source: "npm",
       spec: "@tencent-weixin/openclaw-weixin@2.4.3",
-      resolved: "@tencent-weixin/openclaw-weixin@2.4.3",
     };
     fs.writeFileSync(
       configPath,
