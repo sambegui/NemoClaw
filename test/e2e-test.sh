@@ -255,7 +255,9 @@ if node --input-type=module -e "
 
   // Verify restoration
   const restored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  const version = (restored.meta || {}).lastTouchedVersion;
+  // OpenClaw may refresh meta.lastTouchedVersion during plugin install before
+  // the snapshot, so assert the fixture's stable wizard state instead.
+  const version = (restored.wizard || {}).lastRunVersion;
   if (version !== '2026.3.11') throw new Error('Restored config wrong: ' + JSON.stringify(restored));
   if ('corrupted' in restored) throw new Error('Config still corrupted after rollback');
   console.log('Restored config: ' + JSON.stringify(restored));
