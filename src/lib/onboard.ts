@@ -82,6 +82,9 @@ const {
   toSessionWechatConfig,
 } = require("./onboard/wechat-config") as typeof import("./onboard/wechat-config");
 const {
+  clearAgentScopedResumeState,
+}: typeof import("./onboard/agent-resume-state") = require("./onboard/agent-resume-state");
+const {
   setupSelectedMessagingChannels,
 } = require("./onboard/messaging-channel-setup") as typeof import("./onboard/messaging-channel-setup");
 const bedrockRuntimeOnboard: typeof import("./onboard/bedrock-runtime") =
@@ -90,6 +93,12 @@ const { buildVllmMenuEntries }: typeof import("./onboard/vllm-menu") = require("
 const {
   prepareModelRouterVenv,
 }: typeof import("./onboard/model-router-python") = require("./onboard/model-router-python");
+const {
+  isProcessRunning,
+  isRouterHealthy,
+  stopModelRouterProcess,
+  stopTrackedModelRouterForAgentChange,
+}: typeof import("./onboard/model-router-process") = require("./onboard/model-router-process");
 const crypto = require("node:crypto");
 const fs = require("fs");
 const os = require("os");
@@ -738,7 +747,6 @@ function loadBlueprintProfile(
 
 const ROUTER_HEALTH_RETRIES = 15;
 const ROUTER_HEALTH_INTERVAL_MS = 2000;
-const ROUTER_HEALTH_TIMEOUT_MS = 3000;
 const MODEL_ROUTER_RELATIVE_DIR = path.join("nemoclaw-blueprint", "router", "llm-router");
 const MODEL_ROUTER_VENV_DIR = path.join(os.homedir(), ".nemoclaw", "model-router-venv");
 const MODEL_ROUTER_FINGERPRINT_FILE = ".nemoclaw-source-fingerprint";
@@ -757,59 +765,6 @@ const MODEL_ROUTER_FINGERPRINT_IGNORED_NAMES = new Set([
   "venv",
 ]);
 const DEFAULT_MODEL_ROUTER_CREDENTIAL_ENV = "NVIDIA_API_KEY";
-
-async function isRouterHealthy(port: number, timeoutMs = ROUTER_HEALTH_TIMEOUT_MS): Promise<boolean> {
-  const http = require("http");
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const settle = (healthy: boolean) => {
-      if (settled) return;
-      settled = true;
-      resolve(healthy);
-    };
-    const request = http
-      .get(`http://127.0.0.1:${port}/health`, (res: import("node:http").IncomingMessage) => {
-        res.resume();
-        settle((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300);
-      })
-      .on("error", () => settle(false));
-    request.setTimeout(timeoutMs, () => {
-      request.destroy();
-      settle(false);
-    });
-  });
-}
-
-function isProcessRunning(pid: number | null | undefined): boolean {
-  if (!Number.isInteger(pid) || Number(pid) <= 0) return false;
-  try {
-    process.kill(Number(pid), 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function stopModelRouterProcess(pid: number, port: number): Promise<void> {
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    return;
-  }
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (!isProcessRunning(pid) && !(await isRouterHealthy(port, 1000))) return;
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // already stopped
-  }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (!isProcessRunning(pid) && !(await isRouterHealthy(port, 1000))) return;
-  }
-}
 
 function resolveHostCommandPath(commandName: string): string | null {
   const result = runCapture(["sh", "-c", 'command -v "$1"', "--", commandName], {
@@ -4473,53 +4428,6 @@ function formatSandboxAgentName(agentName: string | null | undefined): string {
   if (normalized === "openclaw") return "OpenClaw";
   if (normalized === "hermes") return "Hermes";
   return normalized;
-}
-
-function resetStepForAgentChange(session: Session, stepName: string): void {
-  const stepState = session.steps[stepName];
-  if (!stepState) return;
-  stepState.status = "pending";
-  stepState.startedAt = null;
-  stepState.completedAt = null;
-  stepState.error = null;
-}
-
-function clearAgentScopedResumeState(session: Session, selectedAgentName: string): Session {
-  const normalizedAgentName = normalizeSandboxAgentName(selectedAgentName);
-  session.agent = normalizedAgentName === "openclaw" ? null : normalizedAgentName;
-  session.provider = null;
-  session.model = null;
-  session.endpointUrl = null;
-  session.credentialEnv = null;
-  session.hermesAuthMethod = null;
-  session.hermesToolGateways = null;
-  session.preferredInferenceApi = null;
-  session.nimContainer = null;
-  session.routerPid = null;
-  session.routerCredentialHash = null;
-  session.policyPresets = null;
-
-  const resetSteps = [
-    "provider_selection",
-    "inference",
-    "sandbox",
-    "openclaw",
-    "agent_setup",
-    "policies",
-  ];
-  for (const stepName of resetSteps) resetStepForAgentChange(session, stepName);
-  if (session.lastCompletedStep && resetSteps.includes(session.lastCompletedStep)) {
-    session.lastCompletedStep =
-      session.steps.gateway?.status === "complete"
-        ? "gateway"
-        : session.steps.preflight?.status === "complete"
-          ? "preflight"
-          : null;
-  }
-  if (session.lastStepStarted && resetSteps.includes(session.lastStepStarted)) {
-    session.lastStepStarted = null;
-  }
-  return session;
 }
 
 function getDefaultSandboxNameForAgent(agent: AgentDefinition | null | undefined): string {
@@ -9422,6 +9330,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       forceProviderSelectionForAgentChange = true;
       note(
         `  Agent changed from ${formatSandboxAgentName(recordedAgentName)} to ${formatSandboxAgentName(selectedAgentName)}; refreshing provider selection.`,
+      );
+      // Agent changes are recoverable resume drift: refresh scoped state instead of rejecting --resume.
+      await stopTrackedModelRouterForAgentChange(
+        session,
+        loadBlueprintProfile("routed")?.router.port || 4000,
       );
       session = onboardSession.updateSession((current: Session) =>
         clearAgentScopedResumeState(current, selectedAgentName),
