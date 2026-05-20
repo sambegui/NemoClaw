@@ -1880,15 +1880,7 @@ jobs:
           export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
-          npm ci --ignore-scripts
-          log_file="/tmp/nemoclaw-e2e-onboard-negative-paths.log"
-          : >"${log_file}"
-          for scenario in \
-            ubuntu-repo-cloud-openclaw-custom-policies \
-            ubuntu-invalid-nvidia-key-negative \
-            ubuntu-gateway-port-conflict-negative; do
-            bash test/e2e/runtime/run-scenario.sh "$scenario" 2>&1 | tee -a "${log_file}"
-          done
+          bash test/e2e/test-onboard-negative-paths.sh
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -2644,20 +2636,27 @@ jobs:
                 const since48h = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
                 const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-                const { data } = await github.rest.actions.listWorkflowRuns({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: WORKFLOW_FILE,
-                  created: `>=${since48h}`,
-                  per_page: 50,
-                });
+                const priorRuns = [];
+                for (let page = 1; page <= 10 && priorRuns.length === 0; page++) {
+                  const { data } = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: WORKFLOW_FILE,
+                    created: `>=${since48h}`,
+                    per_page: 100,
+                    page,
+                  });
 
-                // Find completed scheduled runs from 24–48h ago
-                const priorRuns = data.workflow_runs.filter(r =>
-                  r.status === 'completed' &&
-                  r.event === 'schedule' &&
-                  new Date(r.created_at) < new Date(since24h)
-                );
+                  priorRuns.push(
+                    ...data.workflow_runs.filter(r =>
+                      r.status === 'completed' &&
+                      r.event === 'schedule' &&
+                      new Date(r.created_at) < new Date(since24h)
+                    )
+                  );
+
+                  if (data.workflow_runs.length < 100) break;
+                }
 
                 if (priorRuns.length > 0) {
                   // Check the most recent prior run
