@@ -1836,15 +1836,7 @@ jobs:
           export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
-          npm ci --ignore-scripts
-          log_file="/tmp/nemoclaw-e2e-onboard-negative-paths.log"
-          : >"${log_file}"
-          for scenario in \
-            ubuntu-repo-cloud-openclaw-custom-policies \
-            ubuntu-invalid-nvidia-key-negative \
-            ubuntu-gateway-port-conflict-negative; do
-            bash test/e2e/runtime/run-scenario.sh "$scenario" 2>&1 | tee -a "${log_file}"
-          done
+          bash test/e2e/test-onboard-negative-paths.sh
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
