@@ -258,6 +258,75 @@ describe("sandbox provisioning: base runtime tools", () => {
   });
 });
 
+describe("sandbox provisioning: WeChat OpenClaw extension", () => {
+  function runWechatExtensionBlock({ preinstall }: { preinstall: boolean }) {
+    const dockerfile = fs.readFileSync(DOCKERFILE, "utf-8");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-wechat-extension-"));
+    const sandboxRoot = path.join(tmp, "sandbox");
+    const extensionDir = path.join(
+      sandboxRoot,
+      ".openclaw",
+      "extensions",
+      "openclaw-weixin",
+    );
+    const command = dockerRunCommandBetween(
+      dockerfile,
+      "# Ensure the WeChat OpenClaw extension exists in the final image",
+      "# Generate openclaw.json from environment variables",
+    ).replaceAll("/sandbox", sandboxRoot);
+
+    try {
+      fs.mkdirSync(path.dirname(extensionDir), { recursive: true });
+      if (preinstall) fs.mkdirSync(extensionDir, { recursive: true });
+
+      const result = runLoggedDockerShell(command, tmp, [
+        [
+          "openclaw() {",
+          '  printf "openclaw %s\\n" "$*" >> "$call_log";',
+          '  if [ "${1:-}" = "plugins" ] && [ "${2:-}" = "install" ]; then',
+          `    mkdir -p ${JSON.stringify(extensionDir)};`,
+          "  fi;",
+          "}",
+        ].join("\n"),
+      ]);
+      return { ...result, tmp, extensionDir };
+    } catch (error) {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  it("installs openclaw-weixin in the final image when a stale base lacks it", () => {
+    const { result, calls, tmp, extensionDir } = runWechatExtensionBlock({ preinstall: false });
+    try {
+      expect(result.status, result.stderr).toBe(0);
+      expect(calls).toContain(
+        "openclaw plugins install @tencent-weixin/openclaw-weixin@2.4.2 --pin",
+      );
+      expect(calls).toContain(
+        "openclaw config set plugins.entries.openclaw-weixin.enabled true",
+      );
+      expect(fs.statSync(extensionDir).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an existing openclaw-weixin extension and refreshes its config entry", () => {
+    const { result, calls, tmp, extensionDir } = runWechatExtensionBlock({ preinstall: true });
+    try {
+      expect(result.status, result.stderr).toBe(0);
+      expect(calls).not.toContain("openclaw plugins install");
+      expect(calls).toContain(
+        "openclaw config set plugins.entries.openclaw-weixin.enabled true",
+      );
+      expect(fs.statSync(extensionDir).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("sandbox provisioning: copied OpenClaw helper permissions (#2861)", () => {
   it("normalizes copied blueprint permissions before non-root config generation", () => {
     const dockerfile = fs.readFileSync(DOCKERFILE, "utf-8");

@@ -388,6 +388,17 @@ USER sandbox
 # the OpenShell proxy. Mirror of the Telegram treatment immediately below.
 # Remove once OpenClaw lands an env-var-honouring fix for the Discord
 # gateway equivalent to openclaw/openclaw#62878 (Slack Socket Mode).
+# Ensure the WeChat OpenClaw extension exists in the final image, even when
+# the published sandbox-base:latest tag predates the Dockerfile.base install
+# layer. The build-time config generator may seed channels.openclaw-weixin, so
+# the gateway must always have the matching plugin payload available.
+# hadolint ignore=DL3059,DL4006
+RUN if [ ! -d /sandbox/.openclaw/extensions/openclaw-weixin ]; then \
+        openclaw plugins install '@tencent-weixin/openclaw-weixin@2.4.2' --pin; \
+    fi \
+    && test -d /sandbox/.openclaw/extensions/openclaw-weixin \
+    && openclaw config set plugins.entries.openclaw-weixin.enabled true
+
 # Generate openclaw.json from environment variables. Config generation logic
 # lives in scripts/generate-openclaw-config.py — see that file for the full
 # list of env vars and derivation rules.
