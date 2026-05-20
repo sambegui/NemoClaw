@@ -13,6 +13,18 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function bashPrintfQ(value: string): string {
+  const result = spawnSync("bash", ["-c", "printf '%q' \"$1\"", "bash-printf-q", value], {
+    encoding: "utf-8",
+    timeout: 5000,
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    throw new Error(`bash printf %q failed: ${result.stderr}`);
+  }
+  return result.stdout;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -148,7 +160,7 @@ function runRuntimeShellEnvBootstrap() {
 describe("agents/hermes/start.sh runtime shell env", () => {
   it("puts the Hermes configure guard in the sourced proxy env file", () => {
     const run = runRuntimeShellEnvBootstrap();
-    const escapedCaFile = run.caFile.replace(/ /g, "\\ ");
+    const escapedCaFile = bashPrintfQ(run.caFile);
 
     expect(run.result.status).toBe(0);
     expect(run.envFileMode).toBe("444");
