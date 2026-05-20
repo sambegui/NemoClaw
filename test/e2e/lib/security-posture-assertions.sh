@@ -42,25 +42,75 @@ security_posture_assert_host_user() {
   fi
 }
 
-security_posture_assert_entrypoint_caps() {
-  local sandbox_name="$1"
-  local out cap_bnd no_new_privs
+security_posture_dangerous_caps_present() {
+  local cap_hex="$1"
+  local val entry bit name present_caps=""
 
-  out="$(security_posture_sandbox_exec "$sandbox_name" 'grep -E "^(CapBnd|NoNewPrivs):" /proc/1/status 2>/dev/null || true')" || true
+  val=$((16#$cap_hex))
+  for entry in \
+    "21:CAP_SYS_ADMIN" \
+    "19:CAP_SYS_PTRACE" \
+    "13:CAP_NET_RAW" \
+    "10:CAP_NET_BIND_SERVICE" \
+    "1:CAP_DAC_OVERRIDE"; do
+    bit="${entry%%:*}"
+    name="${entry#*:}"
+    if [ $(((val >> bit) & 1)) -ne 0 ]; then
+      present_caps="${present_caps:+$present_caps,}$name"
+    fi
+  done
+  printf '%s\n' "$present_caps"
+}
+
+security_posture_assert_entrypoint_process() {
+  local sandbox_name="$1"
+  local out cap_bnd cap_eff no_new_privs entry_uid present_caps
+
+  out="$(security_posture_sandbox_exec "$sandbox_name" 'grep -E "^(Uid|Gid|CapBnd|CapEff|NoNewPrivs):" /proc/1/status 2>/dev/null || true')" || true
   info "PID 1 status: ${out//$'\n'/; }"
+  entry_uid="$(printf '%s\n' "$out" | awk '/^Uid:/ { print $2; exit }')"
   cap_bnd="$(printf '%s\n' "$out" | awk '/^CapBnd:/ { print $2; exit }')"
+  cap_eff="$(printf '%s\n' "$out" | awk '/^CapEff:/ { print $2; exit }')"
   no_new_privs="$(printf '%s\n' "$out" | awk '/^NoNewPrivs:/ { print $2; exit }')"
+
+  if [ "${NEMOCLAW_E2E_EXPECT_NON_ROOT_ENTRYPOINT:-}" = "1" ]; then
+    if [ -n "$entry_uid" ] && [ "$entry_uid" != "0" ]; then
+      pass "Entrypoint PID 1 is non-root inside the sandbox (uid=${entry_uid})"
+    else
+      fail "Entrypoint PID 1 expected non-root uid, got '${entry_uid:-<missing>}'"
+    fi
+  elif [ -n "$entry_uid" ]; then
+    info "Entrypoint PID 1 uid=${entry_uid}"
+  fi
 
   if [ -z "$cap_bnd" ]; then
     fail "Could not capture PID 1 CapBnd from sandbox ${sandbox_name}: ${out:0:300}"
     return 0
   fi
 
-  security_posture_cap_absent "$cap_bnd" 21 CAP_SYS_ADMIN "Entrypoint PID 1"
-  security_posture_cap_absent "$cap_bnd" 19 CAP_SYS_PTRACE "Entrypoint PID 1"
-  security_posture_cap_absent "$cap_bnd" 13 CAP_NET_RAW "Entrypoint PID 1"
-  security_posture_cap_absent "$cap_bnd" 10 CAP_NET_BIND_SERVICE "Entrypoint PID 1"
-  security_posture_cap_absent "$cap_bnd" 1 CAP_DAC_OVERRIDE "Entrypoint PID 1"
+  if [ "${NEMOCLAW_E2E_EXPECT_DROPPED_BOUNDS:-}" = "1" ]; then
+    security_posture_cap_absent "$cap_bnd" 21 CAP_SYS_ADMIN "Entrypoint PID 1"
+    security_posture_cap_absent "$cap_bnd" 19 CAP_SYS_PTRACE "Entrypoint PID 1"
+    security_posture_cap_absent "$cap_bnd" 13 CAP_NET_RAW "Entrypoint PID 1"
+    security_posture_cap_absent "$cap_bnd" 10 CAP_NET_BIND_SERVICE "Entrypoint PID 1"
+    security_posture_cap_absent "$cap_bnd" 1 CAP_DAC_OVERRIDE "Entrypoint PID 1"
+  else
+    present_caps="$(security_posture_dangerous_caps_present "$cap_bnd")"
+    if [ -n "$present_caps" ]; then
+      info "Entrypoint PID 1 residual CapBnd dangerous caps: ${present_caps}"
+    else
+      pass "Entrypoint PID 1 dangerous caps are absent from CapBnd"
+    fi
+  fi
+
+  if [ -n "$cap_eff" ]; then
+    present_caps="$(security_posture_dangerous_caps_present "$cap_eff")"
+    if [ -n "$present_caps" ]; then
+      info "Entrypoint PID 1 residual CapEff dangerous caps: ${present_caps}"
+    else
+      pass "Entrypoint PID 1 dangerous caps are absent from CapEff"
+    fi
+  fi
 
   if [ "${NEMOCLAW_E2E_EXPECT_NO_NEW_PRIVS:-}" = "1" ]; then
     if [ "$no_new_privs" = "1" ]; then
@@ -104,10 +154,10 @@ security_posture_assert_proxy_env() {
   esac
 
   rc=0
-  out="$(security_posture_sandbox_exec "$sandbox_name" "f=/tmp/nemoclaw-proxy-env.sh; bad=0; if [ ! -f \"\$f\" ]; then echo MISSING_PROXY_ENV; exit 1; fi; if [ -L \"\$f\" ]; then echo SYMLINK_PROXY_ENV; bad=1; fi; meta=\$(stat -c \"%a %U:%G\" \"\$f\" 2>/dev/null || true); echo \"META \$f \$meta\"; set -- \$meta; mode=\"\${1:-}\"; owner=\"\${2:-}\"; if [ \"\$mode\" != \"444\" ]; then echo \"BAD_PROXY_ENV_MODE \$mode\"; bad=1; fi; if [ \"\$owner\" != \"root:root\" ]; then echo \"BAD_PROXY_ENV_OWNER \$owner\"; bad=1; fi; grep -Fq '# nemoclaw-configure-guard begin' \"\$f\" || { echo MISSING_GUARD_BEGIN; bad=1; }; grep -Fq '${function_name}() {' \"\$f\" || { echo MISSING_AGENT_GUARD_FUNCTION; bad=1; }; grep -Fq '# nemoclaw-configure-guard end' \"\$f\" || { echo MISSING_GUARD_END; bad=1; }; exit \"\$bad\"")" || rc=$?
+  out="$(security_posture_sandbox_exec "$sandbox_name" "f=/tmp/nemoclaw-proxy-env.sh; bad=0; if [ ! -f \"\$f\" ]; then echo MISSING_PROXY_ENV; exit 1; fi; if [ -L \"\$f\" ]; then echo SYMLINK_PROXY_ENV; bad=1; fi; meta=\$(stat -c \"%a %U:%G\" \"\$f\" 2>/dev/null || true); echo \"META \$f \$meta\"; set -- \$meta; mode=\"\${1:-}\"; owner=\"\${2:-}\"; current_owner=\"\$(id -un):\$(id -gn)\"; if [ \"\$mode\" != \"444\" ]; then echo \"BAD_PROXY_ENV_MODE \$mode\"; bad=1; fi; case \"\$owner\" in root:root) ;; \"\$current_owner\") echo \"NON_ROOT_PROXY_ENV_OWNER \$owner\" ;; *) echo \"BAD_PROXY_ENV_OWNER \$owner\"; bad=1 ;; esac; grep -Fq '# nemoclaw-configure-guard begin' \"\$f\" || { echo MISSING_GUARD_BEGIN; bad=1; }; grep -Fq '${function_name}() {' \"\$f\" || { echo MISSING_AGENT_GUARD_FUNCTION; bad=1; }; grep -Fq '# nemoclaw-configure-guard end' \"\$f\" || { echo MISSING_GUARD_END; bad=1; }; exit \"\$bad\"")" || rc=$?
   info "runtime proxy-env metadata: ${out//$'\n'/; }"
   if [ "$rc" -eq 0 ]; then
-    pass "Runtime proxy env is root-owned 444 and carries the ${function_name} configure guard"
+    pass "Runtime proxy env is mode 444 and carries the ${function_name} configure guard"
   else
     fail "Runtime proxy env is not locked or missing guard content: ${out:0:500}"
   fi
@@ -148,7 +198,7 @@ security_posture_assertions_run() {
 
   section "Security posture regression checks"
   security_posture_assert_host_user
-  security_posture_assert_entrypoint_caps "$sandbox_name"
+  security_posture_assert_entrypoint_process "$sandbox_name"
   security_posture_assert_rc_files "$sandbox_name"
   security_posture_assert_proxy_env "$sandbox_name" "$agent_name"
   security_posture_assert_start_log "$sandbox_name" "$agent_name"

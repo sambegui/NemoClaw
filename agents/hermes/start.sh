@@ -227,9 +227,9 @@ else
 fi
 
 # SECURITY FIX: Write proxy config to a standalone file via
-# emit_sandbox_sourced_file() (root:root 444) instead of appending
-# inline to .bashrc/.profile. The old approach left .bashrc writable
-# by the sandbox user — same vulnerability class as #2181.
+# emit_sandbox_sourced_file() (444, root-owned when running as root) instead of
+# appending inline to .bashrc/.profile. The old approach rewrote files under
+# /sandbox during startup, which fails in non-root entrypoint postures.
 # Ref: https://github.com/NVIDIA/NemoClaw/issues/2277
 _PROXY_ENV_FILE="/tmp/nemoclaw-proxy-env.sh"
 write_runtime_shell_env() {
