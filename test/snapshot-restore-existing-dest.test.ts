@@ -12,7 +12,7 @@
 // missing snapshot, or an unresolvable source image must not be allowed to
 // delete `dst` and only fail afterwards.
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,9 +25,9 @@ const CLI = path.join(import.meta.dirname, "..", "bin", "nemoclaw.js");
 
 type CliRunResult = { code: number; out: string };
 
-function runCli(args: string, env: Record<string, string | undefined> = {}): CliRunResult {
+function runCli(args: readonly string[], env: Record<string, string | undefined> = {}): CliRunResult {
   try {
-    const out = execSync(`node "${CLI}" ${args}`, {
+    const out = execFileSync("node", [CLI, ...args], {
       encoding: "utf-8",
       timeout: execTimeout(),
       env: {
@@ -185,7 +185,7 @@ function makeExistingDestEnv(
 describe("snapshot restore --to existing destination (#3756)", () => {
   it("refuses by default when the destination sandbox already exists", () => {
     const { env, osLog } = makeExistingDestEnv("nemoclaw-snap-restore-refuse-");
-    const r = runCli("src snapshot restore --to dst", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst"], env);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Destination sandbox 'dst' already exists/);
     expect(r.out).toMatch(/Re-run with --force/);
@@ -201,7 +201,7 @@ describe("snapshot restore --to existing destination (#3756)", () => {
     const { env } = makeExistingDestEnv("nemoclaw-snap-restore-refuse-before-preflight-", {
       withSourceImage: false,
     });
-    const r = runCli("src snapshot restore --to dst", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst"], env);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Destination sandbox 'dst' already exists/);
     expect(r.out).not.toMatch(/Cannot resolve image/);
@@ -209,7 +209,7 @@ describe("snapshot restore --to existing destination (#3756)", () => {
 
   it("deletes the destination when --force --yes is set, then proceeds (#3756)", () => {
     const { env, osLog } = makeExistingDestEnv("nemoclaw-snap-restore-force-");
-    const r = runCli("src snapshot restore --to dst --force --yes", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst", "--force", "--yes"], env);
     // Auto-create is intentionally mocked to fail end-to-end (the fake
     // openshell exits non-zero on `sandbox create`); the test only proves the
     // new --force branch ran through the delete step.
@@ -221,7 +221,7 @@ describe("snapshot restore --to existing destination (#3756)", () => {
   it("skips the prompt under NEMOCLAW_NON_INTERACTIVE=1 even without --yes", () => {
     const base = makeExistingDestEnv("nemoclaw-snap-restore-noninteractive-");
     const env = { ...base.env, NEMOCLAW_NON_INTERACTIVE: "1" };
-    const r = runCli("src snapshot restore --to dst --force", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst", "--force"], env);
     expect(r.out).toMatch(/Deleting existing destination 'dst'/);
     const log = fs.existsSync(base.osLog) ? fs.readFileSync(base.osLog, "utf-8") : "";
     expect(log).toMatch(/sandbox delete dst/);
@@ -232,7 +232,7 @@ describe("snapshot restore --to existing destination (#3756)", () => {
     const { env, osLog } = makeExistingDestEnv("nemoclaw-snap-restore-no-snap-", {
       withSnapshot: false,
     });
-    const r = runCli("src snapshot restore --to dst --force --yes", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst", "--force", "--yes"], env);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/No snapshots found for 'src'/);
     expect(r.out).not.toMatch(/Deleting existing destination 'dst'/);
@@ -242,7 +242,10 @@ describe("snapshot restore --to existing destination (#3756)", () => {
 
   it("does NOT delete the destination when the selector resolves to nothing (--force --yes)", () => {
     const { env, osLog } = makeExistingDestEnv("nemoclaw-snap-restore-bad-selector-");
-    const r = runCli("src snapshot restore not-a-real-snap --to dst --force --yes", env);
+    const r = runCli(
+      ["src", "snapshot", "restore", "not-a-real-snap", "--to", "dst", "--force", "--yes"],
+      env,
+    );
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/No snapshot matching 'not-a-real-snap' found/);
     expect(r.out).not.toMatch(/Deleting existing destination 'dst'/);
@@ -254,7 +257,7 @@ describe("snapshot restore --to existing destination (#3756)", () => {
     const { env, osLog } = makeExistingDestEnv("nemoclaw-snap-restore-no-image-", {
       withSourceImage: false,
     });
-    const r = runCli("src snapshot restore --to dst --force --yes", env);
+    const r = runCli(["src", "snapshot", "restore", "--to", "dst", "--force", "--yes"], env);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Cannot resolve image for source sandbox 'src'/);
     expect(r.out).toMatch(/aborting before deleting 'dst'/);
