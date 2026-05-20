@@ -31,10 +31,10 @@
 #   hermes-e2e               Hermes Agent E2E — install → onboard --agent hermes → health
 #                            probe → live inference. Validates the multi-agent architecture.
 #   openclaw-onboard-security-posture-e2e
-#                            Full OpenClaw onboard on a non-root host/entrypoint
+#                            Full OpenClaw onboard on a non-root host user
 #                            with trusted rc-file and runtime guard assertions.
 #   hermes-onboard-security-posture-e2e
-#                            Full Hermes onboard on a non-root host/entrypoint
+#                            Full Hermes onboard on a non-root host user
 #                            with trusted rc-file and runtime guard assertions.
 #   hermes-inference-switch-e2e
 #                            Switches a running Hermes sandbox with `nemohermes inference set`
@@ -792,8 +792,8 @@ jobs:
   # ── OpenClaw onboard security posture E2E ───────────────────────
   # Full OpenClaw install/onboard/inference path, then asserts the Linux
   # Docker-driver security posture that #3891 needed: non-root host user,
-  # non-root sandbox entrypoint, static root-owned rc shims, and dynamic
-  # configure guards only in /tmp/nemoclaw-proxy-env.sh.
+  # static root-owned rc shims, and dynamic configure guards only in
+  # /tmp/nemoclaw-proxy-env.sh.
   openclaw-onboard-security-posture-e2e:
     if: >-
       github.repository == 'NVIDIA/NemoClaw' &&
@@ -817,7 +817,6 @@ jobs:
           NEMOCLAW_RECREATE_SANDBOX: "1"
           NEMOCLAW_E2E_SECURITY_POSTURE: "1"
           NEMOCLAW_E2E_EXPECT_NON_ROOT_HOST: "1"
-          NEMOCLAW_E2E_EXPECT_NON_ROOT_ENTRYPOINT: "1"
           GITHUB_TOKEN: ${{ github.token }}
         run: bash test/e2e/test-full-e2e.sh
 
@@ -832,7 +831,7 @@ jobs:
   # ── Hermes onboard security posture E2E ─────────────────────────
   # Full Hermes install/onboard/health/inference path with the same posture
   # assertions as OpenClaw. This specifically catches the #3891 class where
-  # startup rewrites /sandbox rc files from a non-root sandbox entrypoint.
+  # startup rewrites /sandbox rc files under a non-root-host OpenShell posture.
   hermes-onboard-security-posture-e2e:
     if: >-
       github.repository == 'NVIDIA/NemoClaw' &&
@@ -857,7 +856,6 @@ jobs:
           NEMOCLAW_AGENT: "hermes"
           NEMOCLAW_E2E_SECURITY_POSTURE: "1"
           NEMOCLAW_E2E_EXPECT_NON_ROOT_HOST: "1"
-          NEMOCLAW_E2E_EXPECT_NON_ROOT_ENTRYPOINT: "1"
           GITHUB_TOKEN: ${{ github.token }}
         run: bash test/e2e/test-hermes-e2e.sh
 
