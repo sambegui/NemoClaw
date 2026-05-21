@@ -185,6 +185,10 @@ function getExecToolCallCommand(toolCall) {
   return args.command;
 }
 
+function isSafeExecToolCall(toolCall) {
+  return SAFE_SPLIT_EXEC_COMMANDS.has(getExecToolCallCommand(toolCall));
+}
+
 function buildSplitToolCalls(toolCall, commands) {
   return commands.map((command, index) => ({
     type: "toolCall",
@@ -208,6 +212,11 @@ function dedupeSafeExecToolCalls(content) {
   return deduped;
 }
 
+function dedupeAllSafeDiagnosticExecToolCalls(content) {
+  if (!content.every(isSafeExecToolCall)) return content;
+  return dedupeSafeExecToolCalls(content);
+}
+
 function rewriteSafeCombinedExecToolCallsInContent(content) {
   if (!Array.isArray(content)) return { changed: false, content };
 
@@ -224,7 +233,7 @@ function rewriteSafeCombinedExecToolCallsInContent(content) {
   }
   if (!changed) return { changed: false, content };
 
-  return { changed: true, content: expanded };
+  return { changed: true, content: dedupeAllSafeDiagnosticExecToolCalls(expanded) };
 }
 
 function applySafeExecSplitToMessage(message) {
@@ -243,11 +252,11 @@ function applySafeExecSplitAtContentIndex(message, split) {
   const index = Number.isInteger(split.contentIndex) ? split.contentIndex : 0;
   if (index < 0 || index >= message.content.length) return false;
   const replacement = dedupeSafeExecToolCalls(buildSplitToolCalls(split.toolCall, split.commands));
-  message.content = [
+  message.content = dedupeAllSafeDiagnosticExecToolCalls([
     ...message.content.slice(0, index),
     ...replacement,
     ...message.content.slice(index + 1),
-  ];
+  ]);
   if (message.stopReason === "stop") message.stopReason = "toolUse";
   return true;
 }

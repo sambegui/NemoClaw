@@ -193,6 +193,32 @@ describe("nemoclaw Kimi inference compat plugin", () => {
     expect(message.content.map(toolCommand)).toEqual([
       "hostname",
       "date",
+      "uptime",
+    ]);
+    expect(JSON.stringify(message)).not.toContain("hostname; date; uptime");
+  });
+
+  it("does not dedupe unrelated mixed content when splitting a safe exec command", () => {
+    const message = {
+      ...toolMessage("ignored"),
+      content: [
+        { type: "text", text: "Checking the environment." },
+        toolMessage("hostname", { id: "call_hostname" }).content[0],
+        toolMessage("hostname; date; uptime", { id: "call_combined" }).content[0],
+      ],
+    };
+
+    expect(plugin.__testing.rewriteSafeCombinedExecToolCallInMessage(message)).toBe(true);
+
+    expect(message.content.map((block: any) => block.type)).toEqual([
+      "text",
+      "toolCall",
+      "toolCall",
+      "toolCall",
+      "toolCall",
+    ]);
+    expect(message.content.filter((block: any) => block.type === "toolCall").map(toolCommand)).toEqual([
+      "hostname",
       "hostname",
       "date",
       "uptime",
@@ -389,15 +415,13 @@ describe("nemoclaw Kimi inference compat plugin", () => {
 
     expect(plugin.__testing.rewriteSafeCombinedExecToolCallInEvent(event)).toBe(true);
 
-    expect(event.delta).toEqual({ command: "hostname" });
+    expect(event.delta).toEqual({ command: "uptime" });
     expect(event.partial.content.map(toolCommand)).toEqual([
-      "hostname",
-      "date",
       "hostname",
       "date",
       "uptime",
     ]);
-    expect(toolCommand(event.toolCall)).toBe("hostname");
+    expect(toolCommand(event.toolCall)).toBe("uptime");
     expect(JSON.stringify(event)).not.toContain("hostname; date; uptime");
   });
 
@@ -429,13 +453,11 @@ describe("nemoclaw Kimi inference compat plugin", () => {
       "hostname",
       "date",
       "uptime",
-      "date",
     ]);
     expect(event.message.content.map(toolCommand)).toEqual([
       "hostname",
       "date",
       "uptime",
-      "date",
     ]);
     expect(event.delta).toEqual({ command: "date" });
     expect(toolCommand(event.toolCall)).toBe("date");
