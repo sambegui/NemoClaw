@@ -10,8 +10,8 @@ const requireCache: Record<string, unknown> = require.cache as any;
 // Regression: `nemoclaw share mount` was passing the sandbox name as a bare
 // positional to `openshell sandbox exec`, so OpenShell treated it as the
 // command to run and the probe always returned a non-zero exit code even
-// when `/sandbox` existed. Every other `openshell sandbox exec` call site
-// in the repo selects the target sandbox with `-n` (or `--name`).
+// when `/sandbox` existed. The convention in this repo is to select the
+// target sandbox with `-n` (or `--name`).
 // See #3889 and #3954.
 describe("buildShareCommandDeps().checkSandboxPathExists probe argv", () => {
   afterEach(() => {
