@@ -82,6 +82,9 @@ const {
   toSessionWechatConfig,
 } = require("./onboard/wechat-config") as typeof import("./onboard/wechat-config");
 const {
+  clearAgentScopedResumeState,
+}: typeof import("./onboard/agent-resume-state") = require("./onboard/agent-resume-state");
+const {
   setupSelectedMessagingChannels,
 } = require("./onboard/messaging-channel-setup") as typeof import("./onboard/messaging-channel-setup");
 const bedrockRuntimeOnboard: typeof import("./onboard/bedrock-runtime") =
@@ -90,6 +93,12 @@ const { buildVllmMenuEntries }: typeof import("./onboard/vllm-menu") = require("
 const {
   prepareModelRouterVenv,
 }: typeof import("./onboard/model-router-python") = require("./onboard/model-router-python");
+const {
+  isProcessRunning,
+  isRouterHealthy,
+  stopModelRouterProcess,
+  stopTrackedModelRouterForAgentChange,
+}: typeof import("./onboard/model-router-process") = require("./onboard/model-router-process");
 const crypto = require("node:crypto");
 const fs = require("fs");
 const os = require("os");
@@ -380,6 +389,7 @@ import { decidePolicyCarryForward } from "./onboard/policy-carryforward";
 import { getSuggestedPolicyPresets } from "./onboard/policy-presets";
 import {
   computeSetupPresetSuggestions as computeSetupPresetSuggestionsImpl,
+  isStaleBuiltinBravePolicyPreset,
   setupPoliciesWithSelection as setupPoliciesWithSelectionImpl,
   type SetupPolicySelectionOptions,
   type SetupPresetSuggestionOptions,
@@ -738,7 +748,6 @@ function loadBlueprintProfile(
 
 const ROUTER_HEALTH_RETRIES = 15;
 const ROUTER_HEALTH_INTERVAL_MS = 2000;
-const ROUTER_HEALTH_TIMEOUT_MS = 3000;
 const MODEL_ROUTER_RELATIVE_DIR = path.join("nemoclaw-blueprint", "router", "llm-router");
 const MODEL_ROUTER_VENV_DIR = path.join(os.homedir(), ".nemoclaw", "model-router-venv");
 const MODEL_ROUTER_FINGERPRINT_FILE = ".nemoclaw-source-fingerprint";
@@ -757,59 +766,6 @@ const MODEL_ROUTER_FINGERPRINT_IGNORED_NAMES = new Set([
   "venv",
 ]);
 const DEFAULT_MODEL_ROUTER_CREDENTIAL_ENV = "NVIDIA_API_KEY";
-
-async function isRouterHealthy(port: number, timeoutMs = ROUTER_HEALTH_TIMEOUT_MS): Promise<boolean> {
-  const http = require("http");
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const settle = (healthy: boolean) => {
-      if (settled) return;
-      settled = true;
-      resolve(healthy);
-    };
-    const request = http
-      .get(`http://127.0.0.1:${port}/health`, (res: import("node:http").IncomingMessage) => {
-        res.resume();
-        settle((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300);
-      })
-      .on("error", () => settle(false));
-    request.setTimeout(timeoutMs, () => {
-      request.destroy();
-      settle(false);
-    });
-  });
-}
-
-function isProcessRunning(pid: number | null | undefined): boolean {
-  if (!Number.isInteger(pid) || Number(pid) <= 0) return false;
-  try {
-    process.kill(Number(pid), 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function stopModelRouterProcess(pid: number, port: number): Promise<void> {
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    return;
-  }
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (!isProcessRunning(pid) && !(await isRouterHealthy(port, 1000))) return;
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // already stopped
-  }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (!isProcessRunning(pid) && !(await isRouterHealthy(port, 1000))) return;
-  }
-}
 
 function resolveHostCommandPath(commandName: string): string | null {
   const result = runCapture(["sh", "-c", 'command -v "$1"', "--", commandName], {
@@ -2440,16 +2396,6 @@ function getResumeConfigConflicts(
       field: "fromDockerfile",
       requested: requestedFrom,
       recorded: recordedFrom,
-    });
-  }
-
-  const requestedAgent = opts.agent || process.env.NEMOCLAW_AGENT || null;
-  const recordedAgent = session?.agent || null;
-  if (requestedAgent && recordedAgent && requestedAgent !== recordedAgent) {
-    conflicts.push({
-      field: "agent",
-      requested: requestedAgent,
-      recorded: recordedAgent,
     });
   }
 
@@ -5138,7 +5084,15 @@ async function createSandbox(
     }
 
     const previousEntry: SandboxEntry | null = registry.getSandbox(sandboxName);
-    const decision = decidePolicyCarryForward(previousEntry?.policies, process.env, isNonInteractive());
+    const previousPoliciesForCarryForward = recreateForAgentDrift ? null : previousEntry?.policies;
+    if (recreateForAgentDrift && previousEntry?.policies && previousEntry.policies.length > 0) {
+      note("  Agent type changed; refreshing policy presets instead of carrying them forward.");
+    }
+    const decision = decidePolicyCarryForward(
+      previousPoliciesForCarryForward,
+      process.env,
+      isNonInteractive(),
+    );
     onboardSession.updateSession((c: Session) => {
       c.policyPresets = decision.newPresets;
       return c;
@@ -5544,19 +5498,19 @@ async function createSandbox(
   // from openshell because bash returns the status of the last pipeline
   // command (awk, always 0) unless pipefail is set. Removing the pipe
   // lets the real exit code flow through to run().
+  const sandboxStartupCommand = ["env", ...envArgs, "nemoclaw-start"];
   const createCommand = `${openshellShellCommand([
     "sandbox",
     "create",
     ...createArgs,
     "--",
-    "env",
-    ...envArgs,
-    "nemoclaw-start",
+    ...sandboxStartupCommand,
   ])} 2>&1`;
   const dockerGpuCreatePatch = dockerGpuSandboxCreate.createDockerGpuSandboxCreatePatch({
     enabled: useDockerGpuPatch,
     sandboxName,
     gpuDevice: effectiveSandboxGpuConfig.sandboxGpuDevice,
+    openshellSandboxCommand: sandboxStartupCommand,
     timeoutSecs: sandboxReadyTimeoutSecs,
     deps: { runOpenshell, runCaptureOpenshell, sleep },
   });
@@ -7159,9 +7113,9 @@ async function setupNim(
           ensureOllamaLinuxExtractionDependencies();
           console.log(
             "  The Ollama installer creates a system user, a systemd service, and writes to /usr/local. " +
-              "It uses sudo for those steps; you may be prompted for your password.",
+              "It uses sudo, may ask for your password, and can take a few minutes; installer output will stream below.",
           );
-          runShell("set -o pipefail; curl -fsSL https://ollama.com/install.sh | sh");
+          runShell("set -o pipefail; curl -fsSL https://ollama.com/install.sh | sh", { stdio: "inherit" });
           // Give the just-started ollama.service a moment to bind port
           // 11434 before we probe or apply the systemd drop-in override.
           sleep(2);
@@ -9355,8 +9309,27 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       resume,
       canPrompt: !cannotPrompt,
     });
+    const selectedAgentName = normalizeSandboxAgentName(agent?.name);
+    const recordedAgentName = normalizeSandboxAgentName(session?.agent);
+    let resumeAgentChanged = false;
+    let forceProviderSelectionForAgentChange = false;
+    if (resume && session && recordedAgentName !== selectedAgentName) {
+      resumeAgentChanged = true;
+      forceProviderSelectionForAgentChange = true;
+      note(
+        `  Agent changed from ${formatSandboxAgentName(recordedAgentName)} to ${formatSandboxAgentName(selectedAgentName)}; refreshing provider selection.`,
+      );
+      // Agent changes are recoverable resume drift: refresh scoped state instead of rejecting --resume.
+      await stopTrackedModelRouterForAgentChange(
+        session,
+        loadBlueprintProfile("routed")?.router.port || 4000,
+      );
+      onboardSession.updateSession((current: Session) =>
+        clearAgentScopedResumeState(current, selectedAgentName),
+      );
+    }
     setOnboardBrandingAgent(agent?.name || "openclaw");
-    onboardSession.updateSession((s: Session) => {
+    session = onboardSession.updateSession((s: Session) => {
       s.agent = agent?.name ?? null;
       return s;
     });
@@ -9601,7 +9574,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     let preferredInferenceApi = session?.preferredInferenceApi || null;
     let nimContainer = session?.nimContainer || null;
     let webSearchConfig = session?.webSearchConfig || null;
-    let forceProviderSelection = false;
+    let forceProviderSelection = forceProviderSelectionForAgentChange;
     while (true) {
       const resumeProviderSelection =
         !forceProviderSelection &&
@@ -9824,6 +9797,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     );
     const resumeSandbox =
       resume &&
+      !resumeAgentChanged &&
       !webSearchConfigChanged &&
       !telegramConfigChanged &&
       !sandboxGpuConfigChanged &&
@@ -9840,7 +9814,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       skippedStepMessage("sandbox", sandboxName);
     } else {
       if (resume && session?.steps?.sandbox?.status === "complete") {
-        if (webSearchConfigChanged) {
+        if (resumeAgentChanged) {
+          note(
+            "  [resume] Agent selection changed; revalidating sandbox compatibility.",
+          );
+        } else if (webSearchConfigChanged) {
           note("  [resume] Web Search configuration changed; recreating sandbox.");
           if (sandboxName) {
             registry.removeSandbox(sandboxName);
@@ -10035,6 +10013,13 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       selectablePolicyPresetsForSupport,
       policyPresetSupportOptions,
       customPolicyPresetNames,
+    );
+    recordedPolicyPresetsForSupport = recordedPolicyPresetsForSupport.filter(
+      (name) =>
+        !isStaleBuiltinBravePolicyPreset(name, {
+          webSearchConfig,
+          customPresetNames: customPolicyPresetNames,
+        }),
     );
     if (recordedPolicyPresets) {
       recordedPolicyPresetsForSupport = mergeRequiredHermesToolGatewayPolicyPresets(
@@ -10241,6 +10226,7 @@ module.exports = {
   hasStaleGateway,
   getRequestedSandboxNameHint,
   getResumeSandboxConflict,
+  clearAgentScopedResumeState,
   getSandboxReuseState,
   getSandboxStateFromOutputs,
   getPortConflictServiceHints,

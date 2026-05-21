@@ -1169,19 +1169,34 @@ scripts:
       runner_requirement: sandbox runner with NemoClaw/OpenShell CLIs
     - legacy: nemoclaw credentials list failed
       status: mapped
-      id: legacy.credential.migration.nemoclaw.credentials.list.failed
+      id: post-onboard.credentials.gateway-list-redacts-values
+      layer: post-onboard
+      gap_domain: credentials
+      owner: e2e-maintainers
     - legacy: credentials list surfaces gateway-registered providers
       status: mapped
-      id: legacy.credential.migration.credentials.list.surfaces.gateway.registered.providers
+      id: post-onboard.credentials.gateway-list-redacts-values
+      layer: post-onboard
+      gap_domain: credentials
+      owner: e2e-maintainers
     - legacy: credentials list did not produce the expected gateway header
       status: mapped
-      id: legacy.credential.migration.credentials.list.did.not.produce.the.expected.gateway.header
+      id: post-onboard.credentials.gateway-list-redacts-values
+      layer: post-onboard
+      gap_domain: credentials
+      owner: e2e-maintainers
     - legacy: credentials.json reappeared on disk after credentials list
       status: mapped
-      id: legacy.credential.migration.credentials.json.reappeared.on.disk.after.credentials.list
+      id: post-onboard.credentials.no-plaintext-host-store
+      layer: post-onboard
+      gap_domain: credentials
+      owner: e2e-maintainers
     - legacy: No plaintext credentials.json on disk after credentials list
       status: mapped
-      id: legacy.credential.migration.no.plaintext.credentials.json.on.disk.after.credentials.list
+      id: post-onboard.credentials.no-plaintext-host-store
+      layer: post-onboard
+      gap_domain: credentials
+      owner: e2e-maintainers
     - legacy: node invocation of removeLegacyCredentialsFile failed
       status: mapped
       id: legacy.credential.migration.node.invocation.of.removelegacycredentialsfile.failed
