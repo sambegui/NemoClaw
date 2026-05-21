@@ -57,12 +57,14 @@ function buildPreamble({
   presetNamesApplied = ["npm", "pypi", "huggingface", "brew", "whatsapp"],
   sandboxAgent = "openclaw",
   channelInRegistry = "whatsapp",
-  sandboxExecResult = { status: 0, stdout: "", stderr: "" },
+  sandboxExecResult = { status: 0, stdout: "NEMOCLAW_CHANNEL_CLEAR_OK", stderr: "" },
+  sshFallbackResult = null as { status: number; stdout: string; stderr: string } | null,
 }: {
   presetNamesApplied?: string[];
   sandboxAgent?: string;
   channelInRegistry?: string;
   sandboxExecResult?: { status: number; stdout: string; stderr: string } | null;
+  sshFallbackResult?: { status: number; stdout: string; stderr: string } | null;
 } = {}): string {
   const j = (p: string) => JSON.stringify(path.join(repoRoot, "dist", "lib", p));
   return String.raw`
@@ -78,9 +80,14 @@ adapterRuntime.runOpenshell = () => ({ status: 0, stdout: "", stderr: "" });
 
 const processRecovery = require(${j("actions/sandbox/process-recovery.js")});
 const sandboxExecCalls = [];
+const sandboxSshCalls = [];
 processRecovery.executeSandboxExecCommand = (sandboxName, command) => {
   sandboxExecCalls.push({ sandboxName, command });
   return ${JSON.stringify(sandboxExecResult)};
+};
+processRecovery.executeSandboxCommand = (sandboxName, command) => {
+  sandboxSshCalls.push({ sandboxName, command });
+  return ${JSON.stringify(sshFallbackResult)};
 };
 
 const gatewayRuntime = require(${j("gateway-runtime-action.js")});
@@ -165,6 +172,7 @@ const channelModule = require(${j("actions/sandbox/policy-channel.js")});
 module.exports = {
   channelModule,
   sandboxExecCalls,
+  sandboxSshCalls,
   removedPresets,
   registryUpdates,
   sessionStore,
@@ -246,10 +254,54 @@ const ctx = module.exports;
     });
   }
 
-  it("aborts before rebuild when QR-channel in-sandbox cleanup fails", () => {
+  it("falls back to SSH when sandbox-exec wrapper does not return the sentinel", () => {
+    const script = `${buildPreamble({
+      sandboxAgent: "openclaw",
+      sandboxExecResult: null,
+      sshFallbackResult: { status: 0, stdout: "NEMOCLAW_CHANNEL_CLEAR_OK", stderr: "" },
+    })}
+const ctx = module.exports;
+(async () => {
+  try {
+    await ctx.channelModule.removeSandboxChannel("test-sb", { channel: "whatsapp" });
+    process.stdout.write("\\n__RESULT__" + JSON.stringify({
+      sandboxExecCalls: ctx.sandboxExecCalls,
+      sandboxSshCalls: ctx.sandboxSshCalls,
+      removedPresets: ctx.removedPresets,
+      callOrder: ctx.callOrder,
+      exitCode: ctx.getExitCode(),
+    }) + "\\n");
+  } catch (err) {
+    process.stdout.write("\\n__RESULT__" + JSON.stringify({ error: err.message, stack: err.stack }) + "\\n");
+  }
+})();
+`;
+    const result = runScript(script);
+    assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
+    const marker = result.stdout.lastIndexOf("__RESULT__");
+    assert.ok(marker >= 0, `no __RESULT__ marker:\n${result.stdout}`);
+    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
+
+    assert.equal(payload.exitCode, null, `must not exit when SSH fallback recovers; got exitCode=${payload.exitCode}`);
+    assert.equal(payload.sandboxExecCalls.length, 1, "exec attempt must run first");
+    assert.equal(payload.sandboxSshCalls.length, 1, "SSH fallback must run once when exec returns null");
+    assert.deepEqual(
+      payload.removedPresets,
+      [{ sandboxName: "test-sb", presetName: "whatsapp" }],
+      "remove flow must continue after SSH-recovered cleanup",
+    );
+    assert.ok(
+      payload.callOrder.includes("promptAndRebuild"),
+      `rebuild must be queued after SSH-recovered cleanup; callOrder=${JSON.stringify(payload.callOrder)}`,
+    );
+  });
+
+  it("aborts before rebuild when both exec and SSH cleanup fail for a QR channel", () => {
     const script = `${buildPreamble({
       sandboxAgent: "openclaw",
       sandboxExecResult: { status: 1, stdout: "", stderr: "sandbox is not running" },
+      sshFallbackResult: { status: 255, stdout: "", stderr: "ssh: connect to host ... failed" },
     })}
 const ctx = module.exports;
 (async () => {

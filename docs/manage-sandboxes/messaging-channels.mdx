@@ -159,7 +159,8 @@ $ nemoclaw my-assistant channels remove telegram
 
 For QR-paired channels (today: WhatsApp), `channels remove` destructively clears the in-sandbox session directory before the rebuild so the next rebuild does not restore stale auth files and reconnect the channel.
 The cleanup targets `/sandbox/.openclaw/<channel>/` for OpenClaw and `/sandbox/.hermes/platforms/<channel>/` for Hermes.
-If the sandbox is not reachable when the cleanup runs for a QR-paired channel, the command exits non-zero and asks you to start the sandbox and re-run; the registry, policy preset, and `session.policyPresets` stay untouched so a re-run can complete the removal cleanly.
+The cleanup tries `openshell sandbox exec` and falls back to SSH if that does not produce the success sentinel.
+If neither transport can reach a running sandbox for a QR-paired channel, the command exits non-zero and asks you to start the sandbox and re-run; the registry, policy preset, and `session.policyPresets` stay untouched so a re-run can complete the removal cleanly.
 
 Use `channels stop` when you want to pause a bridge without deleting credentials:
 

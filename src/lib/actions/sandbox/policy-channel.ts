@@ -26,7 +26,7 @@ import {
 import * as registry from "../../state/registry";
 import { runOpenshell } from "../../adapters/openshell/runtime";
 import { shellQuote } from "../../runner";
-import { executeSandboxExecCommand } from "./process-recovery";
+import { executeSandboxCommand, executeSandboxExecCommand } from "./process-recovery";
 import { rebuildSandbox } from "./rebuild";
 import {
   type ChannelDef,
@@ -752,19 +752,30 @@ function isSafeChannelStatePath(p: string): boolean {
   return /^\/sandbox\/\.[A-Za-z0-9_./-]+$/.test(p);
 }
 
+const CHANNEL_CLEAR_SENTINEL = "NEMOCLAW_CHANNEL_CLEAR_OK";
+
 // Wipe the durable per-channel state inside the sandbox before rebuild so
 // the state_dirs backup does not restore an auth blob the operator just
 // asked NemoClaw to forget. Returns true when no cleanup was needed OR
-// when the in-sandbox rm succeeded; false when the channel declares a
-// durable state dir and the cleanup did not succeed. Fixes #3998.
+// when the in-sandbox rm produced our success sentinel; false otherwise.
+// Tries `openshell sandbox exec` first and falls back to SSH for transient
+// wrapper hiccups (mirrors the pattern in process-recovery.ts:286-296).
+// Fixes #3998.
 function clearSandboxChannelDurableState(sandboxName: string, channelName: string): boolean {
   const agent = resolveAgentForSandbox(sandboxName);
   const paths = getSandboxChannelStatePaths(agent, channelName).filter(isSafeChannelStatePath);
   if (paths.length === 0) return true;
 
   const quoted = paths.map((p) => shellQuote(p)).join(" ");
-  const result = executeSandboxExecCommand(sandboxName, `rm -rf -- ${quoted}`);
-  if (!result || result.status !== 0) {
+  const cmd = `rm -rf -- ${quoted} && printf '%s\\n' ${shellQuote(CHANNEL_CLEAR_SENTINEL)}`;
+  const sentinelSeen = (result: { stdout?: string | null } | null): boolean =>
+    !!result && typeof result.stdout === "string" && result.stdout.includes(CHANNEL_CLEAR_SENTINEL);
+
+  let result = executeSandboxExecCommand(sandboxName, cmd);
+  if (!sentinelSeen(result)) {
+    result = executeSandboxCommand(sandboxName, cmd);
+  }
+  if (!sentinelSeen(result)) {
     console.error(
       `  ${YW}⚠${R} Could not clear in-sandbox '${channelName}' channel state at ${paths.join(", ")}.`,
     );
