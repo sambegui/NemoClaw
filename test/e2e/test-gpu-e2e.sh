@@ -532,31 +532,56 @@ sandbox_curl_cmd=$(printf "curl -sS --max-time 90 %q -H %q -d %q" \
   "$SANDBOX_INFERENCE_URL" \
   "Content-Type: application/json" \
   "$sandbox_payload")
-if [ "$SANDBOX_INFERENCE_EXEC" = "docker" ]; then
-  sandbox_container_id=$(docker ps --quiet \
-    --filter "label=openshell.ai/managed-by=openshell" \
-    --filter "label=openshell.ai/sandbox-name=${SANDBOX_NAME}" \
-    | head -n 1)
-  if [ -n "$sandbox_container_id" ]; then
-    info "[LOCAL] Using docker exec for Docker GPU sandbox inference proof (${sandbox_container_id:0:12})..."
-    sandbox_response=$($TIMEOUT_CMD docker exec "$sandbox_container_id" sh -lc "$sandbox_curl_cmd" 2>&1) || true
+
+run_sandbox_inference_probe() {
+  sandbox_probe_failure=""
+  sandbox_response=""
+  if [ "$SANDBOX_INFERENCE_EXEC" = "docker" ]; then
+    sandbox_container_id=$(docker ps --quiet \
+      --filter "label=openshell.ai/managed-by=openshell" \
+      --filter "label=openshell.ai/sandbox-name=${SANDBOX_NAME}" \
+      | head -n 1)
+    if [ -n "$sandbox_container_id" ]; then
+      info "[LOCAL] Using docker exec for Docker GPU sandbox inference proof (${sandbox_container_id:0:12})..."
+      sandbox_response=$($TIMEOUT_CMD docker exec "$sandbox_container_id" sh -lc "$sandbox_curl_cmd" 2>&1) || true
+    else
+      sandbox_probe_failure="OpenShell-managed Docker container not found for ${SANDBOX_NAME}"
+    fi
   else
-    sandbox_probe_failure="OpenShell-managed Docker container not found for ${SANDBOX_NAME}"
+    sandbox_response=$($TIMEOUT_CMD openshell sandbox exec -n "$SANDBOX_NAME" -- sh -lc "$sandbox_curl_cmd" 2>&1) || true
   fi
-else
-  sandbox_response=$($TIMEOUT_CMD openshell sandbox exec -n "$SANDBOX_NAME" -- sh -lc "$sandbox_curl_cmd" 2>&1) || true
-fi
+}
+
+pong_ok=false
+sandbox_content=""
+for sandbox_attempt in 1 2 3; do
+  run_sandbox_inference_probe
+  if [ -n "$sandbox_probe_failure" ]; then
+    break
+  fi
+  if [ -n "$sandbox_response" ]; then
+    sandbox_content=$(echo "$sandbox_response" | parse_chat_content 2>/dev/null) || true
+    if echo "$sandbox_content" | grep -qi "PONG"; then
+      pong_ok=true
+      break
+    fi
+    info "Sandbox inference attempt ${sandbox_attempt}/3: got '${sandbox_content:0:80}'"
+    info "Sandbox inference raw response (first 400 chars): ${sandbox_response:0:400}"
+  else
+    info "Sandbox inference attempt ${sandbox_attempt}/3: empty response"
+  fi
+  [ "$sandbox_attempt" -lt 3 ] || break
+  sleep 5
+done
 
 if [ -n "$sandbox_probe_failure" ]; then
   fail "[LOCAL] Sandbox inference: ${sandbox_probe_failure}"
+elif $pong_ok; then
+  pass "[LOCAL] Sandbox inference: Ollama responded through sandbox"
+  info "Full path proven: sandbox → ${SANDBOX_INFERENCE_URL} → Ollama GPU (:11434)"
 elif [ -n "$sandbox_response" ]; then
-  sandbox_content=$(echo "$sandbox_response" | parse_chat_content 2>/dev/null) || true
-  if echo "$sandbox_content" | grep -qi "PONG"; then
-    pass "[LOCAL] Sandbox inference: Ollama responded through sandbox"
-    info "Full path proven: sandbox → ${SANDBOX_INFERENCE_URL} → Ollama GPU (:11434)"
-  else
-    fail "[LOCAL] Sandbox inference: expected PONG, got: ${sandbox_content:0:200}"
-  fi
+  fail "[LOCAL] Sandbox inference: expected PONG after 3 attempts, got: ${sandbox_content:0:200}"
+  info "Sandbox inference final raw response (first 800 chars): ${sandbox_response:0:800}"
 else
   fail "[LOCAL] Sandbox inference: no response from ${SANDBOX_INFERENCE_URL} inside sandbox"
 fi
