@@ -825,7 +825,8 @@ export async function rebuildSandbox(
       `seed-wechat-accounts.py: exit=${seedWechatResult?.status}, stdout=${(seedWechatResult?.stdout || "").substring(0, 200)}`,
     );
     if (seedWechatResult && seedWechatResult.status === 0) {
-      if (!seedWechatResult.stdout.includes("not present; skipping")) {
+      const seedWechatStdout = seedWechatResult.stdout ?? "";
+      if (!seedWechatStdout.includes("not present; skipping")) {
         console.log(`  ${G}\u2713${R} WeChat account seed reapplied`);
       }
     } else {

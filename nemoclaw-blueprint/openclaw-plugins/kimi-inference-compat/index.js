@@ -190,7 +190,7 @@ function buildSplitToolCalls(toolCall, commands) {
     type: "toolCall",
     id: buildSplitToolCallId(toolCall.id, index, command),
     name: "exec",
-    arguments: { command },
+    arguments: encodeToolCallArgumentsLike(toolCall.arguments, command),
   }));
 }
 
@@ -216,7 +216,7 @@ function rewriteSafeCombinedExecToolCallsInContent(content) {
   for (const block of content) {
     const split = getSafeCombinedExecToolCallFromBlock(block);
     if (split) {
-      expanded.push(...buildSplitToolCalls(split.toolCall, split.commands));
+      expanded.push(...dedupeSafeExecToolCalls(buildSplitToolCalls(split.toolCall, split.commands)));
       changed = true;
     } else {
       expanded.push(block);
@@ -224,7 +224,7 @@ function rewriteSafeCombinedExecToolCallsInContent(content) {
   }
   if (!changed) return { changed: false, content };
 
-  return { changed: true, content: dedupeSafeExecToolCalls(expanded) };
+  return { changed: true, content: expanded };
 }
 
 function applySafeExecSplitToMessage(message) {
@@ -242,12 +242,12 @@ function applySafeExecSplitAtContentIndex(message, split) {
   }
   const index = Number.isInteger(split.contentIndex) ? split.contentIndex : 0;
   if (index < 0 || index >= message.content.length) return false;
-  const replacement = buildSplitToolCalls(split.toolCall, split.commands);
-  message.content = dedupeSafeExecToolCalls([
+  const replacement = dedupeSafeExecToolCalls(buildSplitToolCalls(split.toolCall, split.commands));
+  message.content = [
     ...message.content.slice(0, index),
     ...replacement,
     ...message.content.slice(index + 1),
-  ]);
+  ];
   if (message.stopReason === "stop") message.stopReason = "toolUse";
   return true;
 }
@@ -292,11 +292,10 @@ function getSafeCombinedExecToolCallFromEventDelta(event) {
 function rewriteSafeCombinedExecToolCallInEvent(event) {
   if (!event || typeof event !== "object") return false;
   const deltaSplit = getSafeCombinedExecToolCallFromEventDelta(event);
-  let changed = false;
 
   const partialChanged = applySafeExecSplitToMessage(event.partial);
   const messageChanged = applySafeExecSplitToMessage(event.message);
-  changed = partialChanged || messageChanged;
+  let changed = partialChanged || messageChanged;
 
   if (deltaSplit) {
     if (!partialChanged) changed = applySafeExecSplitAtContentIndex(event.partial, deltaSplit) || changed;

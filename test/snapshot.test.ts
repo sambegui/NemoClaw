@@ -466,7 +466,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(true);
@@ -544,7 +544,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(false);
@@ -661,7 +661,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const restore = sandboxState.restoreSandboxState("alpha", String(manifest.backupPath));
       expect(restore.success).toBe(true);
@@ -742,7 +742,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(true);
@@ -806,7 +806,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(true);
@@ -857,7 +857,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(false);
@@ -910,7 +910,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(false);
@@ -966,7 +966,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(false);
@@ -1026,7 +1026,7 @@ process.exit(0);
 
       writeOpenClawRegistry("alpha");
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("alpha");
       expect(backup.success).toBe(false);
@@ -1141,7 +1141,7 @@ process.exit(0);
       );
 
       process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
-      process.env.PATH = `${binDir}${path.delimiter}${oldPath || ""}`;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
 
       const backup = sandboxState.backupSandboxState("hermes", { name: "hermes-state" });
       expect(backup.success).toBe(true);
