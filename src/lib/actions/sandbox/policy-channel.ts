@@ -25,6 +25,8 @@ import {
 } from "../../domain/policy-channel";
 import * as registry from "../../state/registry";
 import { runOpenshell } from "../../adapters/openshell/runtime";
+import { shellQuote } from "../../runner";
+import { executeSandboxExecCommand } from "./process-recovery";
 import { rebuildSandbox } from "./rebuild";
 import {
   type ChannelDef,
@@ -732,6 +734,60 @@ function applyChannelPresetIfAvailable(sandboxName: string, channelName: string)
   }
 }
 
+function getSandboxChannelStatePaths(agent: AgentDefinition, channelName: string): string[] {
+  const configDir = agent.configPaths.dir;
+  const stateDirs = new Set(agent.stateDirs);
+  if (stateDirs.has("platforms")) {
+    return [`${configDir}/platforms/${channelName}`];
+  }
+  if (stateDirs.has(channelName)) {
+    return [`${configDir}/${channelName}`];
+  }
+  return [];
+}
+
+function isSafeChannelStatePath(p: string): boolean {
+  if (!p.startsWith("/sandbox/.")) return false;
+  if (p.includes("..")) return false;
+  return /^\/sandbox\/\.[A-Za-z0-9_./-]+$/.test(p);
+}
+
+// Wipe the durable per-channel state inside the sandbox before rebuild so
+// the state_dirs backup does not restore an auth blob the operator just
+// asked NemoClaw to forget. Fixes #3998.
+function clearSandboxChannelDurableState(sandboxName: string, channelName: string): void {
+  const agent = resolveAgentForSandbox(sandboxName);
+  const paths = getSandboxChannelStatePaths(agent, channelName).filter(isSafeChannelStatePath);
+  if (paths.length === 0) return;
+
+  const quoted = paths.map((p) => shellQuote(p)).join(" ");
+  const result = executeSandboxExecCommand(sandboxName, `rm -rf -- ${quoted}`);
+  if (!result || result.status !== 0) {
+    console.error(
+      `  ${YW}⚠${R} Could not clear in-sandbox '${channelName}' channel state at ${paths.join(", ")}.`,
+    );
+    console.error(
+      `    The rebuild may restore stale session files; re-run after starting the sandbox if the channel reconnects.`,
+    );
+    return;
+  }
+  console.log(`  ${G}✓${R} Cleared in-sandbox '${channelName}' channel state.`);
+}
+
+// Drop the channel name from session.policyPresets so onboard --resume's
+// preset reconciliation does not re-apply the preset we just removed (#3998).
+function dropChannelFromSessionPolicyPresets(channelName: string): void {
+  onboardSession.updateSession((current) => {
+    if (Array.isArray(current.policyPresets)) {
+      const filtered = current.policyPresets.filter((preset) => preset !== channelName);
+      if (filtered.length !== current.policyPresets.length) {
+        current.policyPresets = filtered;
+      }
+    }
+    return current;
+  });
+}
+
 // Mirror of applyChannelPresetIfAvailable. When the channel-named built-in
 // preset is currently applied to the sandbox, un-apply it so `policy-list`
 // no longer reports it active and the L7 proxy stops allow-listing the
@@ -805,7 +861,8 @@ export async function removeSandboxChannel(
   }
 
   removeChannelPresetIfPresent(sandboxName, canonical);
-
+  dropChannelFromSessionPolicyPresets(canonical);
+  clearSandboxChannelDurableState(sandboxName, canonical);
 
   await promptAndRebuild(sandboxName, `remove '${canonical}'`);
 }
