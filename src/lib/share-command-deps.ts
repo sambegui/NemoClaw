@@ -49,7 +49,7 @@ export function buildShareCommandDeps(): ShareCommandDeps {
     },
     checkSandboxPathExists: (sandboxName: string, remotePath: string) => {
       const result = captureOpenshell(
-        ["sandbox", "exec", sandboxName, "--", "test", "-e", remotePath],
+        ["sandbox", "exec", "-n", sandboxName, "--", "test", "-e", remotePath],
         { ignoreError: true, timeout: OPENSHELL_PROBE_TIMEOUT_MS },
       );
       return result.status === 0;
