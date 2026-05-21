@@ -377,6 +377,32 @@ describe("generate-openclaw-config.py: config generation", () => {
     });
   });
 
+  it("prefers the OpenShell-managed loopback proxy for Discord when present", () => {
+    const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      OPENSHELL_LOOPBACK_PROXY_URL: "http://127.0.0.1:45211",
+      NEMOCLAW_DISCORD_PROXY_PORT: "43129",
+    });
+
+    expect(config.channels.discord.accounts.default).toMatchObject({
+      token: "openshell:resolve:env:DISCORD_BOT_TOKEN",
+      enabled: true,
+      proxy: "http://127.0.0.1:45211",
+    });
+  });
+
+  it("ignores a non-loopback OpenShell proxy URL for Discord and keeps the fallback", () => {
+    const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      OPENSHELL_LOOPBACK_PROXY_URL: "http://10.200.0.1:3128",
+      NEMOCLAW_DISCORD_PROXY_PORT: "43129",
+    });
+
+    expect(config.channels.discord.accounts.default.proxy).toBe("http://127.0.0.1:43129");
+  });
+
   it("keeps Telegram on the OpenShell proxy when Discord uses loopback", () => {
     const channels = Buffer.from(JSON.stringify(["telegram", "discord"])).toString("base64");
     const config = runConfigScript({

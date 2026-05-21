@@ -919,10 +919,10 @@ print(account.get('token', ''))
   # M9b: Discord Gateway WebSocket routing uses the loopback proxy.
   # #3894 regressed because OpenClaw's Discord gateway client ignores proxy
   # env vars and only uses the per-account proxy setting. OpenClaw rejects
-  # non-loopback proxy URLs for Discord, so NemoClaw starts a local helper that
-  # forwards 127.0.0.1:${NEMOCLAW_DISCORD_PROXY_PORT:-3128} to OpenShell. The
-  # fake Gateway proof in M13b-M13g exercises that full relay path; this config
-  # assertion ensures the real OpenClaw Discord account is wired to the helper.
+  # non-loopback proxy URLs for Discord, so OpenShell exposes a managed
+  # sandbox-local listener (with NemoClaw's helper as a compatibility fallback).
+  # The fake Gateway proof in M13b-M13g exercises that full relay path; this
+  # config assertion ensures the real OpenClaw Discord account is wired to it.
   dc_proxy=$(echo "$channel_json" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -931,7 +931,7 @@ account = accounts.get('default') or accounts.get('main') or {}
 print(account.get('proxy', ''))
 " 2>/dev/null || true)
 
-  expected_dc_proxy="http://127.0.0.1:${NEMOCLAW_DISCORD_PROXY_PORT:-3128}"
+  expected_dc_proxy="${OPENSHELL_LOOPBACK_PROXY_URL:-http://127.0.0.1:${NEMOCLAW_DISCORD_PROXY_PORT:-3128}}"
   if [ -n "$dc_token" ] && [ "$dc_proxy" = "$expected_dc_proxy" ]; then
     pass "M9b: Discord account loopback proxy is baked into openclaw.json for Gateway WebSocket routing"
   elif [ -n "$dc_token" ]; then

@@ -1464,8 +1464,19 @@ fi
 _DISCORD_LOOPBACK_PROXY_SCRIPT="/tmp/nemoclaw-discord-loopback-proxy.js"
 _DISCORD_LOOPBACK_PROXY_SOURCE="/usr/local/lib/nemoclaw/preloads/discord-loopback-proxy.js"
 
+is_openshell_loopback_proxy_url() {
+  case "${1:-}" in
+    http://127.*:* | http://localhost:* | http://[::1]:*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 start_discord_loopback_proxy() {
   [ -n "${DISCORD_BOT_TOKEN:-}" ] || return 0
+  if is_openshell_loopback_proxy_url "${OPENSHELL_LOOPBACK_PROXY_URL:-}"; then
+    echo "[channels] Discord loopback proxy provided by OpenShell (${OPENSHELL_LOOPBACK_PROXY_URL}); skipping NemoClaw helper" >&2
+    return 0
+  fi
   command -v node >/dev/null 2>&1 || {
     echo "[channels] Discord loopback proxy skipped: node is not available" >&2
     return 0

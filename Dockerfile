@@ -389,9 +389,10 @@ USER sandbox
 # bot loops on close-code 1006. Baking `accounts.default.proxy` into
 # openclaw.json feeds DiscordAccountConfig.proxy, which the gateway plugin
 # threads through to the `ws` `agent` option, routing the upgrade through
-# the OpenShell proxy. Mirror of the Telegram treatment immediately below.
-# Remove once OpenClaw lands an env-var-honouring fix for the Discord
-# gateway equivalent to openclaw/openclaw#62878 (Slack Socket Mode).
+# the OpenShell proxy. Prefer OpenShell's managed loopback listener when it is
+# available; NemoClaw's startup helper remains a compatibility fallback until
+# the OpenShell minimum version includes that listener. Mirror of the Telegram
+# treatment immediately below.
 # Generate openclaw.json from environment variables. Config generation logic
 # lives in scripts/generate-openclaw-config.py — see that file for the full
 # list of env vars and derivation rules.
