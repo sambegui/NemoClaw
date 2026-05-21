@@ -6097,7 +6097,24 @@ async function setupNim(
       ],
       { ignoreError: true },
     ).trim();
-    hasWindowsOllama = winOllamaPath.length > 0;
+    if (winOllamaPath.length > 0) {
+      hasWindowsOllama = true;
+    } else {
+      // `Get-Command` only sees ollama.exe when it is on the calling
+      // user's PATH. Service-style installs (and any installer that does
+      // not update the user PATH) leave the binary discoverable only via
+      // the running process — see #3949. Treat a live Windows-host
+      // ollama process as proof of installation.
+      const winOllamaPid = runCapture(
+        [
+          "powershell.exe",
+          "-Command",
+          "Get-Process ollama -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id",
+        ],
+        { ignoreError: true },
+      ).trim();
+      hasWindowsOllama = winOllamaPid.length > 0;
+    }
   }
 
   let winOllamaLoopbackOnly = false;
