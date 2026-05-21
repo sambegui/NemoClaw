@@ -5498,19 +5498,19 @@ async function createSandbox(
   // from openshell because bash returns the status of the last pipeline
   // command (awk, always 0) unless pipefail is set. Removing the pipe
   // lets the real exit code flow through to run().
+  const sandboxStartupCommand = ["env", ...envArgs, "nemoclaw-start"];
   const createCommand = `${openshellShellCommand([
     "sandbox",
     "create",
     ...createArgs,
     "--",
-    "env",
-    ...envArgs,
-    "nemoclaw-start",
+    ...sandboxStartupCommand,
   ])} 2>&1`;
   const dockerGpuCreatePatch = dockerGpuSandboxCreate.createDockerGpuSandboxCreatePatch({
     enabled: useDockerGpuPatch,
     sandboxName,
     gpuDevice: effectiveSandboxGpuConfig.sandboxGpuDevice,
+    openshellSandboxCommand: sandboxStartupCommand,
     timeoutSecs: sandboxReadyTimeoutSecs,
     deps: { runOpenshell, runCaptureOpenshell, sleep },
   });
