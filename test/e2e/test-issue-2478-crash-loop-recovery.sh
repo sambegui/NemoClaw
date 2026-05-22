@@ -102,46 +102,15 @@ sandbox_exec() {
   openshell sandbox exec --name "$SANDBOX_NAME" -- "$@" 2>&1
 }
 
-# Get the current OpenClaw gateway PID inside the sandbox, or empty string.
-# OpenClaw process labels vary by runtime/build: some expose argv as
-# `openclaw gateway run`, some re-title as `openclaw-gateway`, and current
-# 2026.5.x builds can show only `openclaw` in pgrep/ps even after the gateway
-# is ready. Prefer explicit gateway argv/title matches, then fall back to the
-# oldest live `openclaw` process when gateway.log proves it reached ready.
+# Get the current openclaw gateway PID inside the sandbox, or empty string.
+# The gateway re-execs to argv `openclaw-gateway` after startup (it spawns
+# from the launcher whose argv is `openclaw gateway run`). Match either form
+# via `[o]penclaw[ -]gateway` — bracket trick prevents pgrep self-match,
+# `[ -]` accepts both the launcher (space) and the post-rename (dash). `-o`
+# returns the OLDEST match (the long-lived launcher 262 in the typical
+# parent/child tree); env is inherited so NODE_OPTIONS reads the same.
 gateway_pid() {
-  local script
-  script=$(
-    cat <<'SH'
-set -eu
-pid="$(pgrep -af '[o]penclaw[ -]gateway' 2>/dev/null | awk '
-  /^[[:space:]]*[0-9]+[[:space:]]/ { print $1 }
-' | sort -n | head -n 1)"
-if [ -z "$pid" ]; then
-  pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '
-  $2 == "openclaw-gateway" || $0 ~ /openclaw[[:space:]]+gateway([[:space:]]|$)/ || $0 ~ /openclaw-gateway/ { print $1 }
-' | sort -n | head -n 1)"
-fi
-if [ -z "$pid" ] && grep -Eq "\[gateway\] (ready|http server listening)" /tmp/gateway.log 2>/dev/null; then
-  pid="$(pgrep -af '[o]penclaw' 2>/dev/null | awk '
-    /^[[:space:]]*[0-9]+[[:space:]]/ { print $1 }
-  ' | sort -n | head -n 1)"
-fi
-if [ -z "$pid" ] && grep -Eq "\[gateway\] (ready|http server listening)" /tmp/gateway.log 2>/dev/null; then
-  pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '$2 == "openclaw" { print $1 }' | sort -n | head -n 1)"
-fi
-printf "%s\n" "$pid"
-SH
-  )
-  sandbox_exec sh -c "$script" | awk '
-    {
-      gsub(/\r/, "")
-      if ($0 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/) {
-        gsub(/[[:space:]]/, "")
-        print
-        exit
-      }
-    }
-  '
+  sandbox_exec sh -c "pgrep -fo '[o]penclaw[ -]gateway'" | tr -d '[:space:]'
 }
 
 # Read /tmp/nemoclaw-proxy-env.sh — the single source of truth for the
