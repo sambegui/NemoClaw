@@ -104,26 +104,14 @@ sandbox_exec() {
 }
 
 # Get the current OpenClaw gateway PID inside the sandbox, or empty string.
-# Prefer the pre-2026.5 gateway labels first, then fall back to the oldest
-# plain `openclaw` process only after gateway.log proves the runtime is ready.
+# OpenClaw v0.0.44/2026.5.18 can show the long-running process as plain
+# `openclaw` rather than the older `openclaw-gateway` argv. Match the process
+# table directly so readiness does not depend on the legacy rename.
 gateway_pid() {
-  local script
-  script=$(
-    cat <<'SH'
-set -eu
-pid="$(pgrep -fo '[o]penclaw[ -]gateway' 2>/dev/null || true)"
-if [ -z "$pid" ]; then
-  pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '
-    $2 == "openclaw-gateway" || $0 ~ /openclaw[[:space:]]+gateway([[:space:]]|$)/ || $0 ~ /openclaw-gateway/ { print $1 }
-  ' | sort -n | head -n 1)"
-fi
-if [ -z "$pid" ] && grep -Eq "\[gateway\] (ready|http server listening)" /tmp/gateway.log 2>/dev/null; then
-  pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '$2 == "openclaw" { print $1 }' | sort -n | head -n 1)"
-fi
-printf "%s\n" "$pid"
-SH
-  )
-  sandbox_exec sh -c "$script" | awk '/^[0-9]+$/ { print; exit }'
+  local out
+  # shellcheck disable=SC2016 # Single-quoted body runs inside the sandbox shell.
+  out="$(sandbox_exec sh -c 'pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '\''($2 == "openclaw" && $0 ~ /gateway/) || $0 ~ /openclaw[ -]gateway/ { print $1 }'\'' | sort -n | head -n 1)"; if [ -z "$pid" ]; then pid="$(ps -eo pid=,comm=,args= 2>/dev/null | awk '\''$2 == "openclaw" { print $1 }'\'' | sort -n | head -n 1)"; fi; printf "%s\n" "$pid"')"
+  printf '%s\n' "$out" | awk '/^[0-9]+$/ { print; exit }'
 }
 
 # Read /tmp/nemoclaw-proxy-env.sh — the single source of truth for the
@@ -245,8 +233,8 @@ gateway_diagnostics() {
   sandbox_exec sh -c "tail -n 60 /tmp/gateway.log 2>&1 || echo '(no gateway.log)'" | sed 's/^/    /'
   echo "  [nemoclaw status]"
   nemoclaw "$SANDBOX_NAME" status 2>&1 | head -30 | sed 's/^/    /'
-  echo "  [openshell sandbox get]"
-  openshell sandbox get "$SANDBOX_NAME" 2>&1 | head -40 | sed 's/^/    /' || true
+  echo "  [openshell sandbox list]"
+  openshell sandbox list 2>&1 | head -20 | sed 's/^/    /' || true
   if [ -n "$pid" ]; then
     echo "  [reported pid: $pid]"
     echo "  [/proc/${pid} listing]"
