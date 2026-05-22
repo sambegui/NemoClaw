@@ -187,49 +187,30 @@ if [ "$rewrote_base" = "0" ]; then
   args+=("--build-arg" "BASE_IMAGE=${base_ref}")
   printf 'add build-arg BASE_IMAGE=%s\n' "$base_ref" >>"$log_file"
 fi
+exec "$real_docker" "${args[@]}"
+EOF
+  chmod 755 "${OLD_DOCKER_WRAPPER_DIR}/docker"
+}
 
-dockerfile=""
-context=""
-next_value_for=""
-for arg in "${args[@]}"; do
-  if [ "$next_value_for" = "file" ]; then
-    dockerfile="$arg"
-    next_value_for=""
-    continue
-  fi
-  if [ -n "$next_value_for" ]; then
-    next_value_for=""
-    continue
-  fi
-  case "$arg" in
-    -f|--file)
-      next_value_for="file"
-      ;;
-    -t|--tag|--target|--platform|--build-arg|--label|--cache-from|--cache-to|--add-host|--network|--output|--progress|--secret|--ssh)
-      next_value_for="other"
-      ;;
-    --file=*)
-      dockerfile="${arg#--file=}"
-      ;;
-    -*)
-      ;;
-    *)
-      context="$arg"
-      ;;
-  esac
-done
-if [ -z "$dockerfile" ]; then
-  if [ -f Dockerfile ]; then
-    dockerfile="Dockerfile"
-  elif [ -n "$context" ]; then
-    dockerfile="${context%/}/Dockerfile"
-  fi
-fi
-if [ ! -f "$dockerfile" ] && [ -n "$context" ] && [ -f "${context%/}/${dockerfile}" ]; then
-  dockerfile="${context%/}/${dockerfile}"
-fi
-if [ -f "$dockerfile" ] && grep -q "min_openclaw_version" "$dockerfile"; then
-  python3 - "$dockerfile" "$old_openclaw" <<'PY'
+patch_old_installer_fixture() {
+  local installer="$1"
+  python3 - "$installer" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+needle = '  legacy_script="${source_root}/install.sh"\n'
+insertion = r"""  if [[ -n "${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" && -f "$payload_script" ]]; then
+    python3 - "$payload_script" <<'NEMOCLAW_OLD_PAYLOAD_PIN_PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+needle = '    spin "Cloning ${_CLI_DISPLAY} source" clone_nemoclaw_ref "$release_ref" "$nemoclaw_src"\n'
+hook = r'''    if [[ -n "${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" ]]; then
+      python3 - "$nemoclaw_src/Dockerfile" "$NEMOCLAW_OLD_OPENCLAW_VERSION" <<'NEMOCLAW_OLD_DOCKERFILE_PIN_PY'
 from pathlib import Path
 import sys
 
@@ -248,12 +229,24 @@ if injection not in text:
         raise SystemExit(f"{path}: old OpenClaw version gate not found")
     text = text.replace(marker, injection + marker, 1)
     path.write_text(text, encoding="utf-8")
+print(f"INFO: Forced OpenClaw {version} in old upgrade fixture Dockerfile", flush=True)
+NEMOCLAW_OLD_DOCKERFILE_PIN_PY
+    fi
+'''
+if hook not in text:
+    if needle not in text:
+        raise SystemExit(f"{path}: old source clone hook not found")
+    text = text.replace(needle, needle + hook, 1)
+    path.write_text(text, encoding="utf-8")
+NEMOCLAW_OLD_PAYLOAD_PIN_PY
+  fi
+"""
+if insertion not in text:
+    if needle not in text:
+        raise SystemExit(f"{path}: old bootstrap payload hook not found")
+    text = text.replace(needle, needle + insertion, 1)
+    path.write_text(text, encoding="utf-8")
 PY
-  printf 'force Dockerfile OpenClaw version %s in %s\n' "$old_openclaw" "$dockerfile" >>"$log_file"
-fi
-exec "$real_docker" "${args[@]}"
-EOF
-  chmod 755 "${OLD_DOCKER_WRAPPER_DIR}/docker"
 }
 
 cleanup() {
@@ -619,6 +612,7 @@ install_old_nemoclaw_and_claw() {
   create_old_docker_wrapper
   info "Pinning old ${OLD_NEMOCLAW_REF} OpenClaw base build to ${OLD_OPENCLAW_VERSION}"
   download_old_curl_installer "$installer"
+  patch_old_installer_fixture "$installer"
   run_installer_payload "old ${OLD_NEMOCLAW_REF}" "$OLD_NEMOCLAW_REF" "$installer" "$OLD_INSTALL_LOG"
   if [ -f "$OLD_DOCKER_WRAPPER_LOG" ]; then
     diag "old installer docker wrapper activity:"
