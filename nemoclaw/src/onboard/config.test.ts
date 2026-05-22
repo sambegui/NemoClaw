@@ -155,6 +155,25 @@ describe("onboard/config", () => {
       store.set(configPath, JSON.stringify({ endpointType: "bogus" }));
       expect(loadOnboardConfig()).toBeNull();
     });
+
+    it("returns null when the config file is the Dockerfile zero-byte placeholder (#3999)", () => {
+      const configPath = `${homedir()}/.nemoclaw/config.json`;
+      store.set(configPath, "");
+      expect(loadOnboardConfig()).toBeNull();
+    });
+
+    it("returns null when the config file contains only whitespace (#3999)", () => {
+      const configPath = `${homedir()}/.nemoclaw/config.json`;
+      store.set(configPath, "   \n\t  \n");
+      expect(loadOnboardConfig()).toBeNull();
+    });
+
+    it("returns null instead of throwing when the file contains malformed JSON (#3999)", () => {
+      const configPath = `${homedir()}/.nemoclaw/config.json`;
+      store.set(configPath, "{ this is not valid json");
+      expect(() => loadOnboardConfig()).not.toThrow();
+      expect(loadOnboardConfig()).toBeNull();
+    });
   });
 
   describe("saveOnboardConfig", () => {

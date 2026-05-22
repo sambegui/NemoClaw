@@ -161,7 +161,21 @@ export function loadOnboardConfig(): NemoClawOnboardConfig | null {
   if (!existsSync(path)) {
     return null;
   }
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+  // The Dockerfile pre-creates `~/.nemoclaw/config.json` as a zero-byte
+  // file so Landlock can chown it. Treat that empty placeholder, and any
+  // malformed JSON written by a half-failed sync, the same as "no config":
+  // returning null lets the plugin register in a degraded mode instead of
+  // crashing the OpenClaw CLI with a SyntaxError. Fixes #3999.
+  const raw = readFileSync(path, "utf-8").trim();
+  if (raw === "") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
   const parsedObject = typeof parsed === "object" && parsed !== null ? parsed : null;
   return isOnboardConfig(parsedObject) ? parsedObject : null;
 }
