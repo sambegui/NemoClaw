@@ -22,6 +22,7 @@ GATEWAY_LOG="/tmp/nemoclaw-e2e-openshell-gateway-process.log"
 MOCK_LOG="/tmp/nemoclaw-e2e-openshell-gateway-compatible-mock.log"
 OLD_DOCKER_WRAPPER_DIR=""
 OLD_DOCKER_WRAPPER_LOG="/tmp/nemoclaw-e2e-openshell-gateway-old-docker.log"
+OLD_SANDBOX_BASE_IMAGE_TAG=""
 exec > >(tee "$LOG_FILE") 2>&1
 
 RED='\033[0;31m'
@@ -181,6 +182,19 @@ EOF
   chmod 755 "${OLD_DOCKER_WRAPPER_DIR}/docker"
 }
 
+prepare_old_sandbox_base_image() {
+  OLD_SANDBOX_BASE_IMAGE_TAG="nemoclaw-old-sandbox-base:${OLD_OPENCLAW_VERSION}"
+  info "Preparing old sandbox base ${OLD_SANDBOX_BASE_IMAGE_TAG} from ${OLD_SANDBOX_BASE_IMAGE_REF}"
+  docker build -t "$OLD_SANDBOX_BASE_IMAGE_TAG" - <<EOF
+FROM ${OLD_SANDBOX_BASE_IMAGE_REF}
+RUN set -eu; \
+    rm -rf /usr/local/lib/node_modules/openclaw /usr/local/bin/openclaw; \
+    npm install -g --no-audit --no-fund --no-progress "openclaw@${OLD_OPENCLAW_VERSION}"; \
+    openclaw --version | grep -F " ${OLD_OPENCLAW_VERSION} "
+EOF
+  OLD_SANDBOX_BASE_IMAGE_REF="$OLD_SANDBOX_BASE_IMAGE_TAG"
+}
+
 cleanup() {
   set +e
   cleanup_pid "$FAKE_MOCK_PID"
@@ -191,6 +205,9 @@ cleanup() {
   rm -f "$PID_FILE"
   if [ -n "$OLD_DOCKER_WRAPPER_DIR" ]; then
     rm -rf "$OLD_DOCKER_WRAPPER_DIR"
+  fi
+  if [ -n "$OLD_SANDBOX_BASE_IMAGE_TAG" ]; then
+    docker image rm "$OLD_SANDBOX_BASE_IMAGE_TAG" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -537,8 +554,9 @@ download_old_curl_installer() {
 install_old_nemoclaw_and_claw() {
   local installer
   installer="$(mktemp)"
-  create_old_docker_wrapper
   info "Pinning old ${OLD_NEMOCLAW_REF} OpenClaw base build to ${OLD_OPENCLAW_VERSION}"
+  prepare_old_sandbox_base_image
+  create_old_docker_wrapper
   download_old_curl_installer "$installer"
   run_installer_payload "old ${OLD_NEMOCLAW_REF}" "$OLD_NEMOCLAW_REF" "$installer" "$OLD_INSTALL_LOG"
   if [ -f "$OLD_DOCKER_WRAPPER_LOG" ]; then
