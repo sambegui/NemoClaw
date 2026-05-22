@@ -187,6 +187,70 @@ if [ "$rewrote_base" = "0" ]; then
   args+=("--build-arg" "BASE_IMAGE=${base_ref}")
   printf 'add build-arg BASE_IMAGE=%s\n' "$base_ref" >>"$log_file"
 fi
+
+dockerfile=""
+context=""
+next_value_for=""
+for arg in "${args[@]}"; do
+  if [ "$next_value_for" = "file" ]; then
+    dockerfile="$arg"
+    next_value_for=""
+    continue
+  fi
+  if [ -n "$next_value_for" ]; then
+    next_value_for=""
+    continue
+  fi
+  case "$arg" in
+    -f|--file)
+      next_value_for="file"
+      ;;
+    -t|--tag|--target|--platform|--build-arg|--label|--cache-from|--cache-to|--add-host|--network|--output|--progress|--secret|--ssh)
+      next_value_for="other"
+      ;;
+    --file=*)
+      dockerfile="${arg#--file=}"
+      ;;
+    -*)
+      ;;
+    *)
+      context="$arg"
+      ;;
+  esac
+done
+if [ -z "$dockerfile" ]; then
+  if [ -f Dockerfile ]; then
+    dockerfile="Dockerfile"
+  elif [ -n "$context" ]; then
+    dockerfile="${context%/}/Dockerfile"
+  fi
+fi
+if [ ! -f "$dockerfile" ] && [ -n "$context" ] && [ -f "${context%/}/${dockerfile}" ]; then
+  dockerfile="${context%/}/${dockerfile}"
+fi
+if [ -f "$dockerfile" ] && grep -q "min_openclaw_version" "$dockerfile"; then
+  python3 - "$dockerfile" "$old_openclaw" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+version = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+marker = "RUN set -eu; \\\n    MIN_VER=$(grep -m 1 'min_openclaw_version'"
+injection = (
+    "# E2E old-upgrade fixture: force the historical OpenClaw before the old Dockerfile's version gate.\n"
+    "RUN rm -rf /usr/local/lib/node_modules/openclaw /usr/local/bin/openclaw \\\n"
+    f"    && npm install -g --no-audit --no-fund --no-progress \"openclaw@{version}\" \\\n"
+    "    && openclaw --version\n\n"
+)
+if injection not in text:
+    if marker not in text:
+        raise SystemExit(f"{path}: old OpenClaw version gate not found")
+    text = text.replace(marker, injection + marker, 1)
+    path.write_text(text, encoding="utf-8")
+PY
+  printf 'force Dockerfile OpenClaw version %s in %s\n' "$old_openclaw" "$dockerfile" >>"$log_file"
+fi
 exec "$real_docker" "${args[@]}"
 EOF
   chmod 755 "${OLD_DOCKER_WRAPPER_DIR}/docker"
