@@ -295,7 +295,9 @@ const { resolveSandboxImageTagFromCreateOutput } =
 const nim: typeof import("./inference/nim") = require("./inference/nim");
 const onboardSession: typeof import("./state/onboard-session") = require("./state/onboard-session");
 const { OnboardRuntimeBoundary }: typeof import("./onboard/runtime-boundary") = require("./onboard/runtime-boundary");
+const { handleGatewayState }: typeof import("./onboard/machine/handlers/gateway") = require("./onboard/machine/handlers/gateway");
 const { handlePreflightState }: typeof import("./onboard/machine/handlers/preflight") = require("./onboard/machine/handlers/preflight");
+const { handleProviderInferenceState }: typeof import("./onboard/machine/handlers/provider-inference") = require("./onboard/machine/handlers/provider-inference");
 const policies: typeof import("./policy") = require("./policy");
 const tiers: typeof import("./policy/tiers") = require("./policy/tiers");
 const { ensureUsageNoticeConsent } = require("./onboard/usage-notice");
@@ -9355,126 +9357,40 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     });
 
     const gatewaySnapshot = selectNamedGatewayForReuseIfNeeded(getGatewayReuseSnapshot());
-    let gatewayReuseState = gatewaySnapshot.gatewayReuseState;
-    gatewayReuseState = await refreshDockerDriverGatewayReuseState(gatewayReuseState);
-
-    // Verify the legacy gateway container is actually running — openshell CLI
-    // metadata can be stale after a manual `docker rm`. See #2020. Newer
-    // package-managed OpenShell gateways do not have an openshell-cluster-*
-    // Docker container, so the live CLI health check is the source of truth.
-    if (gatewayReuseState === "healthy" && gatewayCliSupportsLifecycleCommands(runCaptureOpenshell)) {
-      const containerState = verifyGatewayContainerRunning(GATEWAY_NAME);
-      if (containerState === "missing") {
-        console.log("  Gateway metadata is stale (container not running). Cleaning up...");
-        bestEffortForwardStop(runOpenshell, DASHBOARD_PORT);
-        gatewayReuseState = destroyGatewayForReuse(
-          destroyGateway,
-          "  ✓ Stale gateway metadata cleaned up",
-          "  ! Stale gateway metadata cleanup failed; leaving registry state intact.",
-        );
-      } else if (containerState === "unknown") {
-        // Docker probe failed but cached metadata says healthy. Try the host-level
-        // HTTP probe — it doesn't depend on Docker, so it can confirm the gateway
-        // is genuinely serving even when the daemon is flaky.
-        if (await waitForGatewayHttpReady()) {
-          console.log(
-            "  Warning: could not verify gateway container state (Docker may be unavailable), but the gateway is responding on HTTP. Proceeding with reuse.",
-          );
-        } else {
-          // Docker can't be probed AND the gateway HTTP endpoint isn't
-          // responding. We cannot tell whether the existing gateway is live
-          // (transient `docker inspect` flake + warm-up miss) or genuinely
-          // gone. Per #2020 we must not destroy in this branch, and we must
-          // not downgrade to "missing" either: that would push execution into
-          // `startGatewayWithOptions`, whose retry hook calls
-          // `destroyGateway()` between attempts — which would tear down a
-          // possibly-live gateway. Bail with an actionable error instead.
-          console.log(
-            `  Error: could not verify gateway container state and ${getGatewayLocalEndpoint()}/ is not responding.`,
-          );
-          console.log(
-            "  Refusing to proceed without a clear Docker signal — restarting Docker and re-running onboard is the safe path. See #3258 / #2020.",
-          );
-          process.exit(1);
-        }
-      } else if (!(await waitForGatewayHttpReady())) {
-        // Container is running but the gateway HTTP endpoint is not responding.
-        // Common immediately after a Docker daemon restart — the container comes
-        // back before the OpenShell gateway upstream finishes warming up. Safe to
-        // recreate because Docker is functional. See #3258.
-        console.log(
-          `  Gateway container is running but ${getGatewayLocalEndpoint()}/ is not responding. Recreating...`,
-        );
-        bestEffortForwardStop(runOpenshell, DASHBOARD_PORT);
-        gatewayReuseState = destroyGatewayForReuse(
-          destroyGateway,
-          "  ✓ Stale gateway cleaned up",
-          "  ! Stale gateway cleanup failed; leaving registry state intact.",
-        );
-      } else {
-        const imageDrift = getGatewayClusterImageDrift();
-        if (imageDrift) {
-          console.log(
-            `  Gateway image ${imageDrift.currentVersion} does not match openshell ${imageDrift.expectedVersion}. Recreating...`,
-          );
-          stopAllDashboardForwards();
-          gatewayReuseState = destroyGatewayForReuse(
-            destroyGateway,
-            "  ✓ Previous gateway cleaned up",
-            "  ! Previous gateway cleanup failed; leaving registry state intact.",
-          );
-        }
-      }
-    }
-
-    gatewayReuseState = reconcileGatewayGpuReuseForGpuIntent({
-      gatewayReuseState,
+    const gatewayResult = await handleGatewayState({
+      resume,
+      session,
+      initialGatewayReuseState: gatewaySnapshot.gatewayReuseState,
+      gpu,
       gpuPassthrough,
       gatewayName: GATEWAY_NAME,
-      currentSandboxName: recordedSandboxName || requestedSandboxName,
-      hostGpuPlatform: gpu?.platform ?? null,
+      recordedSandboxName,
+      requestedSandboxName,
       recreateSandbox: isRecreateSandbox(),
-      confirmedDockerDriverGateway:
-        isLinuxDockerDriverGatewayEnabled() &&
-        gatewayReuseState === "healthy" &&
-        !gatewayCliSupportsLifecycleCommands(runCaptureOpenshell),
-      stopDashboardForwards: stopAllDashboardForwards,
-      retireLegacyGatewayForDockerDriverUpgrade,
-      destroyGatewayRuntimeForGpuReuse: () => destroyGateway(() => undefined, () => false),
+      deps: {
+        refreshDockerDriverGatewayReuseState,
+        gatewayCliSupportsLifecycleCommands: () => gatewayCliSupportsLifecycleCommands(runCaptureOpenshell),
+        verifyGatewayContainerRunning,
+        waitForGatewayHttpReady,
+        getGatewayLocalEndpoint,
+        stopDashboardForward: () => bestEffortForwardStop(runOpenshell, DASHBOARD_PORT),
+        destroyGateway,
+        destroyGatewayForReuse,
+        getGatewayClusterImageDrift,
+        stopAllDashboardForwards,
+        reconcileGatewayGpuReuseForGpuIntent,
+        isLinuxDockerDriverGatewayEnabled,
+        retireLegacyGatewayForDockerDriverUpgrade,
+        destroyGatewayRuntimeForGpuReuse: () => destroyGateway(() => undefined, () => false),
+        skippedStepMessage,
+        note,
+        startRecordedStep,
+        startGateway,
+        recordStepComplete,
+        exitProcess: (code) => process.exit(code),
+      },
     });
-
-    const canReuseHealthyGateway = gatewayReuseState === "healthy";
-
-    const resumeGateway =
-      resume && session?.steps?.gateway?.status === "complete" && canReuseHealthyGateway;
-    if (resumeGateway) {
-      skippedStepMessage("gateway", "running");
-      await recordStepComplete("gateway");
-    } else if (!resume && canReuseHealthyGateway) {
-      skippedStepMessage("gateway", "running", "reuse");
-      note("  Reusing healthy NemoClaw gateway.");
-      await recordStepComplete("gateway");
-    } else {
-      if (resume && session?.steps?.gateway?.status === "complete") {
-        if (gatewayReuseState === "active-unnamed") {
-          note("  [resume] Gateway is active but named metadata is missing; recreating it safely.");
-        } else if (gatewayReuseState === "foreign-active") {
-          note("  [resume] A different OpenShell gateway is active; NemoClaw will not reuse it.");
-        } else if (gatewayReuseState === "stale") {
-          note("  [resume] Recorded gateway is unhealthy; recreating it.");
-        } else {
-          note("  [resume] Recorded gateway state is unavailable; recreating it.");
-        }
-      }
-      if (isLinuxDockerDriverGatewayEnabled() && gatewayReuseState !== "missing") {
-        note("  Replacing legacy OpenShell gateway metadata with Docker-driver gateway.");
-        retireLegacyGatewayForDockerDriverUpgrade();
-        gatewayReuseState = "missing";
-      }
-      await startRecordedStep("gateway");
-      await startGateway(gpu, { gpuPassthrough });
-      await recordStepComplete("gateway");
-    }
+    session = gatewayResult.session;
 
     // #2753: prefer requestedSandboxName over an unconfirmed session name.
     // A pre-fix session may carry sandboxName even though sandbox creation
@@ -9489,181 +9405,78 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       console.error("  Start a fresh onboard with --name <sandbox> to choose a different name.");
       process.exit(1);
     }
-    let model = session?.model || null;
-    let provider = session?.provider || null;
-    let endpointUrl = session?.endpointUrl || null;
-    let credentialEnv = session?.credentialEnv || null;
-    let hermesAuthMethod: HermesAuthMethod | null =
-      normalizeHermesAuthMethod(session?.hermesAuthMethod) ||
-      (provider === hermesProviderAuth.HERMES_PROVIDER_NAME &&
-      session?.credentialEnv === HERMES_NOUS_API_KEY_CREDENTIAL_ENV
-        ? HERMES_AUTH_METHOD_API_KEY
-        : null);
-    let hermesToolGateways = normalizeHermesToolGatewaySelections(session?.hermesToolGateways);
-    let preferredInferenceApi = session?.preferredInferenceApi || null;
-    let nimContainer = session?.nimContainer || null;
-    let webSearchConfig = session?.webSearchConfig || null;
-    let forceProviderSelection = forceProviderSelectionForAgentChange;
-    while (true) {
-      let forceInferenceSetup = false;
-      const resumeProviderSelection =
-        !forceProviderSelection &&
-        resume &&
-        session?.steps?.provider_selection?.status === "complete" &&
-        typeof provider === "string" &&
-        typeof model === "string";
-      if (resumeProviderSelection) {
-        ({ forceInferenceSetup, credentialEnv } = await ensureResumeProviderReady(provider, credentialEnv));
-        skippedStepMessage("provider_selection", `${provider} / ${model}`);
-        hydrateCredentialEnv(credentialEnv);
-        repairLocalInferenceSystemdOverrideOrExit(provider, isNonInteractive);
-      } else {
-        // #2753: do not persist sandboxName to onboard-session.json before
-        // the sandbox actually exists in the gateway (Step 6 markStepComplete
-        // below). A SIGINT between any earlier step and createSandbox would
-        // otherwise leave a phantom that `nemoclaw list` resurrects until
-        // manually destroyed.
-        await startRecordedStep("provider_selection");
-        const selection = await setupNim(gpu, sandboxName, agent);
-        model = selection.model;
-        provider = selection.provider;
-        endpointUrl = selection.endpointUrl;
-        credentialEnv = selection.credentialEnv;
-        hermesAuthMethod = selection.hermesAuthMethod;
-        hermesToolGateways = selection.hermesToolGateways;
-        preferredInferenceApi = selection.preferredInferenceApi;
-        nimContainer = selection.nimContainer;
-        await recordStepComplete(
-          "provider_selection",
-          toSessionUpdates({
-            provider,
-            model,
-            endpointUrl,
-            credentialEnv,
-            hermesAuthMethod,
-            hermesToolGateways,
-            preferredInferenceApi,
-            nimContainer,
-          }),
-        );
-      }
-
-      if (typeof provider !== "string" || typeof model !== "string") {
-        console.error("  Inference selection did not yield a provider/model.");
-        process.exit(1);
-      }
-      process.env.NEMOCLAW_OPENSHELL_BIN = getOpenshellBinary();
-      const needsBedrockRuntimeAdapter =
-        provider === "compatible-anthropic-endpoint" &&
-        bedrockRuntimeOnboard.needsBedrockRuntimeAdapter(endpointUrl);
-      const resumeInference =
-        !needsBedrockRuntimeAdapter &&
-        !forceProviderSelection &&
-        !forceInferenceSetup &&
-        resume &&
-        isInferenceRouteReady(provider, model);
-      if (resumeInference) {
-        if (provider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
-          if (!sandboxName) {
-            sandboxName = await promptValidatedSandboxName(agent);
-          }
-          await startRecordedStep("inference", { provider, model });
-          const inferenceResult = await setupInference(
-            sandboxName,
-            model,
-            provider,
-            endpointUrl,
-            credentialEnv,
-            hermesAuthMethod,
-            hermesToolGateways,
-          );
-          if (inferenceResult?.retry === "selection") {
-            forceProviderSelection = true;
-            continue;
-          }
-          await recordStepComplete(
-            "inference",
-            toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer, hermesToolGateways }),
-          );
-          break;
-        }
-        if (isRoutedInferenceProvider(provider)) {
-          try {
-            await reconcileModelRouter();
-          } catch (err) {
-            console.error(
-              `  ✗ Failed to reconcile model router: ${err instanceof Error ? err.message : String(err)}`,
-            );
-            process.exit(1);
-          }
-        }
-        skippedStepMessage("inference", `${provider} / ${model}`);
-        if (nimContainer && sandboxName) {
-          registry.updateSandbox(sandboxName, { nimContainer });
-        }
-        await recordStepComplete(
-          "inference",
-          toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer, hermesToolGateways }),
-        );
-        break;
-      }
-
-      if (!sandboxName) {
-        sandboxName = await promptValidatedSandboxName(agent);
-      }
-      const buildEstimateNote =
-        process.env.NEMOCLAW_IGNORE_RUNTIME_RESOURCES === "1"
-          ? null
-          : formatSandboxBuildEstimateNote(assessHost());
-      console.log(
-        formatOnboardConfigSummary({
-          provider,
-          model,
-          credentialEnv,
-          hermesAuthMethod,
-          webSearchConfig,
-          hermesToolGateways,
-          enabledChannels: selectedMessagingChannels.length > 0 ? selectedMessagingChannels : null,
-          sandboxName,
-          notes: buildEstimateNote ? [buildEstimateNote] : [],
-        }),
-      );
-      console.log("  Web search and messaging channels will be prompted next.");
-      if (!isNonInteractive()) {
-        if (!(await promptYesNoOrDefault("  Apply this configuration?", null, true))) {
-          console.log(`  Aborted. Re-run \`${cliName()} onboard\` to start over.`);
-          console.log("  Credentials entered so far were only staged in memory for this run.");
-          console.log(
-            "  No new gateway credential was registered because onboarding stopped here.",
-          );
-          process.exit(0);
-        }
-      }
-
-      await startRecordedStep("inference", { provider, model });
-      const inferenceResult = await setupInference(
-        sandboxName,
-        model,
-        provider,
-        endpointUrl,
-        credentialEnv,
-        hermesAuthMethod,
-        hermesToolGateways,
-      );
-      delete process.env.NVIDIA_API_KEY;
-      if (inferenceResult?.retry === "selection") {
-        forceProviderSelection = true;
-        continue;
-      }
-      if (nimContainer && sandboxName) {
-        registry.updateSandbox(sandboxName, { nimContainer });
-      }
-      await recordStepComplete(
-        "inference",
-        toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer, hermesToolGateways }),
-      );
-      break;
-    }
+    const providerInferenceResult = await handleProviderInferenceState({
+      resume,
+      session,
+      gpu,
+      sandboxName,
+      agent,
+      forceProviderSelection: forceProviderSelectionForAgentChange,
+      initial: {
+        model: session?.model || null,
+        provider: session?.provider || null,
+        endpointUrl: session?.endpointUrl || null,
+        credentialEnv: session?.credentialEnv || null,
+        hermesAuthMethod: session?.hermesAuthMethod || null,
+        hermesToolGateways: normalizeHermesToolGatewaySelections(session?.hermesToolGateways),
+        preferredInferenceApi: session?.preferredInferenceApi || null,
+        nimContainer: session?.nimContainer || null,
+        webSearchConfig: session?.webSearchConfig || null,
+      },
+      selectedMessagingChannels,
+      env: process.env,
+      constants: {
+        hermesProviderName: hermesProviderAuth.HERMES_PROVIDER_NAME,
+        hermesApiKeyAuthMethod: HERMES_AUTH_METHOD_API_KEY,
+        hermesApiKeyCredentialEnv: HERMES_NOUS_API_KEY_CREDENTIAL_ENV,
+      },
+      deps: {
+        normalizeHermesAuthMethod,
+        setupNim,
+        setupInference,
+        startRecordedStep,
+        recordStepComplete,
+        toSessionUpdates: (updates) => toSessionUpdates(updates as Parameters<typeof toSessionUpdates>[0]),
+        skippedStepMessage,
+        ensureResumeProviderReady,
+        hydrateCredentialEnv,
+        repairLocalInferenceSystemdOverrideOrExit,
+        isNonInteractive,
+        getOpenshellBinary,
+        needsBedrockRuntimeAdapter: (providerName, url) =>
+          providerName === "compatible-anthropic-endpoint" &&
+          bedrockRuntimeOnboard.needsBedrockRuntimeAdapter(url),
+        isInferenceRouteReady,
+        isRoutedInferenceProvider,
+        reconcileModelRouter,
+        registryUpdateSandbox: (name, updates) => registry.updateSandbox(name, updates),
+        promptValidatedSandboxName,
+        assessHost,
+        formatSandboxBuildEstimateNote,
+        formatOnboardConfigSummary,
+        promptYesNoOrDefault,
+        cliName,
+        log: (message) => console.log(message),
+        error: (message) => console.error(message),
+        exitProcess: (code) => process.exit(code),
+        deleteEnv: (name) => {
+          delete process.env[name];
+        },
+      },
+    });
+    session = providerInferenceResult.session;
+    sandboxName = providerInferenceResult.sandboxName;
+    const {
+      model,
+      provider,
+      endpointUrl,
+      credentialEnv,
+      hermesAuthMethod,
+      hermesToolGateways,
+      preferredInferenceApi,
+      nimContainer,
+    } = providerInferenceResult;
+    let webSearchConfig = providerInferenceResult.webSearchConfig;
 
     const webSearchSupportProbePath = fromDockerfile ? path.resolve(fromDockerfile) : null;
     const webSearchSupported = agentSupportsWebSearch(agent, webSearchSupportProbePath, ROOT);
