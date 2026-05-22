@@ -9051,6 +9051,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     fresh: opts.fresh === true,
     non_interactive: opts.nonInteractive === true || process.env.NEMOCLAW_NON_INTERACTIVE === "1",
     agent: opts.agent || process.env.NEMOCLAW_AGENT || null,
+    trace_enabled: Boolean(process.env.NEMOCLAW_TRACE),
     trace_file_enabled: Boolean(process.env.NEMOCLAW_TRACE_FILE),
     trace_dir_enabled: Boolean(process.env.NEMOCLAW_TRACE_DIR),
   });

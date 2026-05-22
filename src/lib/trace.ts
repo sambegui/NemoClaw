@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import fs from "node:fs";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { redactForLog, redactFull, redactUrl } from "./security/redact";
@@ -62,6 +62,10 @@ export interface TraceArtifact {
 
 const TRACE_SCOPE_NAME = "nemoclaw.onboard";
 const TRACE_SCOPE_VERSION = "1.0.0";
+export const TRACE_ENABLED_ENV = "NEMOCLAW_TRACE";
+export const TRACE_FILE_ENV = "NEMOCLAW_TRACE_FILE";
+export const TRACE_DIR_ENV = "NEMOCLAW_TRACE_DIR";
+const DEFAULT_TRACE_DIR = path.join(".e2e", "traces");
 const MAX_ATTRIBUTE_STRING_LENGTH = 240;
 const SENSITIVE_ATTRIBUTE_KEY =
   /(?:api[_-]?key|token|secret|password|authorization|bearer|cookie|set-cookie)/i;
@@ -117,13 +121,26 @@ export function sanitizeTraceAttributes(attributes: Record<string, unknown> = {}
   return safe;
 }
 
+function isTraceFlagEnabled(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return false;
+  return !["0", "false", "no", "off"].includes(normalized);
+}
+
+function traceFileName(): string {
+  const stamp = new Date().toISOString().replace("T", "-").replace(/[:.]/g, "-");
+  return `nemoclaw-trace-${stamp}-pid-${process.pid}.json`;
+}
+
 function resolveTracePath(env: NodeJS.ProcessEnv): string | null {
-  const traceFile = env.NEMOCLAW_TRACE_FILE?.trim();
+  const traceFile = env[TRACE_FILE_ENV]?.trim();
   if (traceFile) return path.resolve(traceFile);
-  const traceDir = env.NEMOCLAW_TRACE_DIR?.trim();
-  if (!traceDir) return null;
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return path.resolve(traceDir, `nemoclaw-trace-${stamp}-${process.pid}.json`);
+  const traceDir = env[TRACE_DIR_ENV]?.trim();
+  if (traceDir) return path.resolve(traceDir, traceFileName());
+  if (isTraceFlagEnabled(env[TRACE_ENABLED_ENV])) {
+    return path.resolve(DEFAULT_TRACE_DIR, traceFileName());
+  }
+  return null;
 }
 
 export class TraceCollector {

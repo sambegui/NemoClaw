@@ -9,23 +9,28 @@ import { runCurlProbe } from "./adapters/http/probe";
 import {
   addTraceEvent,
   flushTrace,
+  getTraceCollector,
   resetTraceForTests,
   sanitizeTraceAttributes,
-  withTraceSpan,
+  TRACE_DIR_ENV,
+  TRACE_ENABLED_ENV,
+  TRACE_FILE_ENV,
   type TraceArtifact,
+  withTraceSpan,
 } from "./trace";
 
 function withTraceFile<T>(fn: (traceFile: string) => T): T {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-trace-test-"));
   const traceFile = path.join(tmpDir, "trace.json");
-  process.env.NEMOCLAW_TRACE_FILE = traceFile;
+  process.env[TRACE_FILE_ENV] = traceFile;
   resetTraceForTests();
   return fn(traceFile);
 }
 
 afterEach(() => {
-  delete process.env.NEMOCLAW_TRACE_FILE;
-  delete process.env.NEMOCLAW_TRACE_DIR;
+  delete process.env[TRACE_ENABLED_ENV];
+  delete process.env[TRACE_FILE_ENV];
+  delete process.env[TRACE_DIR_ENV];
   resetTraceForTests();
 });
 
@@ -123,5 +128,34 @@ describe("onboard trace artifacts", () => {
       nested: '{"token":"<REDACTED>","ok":true}',
       credential_env: "NVIDIA_API_KEY",
     });
+  });
+
+  it("creates a readable timestamped trace file when NEMOCLAW_TRACE is enabled", () => {
+    const originalCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-trace-enabled-"));
+    try {
+      process.chdir(tmpDir);
+      process.env[TRACE_ENABLED_ENV] = "1";
+      resetTraceForTests();
+
+      const collector = getTraceCollector();
+      expect(collector?.outputPath).toMatch(
+        /[/\\]\.e2e[/\\]traces[/\\]nemoclaw-trace-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}Z-pid-\d+\.json$/,
+      );
+
+      withTraceSpan("nemoclaw.onboard.phase.preflight", {}, () => undefined);
+      const outputPath = flushTrace();
+      expect(outputPath).toBe(collector?.outputPath);
+      expect(fs.existsSync(String(outputPath))).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("treats false-like NEMOCLAW_TRACE values as disabled", () => {
+    process.env[TRACE_ENABLED_ENV] = "false";
+    resetTraceForTests();
+
+    expect(getTraceCollector()).toBeNull();
   });
 });
