@@ -369,6 +369,60 @@ const ctx = module.exports;
     );
   });
 
+  it("treats a leftover session.policyPresets entry as residue and runs cleanup", () => {
+    const script = `${buildPreamble({
+      presetNamesApplied: ["npm", "pypi", "whatsapp"],
+      sandboxAgent: "openclaw",
+      channelInRegistry: "telegram",
+    })}
+const ctx = module.exports;
+const registryOverride = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "state/registry.js"))});
+registryOverride.getSandbox = () => ({
+  name: "test-sb",
+  agent: "openclaw",
+  messagingChannels: [],
+  disabledChannels: [],
+  providerCredentialHashes: {},
+  policies: [],
+});
+const policiesOverride = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "policy/index.js"))});
+policiesOverride.getAppliedPresets = () => [];
+(async () => {
+  try {
+    await ctx.channelModule.removeSandboxChannel("test-sb", { channel: "whatsapp" });
+    process.stdout.write("\\n__RESULT__" + JSON.stringify({
+      sandboxExecCalls: ctx.sandboxExecCalls,
+      sessionPolicyPresets: ctx.sessionStore.policyPresets,
+      callOrder: ctx.callOrder,
+      exitCode: ctx.getExitCode(),
+    }) + "\\n");
+  } catch (err) {
+    process.stdout.write("\\n__RESULT__" + JSON.stringify({ error: err.message, stack: err.stack }) + "\\n");
+  }
+})();
+`;
+    const result = runScript(script);
+    assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
+    const marker = result.stdout.lastIndexOf("__RESULT__");
+    assert.ok(marker >= 0, `no __RESULT__ marker:\n${result.stdout}`);
+    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
+
+    const cleanupCalls = payload.sandboxExecCalls.filter((c: { command: string }) =>
+      c.command.startsWith("rm -rf"),
+    );
+    assert.equal(
+      cleanupCalls.length,
+      1,
+      `cleanup must run when only session.policyPresets has residue; got ${JSON.stringify(payload.sandboxExecCalls)}`,
+    );
+    assert.ok(
+      !payload.sessionPolicyPresets.includes("whatsapp"),
+      `session.policyPresets must be stripped after the residue-driven cleanup`,
+    );
+    assert.equal(payload.exitCode, null, "must not abort when sandbox-exec succeeds");
+  });
+
   it("does not abort when removing a never-configured QR channel even if sandbox is unreachable", () => {
     const script = `${buildPreamble({
       presetNamesApplied: ["npm", "pypi"],

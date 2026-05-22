@@ -863,9 +863,16 @@ export async function removeSandboxChannel(
   const isQrChannel = channelUsesInSandboxQrPairing(channel);
 
   const registryEntry = registry.getSandbox(sandboxName);
+  const sessionForSandbox = onboardSession.loadSession();
+  const sessionPolicyPresets =
+    sessionForSandbox?.sandboxName === sandboxName &&
+    Array.isArray(sessionForSandbox.policyPresets)
+      ? sessionForSandbox.policyPresets
+      : [];
   const hasChannelResidue =
     (registryEntry?.messagingChannels || []).includes(canonical) ||
     (registryEntry?.policies || []).includes(canonical) ||
+    sessionPolicyPresets.includes(canonical) ||
     policies.getAppliedPresets(sandboxName).includes(canonical);
 
   // QR-paired channels store auth blobs inside the sandbox that survive a

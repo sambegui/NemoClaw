@@ -29,9 +29,6 @@ export interface OnboardContext {
   runCaptureOpenshell: (args: string[], opts?: { ignoreError?: boolean }) => string | null;
   openshellShellCommand: (args: string[], options?: { openshellBinary?: string }) => string;
   openshellBinary: string;
-  buildSandboxConfigSyncScript: (config: LooseObject) => string;
-  writeSandboxConfigSyncFile: (script: string) => string;
-  cleanupTempDir: (file: string, prefix: string) => void;
   startRecordedStep: (stepName: string, updates: LooseObject) => void;
   skippedStepMessage: (stepName: string, sandboxName: string) => void;
 }

@@ -9914,9 +9914,6 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         runCaptureOpenshell,
         openshellShellCommand,
         openshellBinary: getOpenshellBinary(),
-        buildSandboxConfigSyncScript,
-        writeSandboxConfigSyncFile,
-        cleanupTempDir,
         startRecordedStep,
         skippedStepMessage,
       });
