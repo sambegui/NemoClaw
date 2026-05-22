@@ -9526,8 +9526,8 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     let nimContainer = session?.nimContainer || null;
     let webSearchConfig = session?.webSearchConfig || null;
     let forceProviderSelection = forceProviderSelectionForAgentChange;
-    let forceInferenceSetup = false;
     while (true) {
+      let forceInferenceSetup = false;
       const resumeProviderSelection =
         !forceProviderSelection &&
         resume &&
@@ -9538,10 +9538,8 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         ({ forceInferenceSetup } = await ensureResumeProviderReady(provider, credentialEnv));
         skippedStepMessage("provider_selection", `${provider} / ${model}`);
         hydrateCredentialEnv(credentialEnv);
-        // #3342: ollama-local systemd loopback drop-in repair on resume.
         repairLocalInferenceSystemdOverrideOrExit(provider, isNonInteractive);
       } else {
-        forceInferenceSetup = false;
         // #2753: do not persist sandboxName to onboard-session.json before
         // the sandbox actually exists in the gateway (Step 6 markStepComplete
         // below). A SIGINT between any earlier step and createSandbox would
@@ -10127,9 +10125,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
 module.exports = {
   buildOrphanedSandboxRollbackMessage,
   buildProviderArgs,
-  isRoutedInferenceProvider,
-  note,
-  replaceNamedCredential,
+  resumeProviderShimDeps: { isRoutedInferenceProvider, replaceNamedCredential },
   buildGatewayBootstrapSecretsScript,
   buildCompatibleEndpointSandboxSmokeCommand,
   buildCompatibleEndpointSandboxSmokeScript,

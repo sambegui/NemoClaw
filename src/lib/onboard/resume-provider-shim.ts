@@ -8,6 +8,7 @@
 import { DEFAULT_ROUTE_CREDENTIAL_ENV } from "../inference/config";
 import { hydrateCredentialEnv } from "./credential-env";
 import { validateNvidiaApiKeyValue } from "../validation";
+import { D, R } from "../cli/terminal-style";
 import {
   ensureResumeProviderReady as ensureResumeProviderReadyImpl,
   type ResumeProviderRecoveryDeps,
@@ -18,32 +19,33 @@ const onboardProviders = require("./providers") as {
   getProviderLabel: ResumeProviderRecoveryDeps["getProviderLabel"];
 };
 
-// Lazy require for the symbols that live in `../onboard` itself — avoids a
-// circular module load. By the time `ensureResumeProviderReady` is called,
-// the onboard.ts module has finished loading and its exports are populated.
-type OnboardExports = {
-  isRoutedInferenceProvider: ResumeProviderRecoveryDeps["isRoutedInferenceProvider"];
-  providerExistsInGateway: ResumeProviderRecoveryDeps["providerExistsInGateway"];
+// Lazy require breaks the circular module load — by the time
+// `ensureResumeProviderReady` is called, onboard.ts has finished loading
+// and its `module.exports.resumeProviderShimDeps` is populated.
+type OnboardLazy = {
   isNonInteractive: ResumeProviderRecoveryDeps["isNonInteractive"];
-  note: ResumeProviderRecoveryDeps["note"];
-  replaceNamedCredential: ResumeProviderRecoveryDeps["replaceNamedCredential"];
+  providerExistsInGateway: ResumeProviderRecoveryDeps["providerExistsInGateway"];
+  resumeProviderShimDeps: {
+    isRoutedInferenceProvider: ResumeProviderRecoveryDeps["isRoutedInferenceProvider"];
+    replaceNamedCredential: ResumeProviderRecoveryDeps["replaceNamedCredential"];
+  };
 };
 
 export async function ensureResumeProviderReady(
   provider: string | null | undefined,
   credentialEnv: string | null | undefined,
 ): Promise<{ forceInferenceSetup: boolean }> {
-  const o = require("../onboard") as OnboardExports;
+  const o = require("../onboard") as OnboardLazy;
   return ensureResumeProviderReadyImpl(provider, credentialEnv, {
     remoteProviderConfig: onboardProviders.REMOTE_PROVIDER_CONFIG,
     defaultRouteCredentialEnv: DEFAULT_ROUTE_CREDENTIAL_ENV,
-    isRoutedInferenceProvider: o.isRoutedInferenceProvider,
+    isRoutedInferenceProvider: o.resumeProviderShimDeps.isRoutedInferenceProvider,
     providerExistsInGateway: o.providerExistsInGateway,
     hydrateCredentialEnv,
     getProviderLabel: onboardProviders.getProviderLabel,
     isNonInteractive: o.isNonInteractive,
-    note: o.note,
-    replaceNamedCredential: o.replaceNamedCredential,
+    note: (m) => console.log(`${D}${m}${R}`),
+    replaceNamedCredential: o.resumeProviderShimDeps.replaceNamedCredential,
     validateNvidiaApiKeyValue,
     log: (m) => console.log(m),
     warn: (m) => console.error(m),
