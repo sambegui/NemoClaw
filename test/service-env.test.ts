@@ -592,6 +592,108 @@ describe("service environment", () => {
       }
     });
 
+    it("does not follow pre-planted legacy rc cleanup temp symlinks", () => {
+      const fakeHome = mkdtempSync(join(tmpdir(), "nemoclaw-rc-shim-symlink-test-"));
+      const proxyEnvPath = join(fakeHome, "proxy-env.sh");
+      const rcPath = join(fakeHome, ".bashrc");
+      const sensitivePath = join(fakeHome, "sensitive");
+      const tmpFile = join(fakeHome, "rc-shim-symlink-test.sh");
+      try {
+        writeFileSync(
+          rcPath,
+          [
+            "# old bashrc",
+            "# Source runtime proxy config",
+            `[ -f ${proxyEnvPath} ] && . ${proxyEnvPath}`,
+            "export PATH=/usr/local/bin:$PATH",
+            "",
+          ].join("\n"),
+          { mode: 0o644 },
+        );
+        writeFileSync(sensitivePath, "SECRET\n", { mode: 0o600 });
+
+        const wrapper = [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          `_SANDBOX_HOME=${JSON.stringify(fakeHome)}`,
+          `_RUNTIME_SHELL_ENV_FILE=${JSON.stringify(proxyEnvPath)}`,
+          '_RUNTIME_SHELL_ENV_SHIM="[ -f ${_RUNTIME_SHELL_ENV_FILE} ] && . ${_RUNTIME_SHELL_ENV_FILE}"',
+          'legacy_tmp="${_SANDBOX_HOME}/.bashrc.nemoclaw-clean.$$"',
+          `ln -s ${JSON.stringify(sensitivePath)} "$legacy_tmp"`,
+          extractRuntimeShellEnvShimSnippet(),
+          "ensure_runtime_shell_env_shim",
+        ].join("\n");
+        writeFileSync(tmpFile, wrapper, { mode: 0o700 });
+        execFileSync("bash", [tmpFile], { encoding: "utf-8" });
+
+        expect(readFileSync(sensitivePath, "utf-8")).toBe("SECRET\n");
+        const rcFile = readFileSync(rcPath, "utf-8");
+        expect(rcFile.toLowerCase()).not.toContain("proxy");
+        expect(rcFile).not.toContain(proxyEnvPath);
+        expect(rcFile).toContain("export PATH");
+      } finally {
+        try {
+          unlinkSync(tmpFile);
+        } catch {
+          /* ignore */
+        }
+        try {
+          execFileSync("rm", ["-rf", fakeHome]);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    it("fails rc shim cleanup if the target becomes a directory during replacement", () => {
+      const fakeHome = mkdtempSync(join(tmpdir(), "nemoclaw-rc-shim-race-test-"));
+      const proxyEnvPath = join(fakeHome, "proxy-env.sh");
+      const rcPath = join(fakeHome, ".bashrc");
+      const tmpFile = join(fakeHome, "rc-shim-race-test.sh");
+      try {
+        writeFileSync(
+          rcPath,
+          [
+            "# old bashrc",
+            "# Source runtime proxy config",
+            `[ -f ${proxyEnvPath} ] && . ${proxyEnvPath}`,
+            "",
+          ].join("\n"),
+          { mode: 0o644 },
+        );
+
+        const wrapper = [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          `_SANDBOX_HOME=${JSON.stringify(fakeHome)}`,
+          `_RUNTIME_SHELL_ENV_FILE=${JSON.stringify(proxyEnvPath)}`,
+          '_RUNTIME_SHELL_ENV_SHIM="[ -f ${_RUNTIME_SHELL_ENV_FILE} ] && . ${_RUNTIME_SHELL_ENV_FILE}"',
+          'mv() { if [ "${1:-}" = "-f" ]; then local src="$2"; local dest="$3"; rm -f "$dest"; mkdir "$dest"; command mv -f "$src" "$dest"; else command mv "$@"; fi; }',
+          extractRuntimeShellEnvShimSnippet().replace(/\nensure_runtime_shell_env_shim$/, ""),
+          "set +e",
+          "ensure_runtime_shell_env_shim",
+          "rc=$?",
+          "set -e",
+          '[ "$rc" -ne 0 ] || exit 7',
+        ].join("\n");
+        writeFileSync(tmpFile, wrapper, { mode: 0o700 });
+        execFileSync("bash", [tmpFile], { encoding: "utf-8" });
+
+        expect(lstatSync(rcPath).isDirectory()).toBe(true);
+      } finally {
+        try {
+          unlinkSync(tmpFile);
+        } catch {
+          /* ignore */
+        }
+        try {
+          execFileSync("rm", ["-rf", fakeHome]);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
     it("entrypoint overwrites proxy-env.sh cleanly on repeated invocations", () => {
       const fakeDataDir = join(tmpdir(), `nemoclaw-idempotent-test-${process.pid}`);
       execFileSync("mkdir", ["-p", fakeDataDir]);
