@@ -1832,7 +1832,7 @@ ensure_runtime_shell_env_shim() {
       continue
     fi
 
-    if ! command python3 - "$rc_file" "$_RUNTIME_SHELL_ENV_SHIM" "$(id -u)" <<'PY'
+    if ! command python3 - "$rc_file" "$_RUNTIME_SHELL_ENV_SHIM" "$(id -u)" <<'PY'; then
 import errno
 import os
 import stat
@@ -1907,7 +1907,6 @@ finally:
         except FileNotFoundError:
             pass
 PY
-    then
       failed=1
       continue
     fi
