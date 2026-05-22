@@ -294,6 +294,7 @@ const { resolveSandboxImageTagFromCreateOutput } =
 const nim: typeof import("./inference/nim") = require("./inference/nim");
 const onboardSession: typeof import("./state/onboard-session") = require("./state/onboard-session");
 const { OnboardRuntimeBoundary }: typeof import("./onboard/runtime-boundary") = require("./onboard/runtime-boundary");
+const { handlePreflightState }: typeof import("./onboard/machine/handlers/preflight") = require("./onboard/machine/handlers/preflight");
 const policies: typeof import("./policy") = require("./policy");
 const tiers: typeof import("./policy/tiers") = require("./policy/tiers");
 const { ensureUsageNoticeConsent } = require("./onboard/usage-notice");
@@ -9283,7 +9284,6 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
 
     const recordedSandboxName =
       session?.steps?.sandbox?.status === "complete" ? session?.sandboxName || null : null;
-    const resumeSandboxNameForGpu = recordedSandboxName || requestedSandboxName || null;
 
     console.log("");
     console.log(`  ${cliDisplayName()} Onboarding`);
@@ -9292,59 +9292,46 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     console.log("  ===================");
 
     const explicitSandboxGpuFlag = resolveSandboxGpuFlagFromOptions(opts);
-    const resumePreflight = resume && session?.steps?.preflight?.status === "complete";
-    const resumeHasResolvedGpuIntent =
-      resumePreflight &&
-      explicitSandboxGpuFlag === null &&
-      opts.sandboxGpuDevice == null &&
-      process.env.NEMOCLAW_SANDBOX_GPU === undefined &&
-      process.env.NEMOCLAW_SANDBOX_GPU_DEVICE === undefined;
-    const resumedSandboxGpuOverrides = resumeHasResolvedGpuIntent
-      ? getResumeSandboxGpuOverrides(
-          resumeSandboxNameForGpu ? registry.getSandbox(resumeSandboxNameForGpu) : null,
-          session?.gpuPassthrough,
-        )
-      : { flag: null, device: null };
-    const effectiveSandboxGpuFlag = explicitSandboxGpuFlag ?? resumedSandboxGpuOverrides.flag;
-    const effectiveSandboxGpuDevice = opts.sandboxGpuDevice ?? resumedSandboxGpuOverrides.device;
-    let gpu;
-    if (resumePreflight) {
-      skippedStepMessage("preflight", "cached");
-      gpu = nim.detectGpu();
-      const resumeSandboxGpuConfig = resolveSandboxGpuConfig(gpu, {
-        flag: effectiveSandboxGpuFlag,
-        device: effectiveSandboxGpuDevice,
-      });
-      exitOnSandboxGpuConfigErrors(resumeSandboxGpuConfig);
-      // Re-check the CDI spec gap on resume (#3152). The cached preflight
-      // result does not capture host CDI state, and the original onboard
-      // attempt that wrote the cache likely aborted at gateway-start with
-      // exactly this CDI failure — so resuming without re-checking would
-      // walk into the same wall. Honour persisted `gpuPassthrough: false`
-      // from the prior session as an opt-out, since the resume invocation
-      // does not need to re-pass `--no-gpu` to keep that intent (the same
-      // resolution is replayed a few lines below for `gpuPassthrough`).
-      const resumeOptedOutGpuPassthrough =
-        opts.noGpu === true ||
-        (opts.gpu !== true && session?.gpuPassthrough === false) ||
-        !resumeSandboxGpuConfig.sandboxGpuEnabled;
-      assertCdiNvidiaGpuSpecPresent(assessHost(), resumeOptedOutGpuPassthrough);
-      validateSandboxGpuPreflight(resumeSandboxGpuConfig);
-    } else {
-      await startRecordedStep("preflight");
-      gpu = await preflight({ ...opts, optedOutGpuPassthrough: opts.noGpu === true });
-      await recordStepComplete("preflight");
-    }
-    const sandboxGpuConfig = resolveSandboxGpuConfig(gpu, {
-      flag: effectiveSandboxGpuFlag,
-      device: effectiveSandboxGpuDevice,
+    const recordedGpuPassthroughBeforePreflight = session?.gpuPassthrough === true;
+    const preflightResult = await handlePreflightState({
+      resume,
+      session,
+      recordedSandboxName,
+      requestedSandboxName,
+      explicitSandboxGpuFlag,
+      sandboxGpuDevice: opts.sandboxGpuDevice ?? null,
+      gpuRequested: opts.gpu === true,
+      noGpu: opts.noGpu === true,
+      env: process.env,
+      deps: {
+        getSandbox: registry.getSandbox.bind(registry),
+        getResumeSandboxGpuOverrides,
+        detectGpu: nim.detectGpu,
+        runPreflight: (preflightOptions) => preflight({ ...opts, ...preflightOptions }),
+        assessHost,
+        assertCdiNvidiaGpuSpecPresent,
+        resolveSandboxGpuConfig,
+        validateSandboxGpuPreflight: (config) => {
+          exitOnSandboxGpuConfigErrors(config);
+          validateSandboxGpuPreflight(config);
+        },
+        skippedStepMessage,
+        startRecordedStep,
+        recordStepComplete,
+        updateSession: onboardSession.updateSession,
+      },
     });
-
-    const requestedGpuPassthrough = opts.gpu === true;
-    const gpuPassthrough = sandboxGpuConfig.sandboxGpuEnabled;
+    session = preflightResult.session;
+    const {
+      sandboxGpuConfig,
+      resumeHasResolvedGpuIntent,
+      requestedGpuPassthrough,
+      gpuPassthrough,
+    } = preflightResult;
+    const gpu = preflightResult.gpu ?? null;
     if (gpuPassthrough) {
       note(
-        resumeHasResolvedGpuIntent && session?.gpuPassthrough === true
+        resumeHasResolvedGpuIntent && recordedGpuPassthroughBeforePreflight
           ? "  [resume] Continuing GPU passthrough from the saved onboarding session."
           : requestedGpuPassthrough || sandboxGpuConfig.mode === "1"
             ? "  GPU passthrough requested; passing --gpu to OpenShell gateway and sandbox creation."
@@ -9362,13 +9349,6 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       } catch {
         /* lspci not available — skip hint */
       }
-    }
-    // Persist GPU intent in the session so resume can restore it.
-    if (session && session.gpuPassthrough !== gpuPassthrough) {
-      session = onboardSession.updateSession((current: Session) => {
-        current.gpuPassthrough = gpuPassthrough;
-        return current;
-      });
     }
     dockerGpuLocalInference.configureLocalInferenceForDockerGpuHostNetwork(sandboxGpuConfig, {
       dockerDriverGateway: isLinuxDockerDriverGatewayEnabled(),
