@@ -1,0 +1,132 @@
+{
+  "resource_spans": [
+    {
+      "resource": {
+        "attributes": {
+          "service.name": "nemoclaw",
+          "service.version": "unknown",
+          "host.type": "Darwin",
+          "os.platform": "darwin",
+          "process.pid": 42693,
+          "ci": false
+        }
+      },
+      "scope_spans": [
+        {
+          "scope": {
+            "name": "nemoclaw.onboard",
+            "version": "1.0.0"
+          },
+          "spans": [
+            {
+              "trace_id": "5436e257a15bcb8da6bcde2e1eb823fb",
+              "span_id": "6b2da256ad014b3a",
+              "name": "nemoclaw.onboard",
+              "kind": "INTERNAL",
+              "start_time_unix_nano": "1779404593899000000",
+              "status": {
+                "code": "OK"
+              },
+              "attributes": {
+                "non_interactive": true,
+                "agent": "openclaw"
+              },
+              "events": [],
+              "end_time_unix_nano": "1779404593903000000",
+              "duration_ms": 4
+            },
+            {
+              "trace_id": "5436e257a15bcb8da6bcde2e1eb823fb",
+              "span_id": "1f01775665b0cc44",
+              "parent_span_id": "6b2da256ad014b3a",
+              "name": "nemoclaw.onboard.phase.inference",
+              "kind": "INTERNAL",
+              "start_time_unix_nano": "1779404593900000000",
+              "status": {
+                "code": "OK"
+              },
+              "attributes": {
+                "provider": "compatible-endpoint",
+                "model": "demo-model",
+                "credential_env": "DEMO_API_KEY"
+              },
+              "events": [],
+              "end_time_unix_nano": "1779404593903000000",
+              "duration_ms": 3
+            },
+            {
+              "trace_id": "5436e257a15bcb8da6bcde2e1eb823fb",
+              "span_id": "653c1e1aba4eb46b",
+              "parent_span_id": "1f01775665b0cc44",
+              "name": "nemoclaw.inference.validation_probe",
+              "kind": "INTERNAL",
+              "start_time_unix_nano": "1779404593901000000",
+              "status": {
+                "code": "OK"
+              },
+              "attributes": {
+                "probe_name": "Chat Completions API",
+                "api": "openai-completions"
+              },
+              "events": [],
+              "end_time_unix_nano": "1779404593903000000",
+              "duration_ms": 2
+            },
+            {
+              "trace_id": "5436e257a15bcb8da6bcde2e1eb823fb",
+              "span_id": "f840c39f5415e23d",
+              "parent_span_id": "653c1e1aba4eb46b",
+              "name": "nemoclaw.inference.curl_probe",
+              "kind": "INTERNAL",
+              "start_time_unix_nano": "1779404593901000000",
+              "status": {
+                "code": "OK"
+              },
+              "attributes": {
+                "http.url": "https://example.test/v1/chat/completions?key=%3CREDACTED%3E",
+                "http.request.method": "POST",
+                "process.timeout_ms": 30000
+              },
+              "events": [
+                {
+                  "name": "curl_result",
+                  "time_unix_nano": "1779404593902000000",
+                  "attributes": {
+                    "ok": true,
+                    "http_status": 200,
+                    "curl_status": 0
+                  }
+                }
+              ],
+              "end_time_unix_nano": "1779404593903000000",
+              "duration_ms": 2
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "trace_id": "5436e257a15bcb8da6bcde2e1eb823fb",
+    "generated_at": "2026-05-21T23:03:13.903Z",
+    "total_duration_ms": 4,
+    "slowest_spans": [
+      {
+        "name": "nemoclaw.onboard.phase.inference",
+        "duration_ms": 3,
+        "status": "OK"
+      },
+      {
+        "name": "nemoclaw.inference.validation_probe",
+        "duration_ms": 2,
+        "status": "OK"
+      },
+      {
+        "name": "nemoclaw.inference.curl_probe",
+        "duration_ms": 2,
+        "status": "OK"
+      }
+    ],
+    "output_path": "/Users/amata/a/nemoclaw/NemoClaw/trace-demo.json"
+  }
+}

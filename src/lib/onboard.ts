@@ -78,6 +78,7 @@ const {
 }: typeof import("./onboard/gateway-gpu-passthrough") = require("./onboard/gateway-gpu-passthrough");
 const { syncPresetSelection }: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
 const { maybeForceE2eStepFailure }: typeof import("./onboard/e2e-failure-injection") = require("./onboard/e2e-failure-injection");
+const trace: typeof import("./trace") = require("./trace");
 const {
   gatherWechatConfig,
   hasWechatConfigDrift,
@@ -1690,13 +1691,18 @@ function upsertProvider(
   baseUrl: string | null,
   env: NodeJS.ProcessEnv = {},
 ) {
-  const result = onboardProviders.upsertProvider(
-    name,
-    type,
-    credentialEnv,
-    baseUrl,
-    env,
-    runOpenshell,
+  const result = trace.withTraceSpan(
+    "nemoclaw.policy.provider_upsert",
+    { provider: name, provider_type: type, credential_env: credentialEnv, base_url: baseUrl },
+    () =>
+      onboardProviders.upsertProvider(
+        name,
+        type,
+        credentialEnv,
+        baseUrl,
+        env,
+        runOpenshell,
+      ),
   );
   if (result.ok && credentialEnv) {
     const stagedValue = stagedLegacyValues.get(credentialEnv);
@@ -1759,7 +1765,11 @@ function verifyDirectSandboxGpu(sandboxName: string): void {
 }
 
 function upsertMessagingProviders(tokenDefs: MessagingTokenDef[]) {
-  const upserted = onboardProviders.upsertMessagingProviders(tokenDefs, runOpenshell);
+  const upserted = trace.withTraceSpan(
+    "nemoclaw.policy.messaging_provider_upsert",
+    { provider_count: tokenDefs.length, providers: tokenDefs.map(({ name }) => name) },
+    () => onboardProviders.upsertMessagingProviders(tokenDefs, runOpenshell),
+  );
   // upsertMessagingProviders process.exits on failure, so reaching this
   // point means every entry in tokenDefs that had a token was registered.
   // Mark migrated only when the registered token equals the staged legacy
@@ -2132,7 +2142,11 @@ async function validateOpenAiLikeSelection(
   } = {},
 ): Promise<EndpointValidationResult> {
   const apiKey = credentialEnv ? getCredential(credentialEnv) : "";
-  const probe = probeOpenAiLikeEndpoint(endpointUrl, model, apiKey, options);
+  const probe = trace.withTraceSpan(
+    "nemoclaw.inference.validation.openai_like",
+    { provider_label: label, model, credential_env: credentialEnv, endpoint_url: endpointUrl },
+    () => probeOpenAiLikeEndpoint(endpointUrl, model, apiKey, options),
+  );
   if (!probe.ok) {
     console.error(`  ${label} endpoint validation failed.`);
     console.error(`  ${probe.message}`);
@@ -2168,7 +2182,11 @@ async function validateAnthropicSelectionWithRetryMessage(
   helpUrl: string | null = null,
 ): Promise<EndpointValidationResult> {
   const apiKey = getCredential(credentialEnv);
-  const probe = probeAnthropicEndpoint(endpointUrl, model, apiKey);
+  const probe = trace.withTraceSpan(
+    "nemoclaw.inference.validation.anthropic",
+    { provider_label: label, model, credential_env: credentialEnv, endpoint_url: endpointUrl },
+    () => probeAnthropicEndpoint(endpointUrl, model, apiKey),
+  );
   if (!probe.ok) {
     console.error(`  ${label} endpoint validation failed.`);
     console.error(`  ${probe.message}`);
@@ -2199,11 +2217,16 @@ async function validateCustomOpenAiLikeSelection(
   helpUrl: string | null = null,
 ): Promise<EndpointValidationResult> {
   const apiKey = getCredential(credentialEnv);
-  const probe = probeOpenAiLikeEndpoint(endpointUrl, model, apiKey, {
-    requireResponsesToolCalling: true,
-    skipResponsesProbe: shouldForceCompletionsApi(process.env.NEMOCLAW_PREFERRED_API),
-    probeStreaming: true,
-  });
+  const probe = trace.withTraceSpan(
+    "nemoclaw.inference.validation.custom_openai_like",
+    { provider_label: label, model, credential_env: credentialEnv, endpoint_url: endpointUrl },
+    () =>
+      probeOpenAiLikeEndpoint(endpointUrl, model, apiKey, {
+        requireResponsesToolCalling: true,
+        skipResponsesProbe: shouldForceCompletionsApi(process.env.NEMOCLAW_PREFERRED_API),
+        probeStreaming: true,
+      }),
+  );
   if (probe.ok) {
     if (probe.note) {
       console.log(`  ℹ ${probe.note}`);
@@ -2238,7 +2261,11 @@ async function validateCustomAnthropicSelection(
   helpUrl: string | null = null,
 ): Promise<EndpointValidationResult> {
   const apiKey = getCredential(credentialEnv);
-  const probe = probeAnthropicEndpoint(endpointUrl, model, apiKey);
+  const probe = trace.withTraceSpan(
+    "nemoclaw.inference.validation.custom_anthropic",
+    { provider_label: label, model, credential_env: credentialEnv, endpoint_url: endpointUrl },
+    () => probeAnthropicEndpoint(endpointUrl, model, apiKey),
+  );
   if (probe.ok) {
     console.log(`  ${probe.label} available — ${agentProductName()} will use ${probe.api}.`);
     return { ok: true, api: probe.api };
@@ -3197,36 +3224,49 @@ async function ensureNamedCredential(
 }
 
 function waitForSandboxReady(sandboxName: string, attempts = 10, delaySeconds = 2): boolean {
-  for (let i = 0; i < attempts; i += 1) {
-    const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
-    if (isSandboxReady(list, sandboxName)) return true;
+  return trace.withTraceSpan(
+    "nemoclaw.sandbox.readiness_wait",
+    { sandbox_name: sandboxName, attempts, delay_seconds: delaySeconds },
+    () => {
+      for (let i = 0; i < attempts; i += 1) {
+        const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+        if (isSandboxReady(list, sandboxName)) {
+          trace.addTraceEvent("ready", { attempt: i + 1, source: "sandbox_list" });
+          return true;
+        }
 
-    // Package-managed OpenShell gateways report readiness through
-    // `sandbox list`; legacy Kubernetes gateways may still expose pod state.
-    if (isLinuxDockerDriverGatewayEnabled()) {
-      if (i < attempts - 1) sleep(delaySeconds);
-      continue;
-    }
-    const podPhase = runCaptureOpenshell(
-      [
-        "doctor",
-        "exec",
-        "--",
-        "kubectl",
-        "-n",
-        "openshell",
-        "get",
-        "pod",
-        sandboxName,
-        "-o",
-        "jsonpath={.status.phase}",
-      ],
-      { ignoreError: true },
-    );
-    if (podPhase === "Running") return true;
-    sleep(delaySeconds);
-  }
-  return false;
+        // Package-managed OpenShell gateways report readiness through
+        // `sandbox list`; legacy Kubernetes gateways may still expose pod state.
+        if (isLinuxDockerDriverGatewayEnabled()) {
+          if (i < attempts - 1) sleep(delaySeconds);
+          continue;
+        }
+        const podPhase = runCaptureOpenshell(
+          [
+            "doctor",
+            "exec",
+            "--",
+            "kubectl",
+            "-n",
+            "openshell",
+            "get",
+            "pod",
+            sandboxName,
+            "-o",
+            "jsonpath={.status.phase}",
+          ],
+          { ignoreError: true },
+        );
+        if (podPhase === "Running") {
+          trace.addTraceEvent("ready", { attempt: i + 1, source: "pod_phase" });
+          return true;
+        }
+        sleep(delaySeconds);
+      }
+      trace.addTraceEvent("not_ready", { attempts });
+      return false;
+    },
+  );
 }
 
 // parsePolicyPresetEnv — see urlUtils import above
@@ -5498,15 +5538,27 @@ async function createSandbox(
     timeoutSecs: sandboxReadyTimeoutSecs,
     deps: { runOpenshell, runCaptureOpenshell, sleep },
   });
-  const createResult = await streamSandboxCreate(createCommand, sandboxEnv, {
-    readyCheck: () => {
-      const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
-      if (isSandboxReady(list, sandboxName)) return true;
-      dockerGpuCreatePatch.maybeApplyDuringCreate();
-      return false;
+  const createResult = await trace.withTraceSpan(
+    "nemoclaw.sandbox.create_stream",
+    {
+      sandbox_name: sandboxName,
+      provider,
+      model,
+      timeout_seconds: sandboxReadyTimeoutSecs,
+      from_dockerfile: Boolean(fromDockerfile),
+      gpu_enabled: effectiveSandboxGpuConfig.sandboxGpuEnabled,
     },
-    failureCheck: dockerGpuCreatePatch.createFailureMessage,
-  });
+    () =>
+      streamSandboxCreate(createCommand, sandboxEnv, {
+        readyCheck: () => {
+          const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+          if (isSandboxReady(list, sandboxName)) return true;
+          dockerGpuCreatePatch.maybeApplyDuringCreate();
+          return false;
+        },
+        failureCheck: dockerGpuCreatePatch.createFailureMessage,
+      }),
+  );
 
   if (initialSandboxPolicy.cleanup && initialSandboxPolicy.cleanup()) {
     process.removeListener("exit", initialSandboxPolicy.cleanup);
@@ -5555,16 +5607,23 @@ async function createSandbox(
   // without this gate, NemoClaw registers a phantom sandbox that
   // causes "sandbox not found" on every subsequent connect/status call.
   console.log("  Waiting for sandbox to become ready...");
-  let ready = false;
-  const readyAttempts = Math.max(1, Math.ceil(sandboxReadyTimeoutSecs / 2));
-  for (let i = 0; i < readyAttempts; i++) {
-    const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
-    if (isSandboxReady(list, sandboxName)) {
-      ready = true;
-      break;
-    }
-    if (i < readyAttempts - 1) sleep(2);
-  }
+  const ready = trace.withTraceSpan(
+    "nemoclaw.sandbox.readiness_wait",
+    { sandbox_name: sandboxName, timeout_seconds: sandboxReadyTimeoutSecs },
+    () => {
+      const readyAttempts = Math.max(1, Math.ceil(sandboxReadyTimeoutSecs / 2));
+      for (let i = 0; i < readyAttempts; i++) {
+        const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+        if (isSandboxReady(list, sandboxName)) {
+          trace.addTraceEvent("ready", { attempt: i + 1 });
+          return true;
+        }
+        if (i < readyAttempts - 1) sleep(2);
+      }
+      trace.addTraceEvent("not_ready", { attempts: readyAttempts });
+      return false;
+    },
+  );
 
   const restoreBackupPath =
     pendingStateRestore?.manifest?.backupPath ?? pendingStateRestoreBackupPath;
@@ -5617,23 +5676,30 @@ async function createSandbox(
   // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
   // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
   console.log("  Waiting for NemoClaw dashboard to become ready...");
-  for (let i = 0; i < 15; i++) {
-    const readyOutput = runCaptureOpenshell(
-      ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-so", "/dev/null", "-w", "%{http_code}",
-        "--max-time", "3", `http://localhost:${effectiveDashboardPort}/health`],
-      { ignoreError: true },
-    );
-    const readyCode = parseInt((readyOutput || "").trim(), 10) || 0;
-    if (readyCode === 200 || readyCode === 401) {
-      console.log("  ✓ Dashboard is live");
-      break;
-    }
-    if (i === 14) {
-      console.warn("  Dashboard taking longer than expected to start. Continuing...");
-    } else {
-      sleep(2);
-    }
-  }
+  trace.withTraceSpan(
+    "nemoclaw.dashboard.readiness_wait",
+    { sandbox_name: sandboxName, port: effectiveDashboardPort, attempts: 15 },
+    () => {
+      for (let i = 0; i < 15; i++) {
+        const readyOutput = runCaptureOpenshell(
+          ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-so", "/dev/null", "-w", "%{http_code}",
+            "--max-time", "3", `http://localhost:${effectiveDashboardPort}/health`],
+          { ignoreError: true },
+        );
+        const readyCode = parseInt((readyOutput || "").trim(), 10) || 0;
+        trace.addTraceEvent("dashboard_probe", { attempt: i + 1, http_status: readyCode });
+        if (readyCode === 200 || readyCode === 401) {
+          console.log("  ✓ Dashboard is live");
+          return;
+        }
+        if (i === 14) {
+          console.warn("  Dashboard taking longer than expected to start. Continuing...");
+        } else {
+          sleep(2);
+        }
+      }
+    },
+  );
 
   if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
     try {
@@ -8453,24 +8519,34 @@ async function setupPoliciesWithSelection(
   sandboxName: string,
   options: SetupPolicySelectionOptions = {},
 ) {
-  const selectedTier = await setupPoliciesWithSelectionImpl(
+  const selectedTier = await trace.withTraceSpan(
+    "nemoclaw.policy.application",
     {
-      policies,
-      tiers,
-      localInferenceProviders: LOCAL_INFERENCE_PROVIDERS,
-      step,
-      note,
-      isNonInteractive,
-      waitForSandboxReady,
-      syncPresetSelection,
-      selectPolicyTier,
-      setPolicyTier: (sandbox, tierName) => registry.updateSandbox(sandbox, { policyTier: tierName }),
-      selectTierPresetsAndAccess,
-      parsePolicyPresetEnv,
-      env: process.env,
+      sandbox_name: sandboxName,
+      selected_presets: options.selectedPresets ?? null,
+      provider: options.provider ?? null,
+      web_search_supported: options.webSearchSupported ?? null,
     },
-    sandboxName,
-    options,
+    () =>
+      setupPoliciesWithSelectionImpl(
+        {
+          policies,
+          tiers,
+          localInferenceProviders: LOCAL_INFERENCE_PROVIDERS,
+          step,
+          note,
+          isNonInteractive,
+          waitForSandboxReady,
+          syncPresetSelection,
+          selectPolicyTier,
+          setPolicyTier: (sandbox, tierName) => registry.updateSandbox(sandbox, { policyTier: tierName }),
+          selectTierPresetsAndAccess,
+          parsePolicyPresetEnv,
+          env: process.env,
+        },
+        sandboxName,
+        options,
+      ),
   );
   return selectedTier;
 }
@@ -8968,6 +9044,15 @@ function skippedStepMessage(
 
 async function onboard(opts: OnboardOptions = {}): Promise<void> {
   setOnboardBrandingAgent(opts.agent || process.env.NEMOCLAW_AGENT || null);
+  const traceCollector = trace.getTraceCollector();
+  const onboardTraceSpan = traceCollector?.startSpan("nemoclaw.onboard", {
+    resume: opts.resume === true,
+    fresh: opts.fresh === true,
+    non_interactive: opts.nonInteractive === true || process.env.NEMOCLAW_NON_INTERACTIVE === "1",
+    agent: opts.agent || process.env.NEMOCLAW_AGENT || null,
+    trace_file_enabled: Boolean(process.env.NEMOCLAW_TRACE_FILE),
+    trace_dir_enabled: Boolean(process.env.NEMOCLAW_TRACE_DIR),
+  });
   NON_INTERACTIVE = opts.nonInteractive || process.env.NEMOCLAW_NON_INTERACTIVE === "1";
   RECREATE_SANDBOX = opts.recreateSandbox || process.env.NEMOCLAW_RECREATE_SANDBOX === "1";
   AUTO_YES = opts.autoYes === true || process.env.NEMOCLAW_YES === "1";
@@ -9118,6 +9203,8 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
   };
   process.once("exit", releaseOnboardLock);
 
+  let completed = false;
+  let traceCompleted = false;
   try {
     let session: Session | null;
     let selectedMessagingChannels: string[] = [];
@@ -9249,7 +9336,6 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       process.exit(1);
     }
 
-    let completed = false;
     process.once("exit", (code) => {
       if (!completed && code !== 0) {
         const current = onboardSession.loadSession();
@@ -9342,7 +9428,9 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       validateSandboxGpuPreflight(resumeSandboxGpuConfig);
     } else {
       startRecordedStep("preflight");
-      gpu = await preflight({ ...opts, optedOutGpuPassthrough: opts.noGpu === true });
+      gpu = await trace.withTraceSpan("nemoclaw.onboard.phase.preflight", {}, () =>
+        preflight({ ...opts, optedOutGpuPassthrough: opts.noGpu === true }),
+      );
       onboardSession.markStepComplete("preflight");
     }
     const sandboxGpuConfig = resolveSandboxGpuConfig(gpu, {
@@ -9503,7 +9591,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         gatewayReuseState = "missing";
       }
       startRecordedStep("gateway");
-      await startGateway(gpu, { gpuPassthrough });
+      await trace.withTraceSpan(
+        "nemoclaw.onboard.phase.gateway",
+        { reuse_state: gatewayReuseState, gpu_passthrough: gpuPassthrough },
+        () => startGateway(gpu, { gpuPassthrough }),
+      );
       onboardSession.markStepComplete("gateway");
     }
 
@@ -9556,7 +9648,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         // otherwise leave a phantom that `nemoclaw list` resurrects until
         // manually destroyed.
         startRecordedStep("provider_selection");
-        const selection = await setupNim(gpu, sandboxName, agent);
+        const selection = await trace.withTraceSpan(
+          "nemoclaw.onboard.phase.provider_selection",
+          { sandbox_name: sandboxName, agent: agent?.name ?? null },
+          () => setupNim(gpu, sandboxName, agent),
+        );
         model = selection.model;
         provider = selection.provider;
         endpointUrl = selection.endpointUrl;
@@ -9584,29 +9680,36 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         console.error("  Inference selection did not yield a provider/model.");
         process.exit(1);
       }
+      const selectedProvider = provider;
+      const selectedModel = model;
       process.env.NEMOCLAW_OPENSHELL_BIN = getOpenshellBinary();
       const needsBedrockRuntimeAdapter =
-        provider === "compatible-anthropic-endpoint" &&
+        selectedProvider === "compatible-anthropic-endpoint" &&
         bedrockRuntimeOnboard.needsBedrockRuntimeAdapter(endpointUrl);
       const resumeInference =
         !needsBedrockRuntimeAdapter &&
         !forceProviderSelection &&
         resume &&
-        isInferenceRouteReady(provider, model);
+        isInferenceRouteReady(selectedProvider, selectedModel);
       if (resumeInference) {
-        if (provider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
+        if (selectedProvider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
           if (!sandboxName) {
             sandboxName = await promptValidatedSandboxName(agent);
           }
-          startRecordedStep("inference", { provider, model });
-          const inferenceResult = await setupInference(
-            sandboxName,
-            model,
-            provider,
-            endpointUrl,
-            credentialEnv,
-            hermesAuthMethod,
-            hermesToolGateways,
+          startRecordedStep("inference", { provider: selectedProvider, model: selectedModel });
+          const inferenceResult = await trace.withTraceSpan(
+            "nemoclaw.onboard.phase.inference",
+            { sandbox_name: sandboxName, provider: selectedProvider, model: selectedModel, credential_env: credentialEnv },
+            () =>
+              setupInference(
+                sandboxName,
+                selectedModel,
+                selectedProvider,
+                endpointUrl,
+                credentialEnv,
+                hermesAuthMethod,
+                hermesToolGateways,
+              ),
           );
           if (inferenceResult?.retry === "selection") {
             forceProviderSelection = true;
@@ -9614,11 +9717,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           }
           onboardSession.markStepComplete(
             "inference",
-            toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer, hermesToolGateways }),
+            toSessionUpdates({ provider: selectedProvider, model: selectedModel, hermesAuthMethod, nimContainer, hermesToolGateways }),
           );
           break;
         }
-        if (isRoutedInferenceProvider(provider)) {
+        if (isRoutedInferenceProvider(selectedProvider)) {
           try {
             await reconcileModelRouter();
           } catch (err) {
@@ -9628,13 +9731,13 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
             process.exit(1);
           }
         }
-        skippedStepMessage("inference", `${provider} / ${model}`);
+        skippedStepMessage("inference", `${selectedProvider} / ${selectedModel}`);
         if (nimContainer && sandboxName) {
           registry.updateSandbox(sandboxName, { nimContainer });
         }
         onboardSession.markStepComplete(
           "inference",
-          toSessionUpdates({ provider, model, hermesAuthMethod, nimContainer, hermesToolGateways }),
+          toSessionUpdates({ provider: selectedProvider, model: selectedModel, hermesAuthMethod, nimContainer, hermesToolGateways }),
         );
         break;
       }
@@ -9648,8 +9751,8 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
           : formatSandboxBuildEstimateNote(assessHost());
       console.log(
         formatOnboardConfigSummary({
-          provider,
-          model,
+          provider: selectedProvider,
+          model: selectedModel,
           credentialEnv,
           hermesAuthMethod,
           webSearchConfig,
@@ -9672,14 +9775,19 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       }
 
       startRecordedStep("inference", { provider, model });
-      const inferenceResult = await setupInference(
-        sandboxName,
-        model,
-        provider,
-        endpointUrl,
-        credentialEnv,
-        hermesAuthMethod,
-        hermesToolGateways,
+      const inferenceResult = await trace.withTraceSpan(
+        "nemoclaw.onboard.phase.inference",
+        { sandbox_name: sandboxName, provider: selectedProvider, model: selectedModel, credential_env: credentialEnv },
+        () =>
+          setupInference(
+            sandboxName,
+            selectedModel,
+            selectedProvider,
+            endpointUrl,
+            credentialEnv,
+            hermesAuthMethod,
+            hermesToolGateways,
+          ),
       );
       delete process.env.NVIDIA_API_KEY;
       if (inferenceResult?.retry === "selection") {
@@ -9864,19 +9972,24 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       if (fresh) {
         stopStaleDashboardListenersForSandbox(registry.listSandboxes().sandboxes, sandboxName);
       }
-      sandboxName = await createSandbox(
-        gpu,
-        model,
-        provider,
-        preferredInferenceApi,
-        sandboxName,
-        nextWebSearchConfig,
-        selectedMessagingChannels,
-        fromDockerfile,
-        agent,
-        opts.controlUiPort || null,
-        sandboxGpuConfig,
-        hermesToolGateways,
+      sandboxName = await trace.withTraceSpan(
+        "nemoclaw.onboard.phase.sandbox",
+        { sandbox_name: sandboxName, provider, model, agent: agent?.name ?? null },
+        () =>
+          createSandbox(
+            gpu,
+            model,
+            provider,
+            preferredInferenceApi,
+            sandboxName,
+            nextWebSearchConfig,
+            selectedMessagingChannels,
+            fromDockerfile,
+            agent,
+            opts.controlUiPort || null,
+            sandboxGpuConfig,
+            hermesToolGateways,
+          ),
       );
       webSearchConfig = nextWebSearchConfig;
       registry.updateSandbox(sandboxName, {
@@ -10123,8 +10236,13 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     }
 
     printDashboard(sandboxName, model, provider, nimContainer, agent);
+    traceCompleted = true;
   } finally {
     releaseOnboardLock();
+    if (onboardTraceSpan) {
+      traceCollector?.endSpan(onboardTraceSpan, traceCompleted ? "OK" : "ERROR");
+      trace.flushTrace(traceCompleted ? "OK" : "ERROR");
+    }
   }
 }
 

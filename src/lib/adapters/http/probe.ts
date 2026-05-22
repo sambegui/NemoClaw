@@ -13,6 +13,7 @@ import { isErrnoException } from "../../core/errno";
 import { compactText } from "../../core/url-utils";
 import type { ProbeResult } from "../../onboard/types";
 import { ROOT } from "../../state/paths";
+import { addTraceEvent, withTraceSpan } from "../../trace";
 
 export type CurlProbeResult = ProbeResult;
 
@@ -66,6 +67,33 @@ function cleanupTempDir(filePath: string, expectedPrefix: string): void {
 
 export function getCurlTimingArgs(): string[] {
   return ["--connect-timeout", "10", "--max-time", "60"];
+}
+
+function sanitizeCurlUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    for (const key of [...url.searchParams.keys()]) {
+      url.searchParams.set(key, "<REDACTED>");
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value.replace(/(Bearer\s+)\S+/gi, "$1<REDACTED>");
+  }
+}
+
+function getCurlProbeTraceAttributes(argv: string[], opts: CurlProbeOptions): Record<string, unknown> {
+  const url = argv.at(-1) || "";
+  const methodIndex = argv.findIndex((arg) => arg === "-X" || arg === "--request");
+  const method =
+    methodIndex >= 0 && argv[methodIndex + 1] ? argv[methodIndex + 1].toUpperCase() : "POST";
+  return {
+    "http.url": sanitizeCurlUrl(String(url)),
+    "http.request.method": method,
+    "process.timeout_ms": opts.timeoutMs ?? 30_000,
+  };
 }
 
 export function summarizeCurlFailure(curlStatus = 0, stderr = "", body = ""): string {
@@ -130,6 +158,12 @@ export function summarizeProbeFailure(body = "", status = 0, curlStatus = 0, std
 }
 
 export function runCurlProbe(argv: string[], opts: CurlProbeOptions = {}): CurlProbeResult {
+  return withTraceSpan("nemoclaw.inference.curl_probe", getCurlProbeTraceAttributes(argv, opts), () =>
+    runCurlProbeImpl(argv, opts),
+  );
+}
+
+function runCurlProbeImpl(argv: string[], opts: CurlProbeOptions = {}): CurlProbeResult {
   const bodyFile = secureTempFile("nemoclaw-curl-probe", ".json");
   try {
     const args = [...argv];
@@ -154,7 +188,7 @@ export function runCurlProbe(argv: string[], opts: CurlProbeOptions = {}): CurlP
       const errorMessage = compactText(
         `${result.error.message || String(result.error)} ${String(result.stderr || "")}`,
       );
-      return {
+      const failure = {
         ok: false,
         httpStatus: 0,
         curlStatus: errorCode,
@@ -162,9 +196,11 @@ export function runCurlProbe(argv: string[], opts: CurlProbeOptions = {}): CurlP
         stderr: errorMessage,
         message: summarizeProbeFailure(body, 0, errorCode, errorMessage),
       };
+      addTraceEvent("curl_result", { ok: false, http_status: 0, curl_status: errorCode });
+      return failure;
     }
     const status = Number(String(result.stdout || "").trim());
-    return {
+    const probeResult = {
       ok: result.status === 0 && status >= 200 && status < 300,
       httpStatus: Number.isFinite(status) ? status : 0,
       curlStatus: result.status || 0,
@@ -177,9 +213,15 @@ export function runCurlProbe(argv: string[], opts: CurlProbeOptions = {}): CurlP
         String(result.stderr || ""),
       ),
     };
+    addTraceEvent("curl_result", {
+      ok: probeResult.ok,
+      http_status: probeResult.httpStatus,
+      curl_status: probeResult.curlStatus,
+    });
+    return probeResult;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return {
+    const probeResult = {
       ok: false,
       httpStatus: 0,
       curlStatus:
@@ -191,6 +233,8 @@ export function runCurlProbe(argv: string[], opts: CurlProbeOptions = {}): CurlP
         detail,
       ),
     };
+    addTraceEvent("curl_result", { ok: false, http_status: 0, curl_status: probeResult.curlStatus });
+    return probeResult;
   } finally {
     cleanupTempDir(bodyFile, "nemoclaw-curl-probe");
   }
@@ -216,6 +260,17 @@ function hasChatCompletionsStreamingData(body: string): boolean {
 }
 
 export function runChatCompletionsStreamingProbe(
+  argv: string[],
+  opts: CurlProbeOptions = {},
+): CurlProbeResult {
+  return withTraceSpan(
+    "nemoclaw.inference.curl_streaming_probe",
+    getCurlProbeTraceAttributes(argv, opts),
+    () => runChatCompletionsStreamingProbeImpl(argv, opts),
+  );
+}
+
+function runChatCompletionsStreamingProbeImpl(
   argv: string[],
   opts: CurlProbeOptions = {},
 ): CurlProbeResult {
@@ -321,6 +376,17 @@ const REQUIRED_STREAMING_EVENTS = ["response.output_text.delta"];
  * OpenClaw relies on.
  */
 export function runStreamingEventProbe(
+  argv: string[],
+  opts: CurlProbeOptions = {},
+): StreamingProbeResult {
+  return withTraceSpan(
+    "nemoclaw.inference.curl_streaming_event_probe",
+    getCurlProbeTraceAttributes(argv, opts),
+    () => runStreamingEventProbeImpl(argv, opts),
+  );
+}
+
+function runStreamingEventProbeImpl(
   argv: string[],
   opts: CurlProbeOptions = {},
 ): StreamingProbeResult {
