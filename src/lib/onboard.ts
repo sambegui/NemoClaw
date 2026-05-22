@@ -204,9 +204,12 @@ const { detectVllmProfile, installVllm } = require("./inference/vllm");
 const inferenceConfig: typeof import("./inference/config") = require("./inference/config");
 const {
   DEFAULT_CLOUD_MODEL,
+  DEFAULT_ROUTE_CREDENTIAL_ENV,
   getProviderSelectionConfig,
   parseGatewayInference,
 } = inferenceConfig;
+const resumeProviderRecovery: typeof import("./onboard/resume-provider-recovery") =
+  require("./onboard/resume-provider-recovery");
 
 const onboardProviders = require("./onboard/providers");
 const hermesProviderAuth = require("./hermes-provider-auth");
@@ -1788,6 +1791,16 @@ function upsertMessagingProviders(tokenDefs: MessagingTokenDef[]) {
 function providerExistsInGateway(name: string) {
   return onboardProviders.providerExistsInGateway(name, runOpenshell);
 }
+
+const resumeProviderRecoveryDeps: import("./onboard/resume-provider-recovery").ResumeProviderRecoveryDeps = {
+  remoteProviderConfig: REMOTE_PROVIDER_CONFIG, defaultRouteCredentialEnv: DEFAULT_ROUTE_CREDENTIAL_ENV,
+  isRoutedInferenceProvider, providerExistsInGateway, getProviderLabel, isNonInteractive,
+  hydrateCredentialEnv: (e) => hydrateCredentialEnv(e) ?? undefined,
+  log: (m) => console.log(m), warn: (m) => console.error(m), note,
+  exit: (c) => process.exit(c), replaceNamedCredential, validateNvidiaApiKeyValue,
+};
+const ensureResumeProviderReady = (p: string | null | undefined, c: string | null | undefined) =>
+  resumeProviderRecovery.ensureResumeProviderReady(p, c, resumeProviderRecoveryDeps);
 
 function getMessagingChannelForEnvKey(envKey: string): string | null {
   if (envKey === "DISCORD_BOT_TOKEN") return "discord";
@@ -9525,6 +9538,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     let nimContainer = session?.nimContainer || null;
     let webSearchConfig = session?.webSearchConfig || null;
     let forceProviderSelection = forceProviderSelectionForAgentChange;
+    let forceInferenceSetup = false;
     while (true) {
       const resumeProviderSelection =
         !forceProviderSelection &&
@@ -9533,13 +9547,13 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         typeof provider === "string" &&
         typeof model === "string";
       if (resumeProviderSelection) {
+        ({ forceInferenceSetup } = await ensureResumeProviderReady(provider, credentialEnv));
         skippedStepMessage("provider_selection", `${provider} / ${model}`);
         hydrateCredentialEnv(credentialEnv);
-        // #3342: resume short-circuits provider selection — repair the
-        // ollama-local systemd loopback override here so legacy 0.0.0.0
-        // drop-ins from older NemoClaw versions get rewritten every resume.
+        // #3342: ollama-local systemd loopback drop-in repair on resume.
         repairLocalInferenceSystemdOverrideOrExit(provider, isNonInteractive);
       } else {
+        forceInferenceSetup = false;
         // #2753: do not persist sandboxName to onboard-session.json before
         // the sandbox actually exists in the gateway (Step 6 markStepComplete
         // below). A SIGINT between any earlier step and createSandbox would
@@ -9581,6 +9595,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       const resumeInference =
         !needsBedrockRuntimeAdapter &&
         !forceProviderSelection &&
+        !forceInferenceSetup &&
         resume &&
         isInferenceRouteReady(provider, model);
       if (resumeInference) {
