@@ -502,6 +502,17 @@ describe("generate-openclaw-config.py: config generation", () => {
     expect(config.channels.discord.accounts.default.proxy).toBeUndefined();
   });
 
+  it("can defer OpenClaw managed proxy config for build-time doctor", () => {
+    const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      NEMOCLAW_OPENCLAW_MANAGED_PROXY: "0",
+    });
+
+    expect(config.proxy).toBeUndefined();
+    expect(config.channels.discord.accounts.default.proxy).toBeUndefined();
+  });
+
   it("ignores the OpenShell loopback proxy env var when using OpenClaw managed proxy", () => {
     const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
     const config = runConfigScript({
