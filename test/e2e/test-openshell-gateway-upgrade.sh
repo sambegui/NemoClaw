@@ -23,6 +23,8 @@ MOCK_LOG="/tmp/nemoclaw-e2e-openshell-gateway-compatible-mock.log"
 OLD_DOCKER_WRAPPER_DIR=""
 OLD_DOCKER_WRAPPER_LOG="/tmp/nemoclaw-e2e-openshell-gateway-old-docker.log"
 OLD_SANDBOX_BASE_IMAGE_TAG=""
+OLD_SANDBOX_BASE_LATEST_TAG="ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
+OLD_SANDBOX_BASE_LATEST_PREVIOUS_ID=""
 exec > >(tee "$LOG_FILE") 2>&1
 
 RED='\033[0;31m'
@@ -43,6 +45,10 @@ fail() {
     diag "survivor agent log tail:"
     openshell sandbox exec --name "$SURVIVOR_SANDBOX" -- \
       sh -lc 'tail -40 /tmp/nemoclaw-e2e-agent.log 2>/dev/null || true' 2>/dev/null || true
+  fi
+  if [ -f "$OLD_DOCKER_WRAPPER_LOG" ]; then
+    diag "old installer docker wrapper activity:"
+    cat "$OLD_DOCKER_WRAPPER_LOG" || true
   fi
   diag "gateway log tail:"
   tail -100 "$GATEWAY_LOG" 2>/dev/null || true
@@ -127,6 +133,10 @@ base_ref="${NEMOCLAW_OLD_SANDBOX_BASE_IMAGE_REF:?}"
 old_openclaw="${NEMOCLAW_OLD_OPENCLAW_VERSION:?}"
 log_file="${NEMOCLAW_OLD_DOCKER_WRAPPER_LOG:-/tmp/nemoclaw-e2e-openshell-gateway-old-docker.log}"
 if [ "${1:-}" != "build" ]; then
+  if [ "${1:-}" = "pull" ] && [ "${2:-}" = "ghcr.io/nvidia/nemoclaw/sandbox-base:latest" ]; then
+    printf 'skip pull %s; using locally tagged old base\n' "$2" >>"$log_file"
+    exit 0
+  fi
   exec "$real_docker" "$@"
 fi
 
@@ -192,6 +202,8 @@ RUN set -eu; \
     npm install -g --no-audit --no-fund --no-progress "openclaw@${OLD_OPENCLAW_VERSION}"; \
     openclaw --version | grep -F " ${OLD_OPENCLAW_VERSION} "
 EOF
+  OLD_SANDBOX_BASE_LATEST_PREVIOUS_ID="$(docker image inspect --format '{{.Id}}' "$OLD_SANDBOX_BASE_LATEST_TAG" 2>/dev/null || true)"
+  docker tag "$OLD_SANDBOX_BASE_IMAGE_TAG" "$OLD_SANDBOX_BASE_LATEST_TAG"
   OLD_SANDBOX_BASE_IMAGE_REF="$OLD_SANDBOX_BASE_IMAGE_TAG"
 }
 
@@ -205,6 +217,11 @@ cleanup() {
   rm -f "$PID_FILE"
   if [ -n "$OLD_DOCKER_WRAPPER_DIR" ]; then
     rm -rf "$OLD_DOCKER_WRAPPER_DIR"
+  fi
+  if [ -n "$OLD_SANDBOX_BASE_LATEST_PREVIOUS_ID" ]; then
+    docker tag "$OLD_SANDBOX_BASE_LATEST_PREVIOUS_ID" "$OLD_SANDBOX_BASE_LATEST_TAG" >/dev/null 2>&1 || true
+  else
+    docker image rm "$OLD_SANDBOX_BASE_LATEST_TAG" >/dev/null 2>&1 || true
   fi
   if [ -n "$OLD_SANDBOX_BASE_IMAGE_TAG" ]; then
     docker image rm "$OLD_SANDBOX_BASE_IMAGE_TAG" >/dev/null 2>&1 || true
