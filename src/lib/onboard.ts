@@ -8978,7 +8978,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
   NON_INTERACTIVE = opts.nonInteractive || process.env.NEMOCLAW_NON_INTERACTIVE === "1";
   RECREATE_SANDBOX = opts.recreateSandbox || process.env.NEMOCLAW_RECREATE_SANDBOX === "1";
   AUTO_YES = opts.autoYes === true || process.env.NEMOCLAW_YES === "1";
-  _preflightDashboardPort = opts.controlUiPort || null;
+  // #3953 — treat NEMOCLAW_DASHBOARD_PORT the same as --control-ui-port for
+  // preflight gating: when the operator pins an explicit port via the env var,
+  // the dashboard-range fail-fast must not exit on range exhaustion.
+  const envDashboardPort = process.env.NEMOCLAW_DASHBOARD_PORT != null ? DASHBOARD_PORT : null;
+  _preflightDashboardPort = opts.controlUiPort ?? envDashboardPort ?? null;
   delete process.env.OPENSHELL_GATEWAY;
   const resume = opts.resume === true;
   const fresh = opts.fresh === true;
@@ -9347,6 +9351,11 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         !resumeSandboxGpuConfig.sandboxGpuEnabled;
       assertCdiNvidiaGpuSpecPresent(assessHost(), resumeOptedOutGpuPassthrough);
       validateSandboxGpuPreflight(resumeSandboxGpuConfig);
+      // #3953 — resume reuses the cached preflight result and would otherwise
+      // skip the dashboard-range fail-fast added at the normal preflight path;
+      // mirror it here so `--resume` doesn't walk past an exhausted range and
+      // fail later in dashboard allocation after sandbox work has started.
+      if (_preflightDashboardPort === null) preflightDashboardPortRangeAvailability();
     } else {
       startRecordedStep("preflight");
       gpu = await preflight({ ...opts, optedOutGpuPassthrough: opts.noGpu === true });
