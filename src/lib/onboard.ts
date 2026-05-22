@@ -5557,6 +5557,7 @@ async function createSandbox(
           return false;
         },
         failureCheck: dockerGpuCreatePatch.createFailureMessage,
+        traceEvent: trace.addTraceEvent,
       }),
   );
 
