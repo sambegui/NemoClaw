@@ -36,6 +36,29 @@ set -euo pipefail
 # cannot resolve id/chown/chmod/tee from an attacker-controlled location.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+# Reject an invalid explicit dashboard port before installing the tee/fd startup
+# capture below. Some CI Docker runners can drop very early fd4 output from
+# short-lived containers, and this validation is meant to be fail-fast and
+# directly visible to callers.
+_EARLY_DASHBOARD_PORT_RAW="${NEMOCLAW_DASHBOARD_PORT:-}"
+if [ -n "$_EARLY_DASHBOARD_PORT_RAW" ]; then
+  _EARLY_DASHBOARD_PORT="$(printf '%s' "$_EARLY_DASHBOARD_PORT_RAW" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  _EARLY_DASHBOARD_PORT_VALID=1
+  case "$_EARLY_DASHBOARD_PORT" in
+    *[!0-9]* | '')
+      _EARLY_DASHBOARD_PORT_VALID=0
+      ;;
+  esac
+  if [ "$_EARLY_DASHBOARD_PORT_VALID" -eq 1 ] && { [ "$_EARLY_DASHBOARD_PORT" -lt 1024 ] || [ "$_EARLY_DASHBOARD_PORT" -gt 65535 ]; }; then
+    _EARLY_DASHBOARD_PORT_VALID=0
+  fi
+  if [ "$_EARLY_DASHBOARD_PORT_VALID" -ne 1 ]; then
+    printf '%s\n' "[SECURITY] Invalid NEMOCLAW_DASHBOARD_PORT='${NEMOCLAW_DASHBOARD_PORT}' — must be an integer between 1024 and 65535" >&2
+    exit 1
+  fi
+fi
+unset _EARLY_DASHBOARD_PORT_RAW _EARLY_DASHBOARD_PORT _EARLY_DASHBOARD_PORT_VALID
+
 # ── Early stderr/stdout capture ──────────────────────────────────
 # Capture all entrypoint output to /tmp/nemoclaw-start.log so that if
 # the script crashes before touch /tmp/gateway.log (e.g., a Landlock
