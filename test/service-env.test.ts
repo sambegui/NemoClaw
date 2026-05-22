@@ -645,11 +645,11 @@ describe("service environment", () => {
       }
     });
 
-    it("fails rc shim cleanup if the target becomes a directory during replacement", () => {
-      const fakeHome = mkdtempSync(join(tmpdir(), "nemoclaw-rc-shim-race-test-"));
+    it("cleans rc shims without shell chown/chmod on the rc path", () => {
+      const fakeHome = mkdtempSync(join(tmpdir(), "nemoclaw-rc-shim-no-path-chmod-test-"));
       const proxyEnvPath = join(fakeHome, "proxy-env.sh");
       const rcPath = join(fakeHome, ".bashrc");
-      const tmpFile = join(fakeHome, "rc-shim-race-test.sh");
+      const tmpFile = join(fakeHome, "rc-shim-no-path-chmod-test.sh");
       try {
         writeFileSync(
           rcPath,
@@ -668,18 +668,16 @@ describe("service environment", () => {
           `_SANDBOX_HOME=${JSON.stringify(fakeHome)}`,
           `_RUNTIME_SHELL_ENV_FILE=${JSON.stringify(proxyEnvPath)}`,
           '_RUNTIME_SHELL_ENV_SHIM="[ -f ${_RUNTIME_SHELL_ENV_FILE} ] && . ${_RUNTIME_SHELL_ENV_FILE}"',
-          'mv() { if [ "${1:-}" = "-f" ]; then local src="$2"; local dest="$3"; rm -f "$dest"; mkdir "$dest"; command mv -f "$src" "$dest"; else command mv "$@"; fi; }',
-          extractRuntimeShellEnvShimSnippet().replace(/\nensure_runtime_shell_env_shim$/, ""),
-          "set +e",
-          "ensure_runtime_shell_env_shim",
-          "rc=$?",
-          "set -e",
-          '[ "$rc" -ne 0 ] || exit 7',
+          'chown() { echo "unexpected chown $*" >&2; exit 42; }',
+          'chmod() { echo "unexpected chmod $*" >&2; exit 43; }',
+          extractRuntimeShellEnvShimSnippet(),
         ].join("\n");
         writeFileSync(tmpFile, wrapper, { mode: 0o700 });
         execFileSync("bash", [tmpFile], { encoding: "utf-8" });
 
-        expect(lstatSync(rcPath).isDirectory()).toBe(true);
+        const rcFile = readFileSync(rcPath, "utf-8");
+        expect(rcFile.toLowerCase()).not.toContain("proxy");
+        expect(rcFile).not.toContain(proxyEnvPath);
       } finally {
         try {
           unlinkSync(tmpFile);

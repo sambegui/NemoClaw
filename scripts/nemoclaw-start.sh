@@ -1828,79 +1828,88 @@ ensure_runtime_shell_env_shim() {
       failed=1
       continue
     fi
-    if [ -f "$rc_file" ] \
-      && ! grep -qxF "$_RUNTIME_SHELL_ENV_SHIM" "$rc_file" 2>/dev/null \
-      && ! grep -q '/tmp/nemoclaw-proxy-env\.sh' "$rc_file" 2>/dev/null \
-      && ! grep -qxF '# Source runtime proxy config' "$rc_file" 2>/dev/null; then
-      continue
-    fi
-    if [ "$(id -u)" -eq 0 ] && [ -f "$rc_file" ]; then
-      if ! chown root:root "$rc_file" 2>/dev/null; then
-        echo "[SECURITY] could not take ownership of $rc_file before shim cleanup" >&2
-        failed=1
-        continue
-      fi
-      if ! chmod 644 "$rc_file" 2>/dev/null; then
-        echo "[SECURITY] could not make $rc_file writable before shim cleanup" >&2
-        failed=1
-        continue
-      fi
-    elif [ -f "$rc_file" ]; then
-      chmod u+w "$rc_file" 2>/dev/null || true
-    fi
-
     if [ ! -f "$rc_file" ]; then
       continue
     fi
 
-    local tmp_file
-    tmp_file="$(mktemp "/tmp/nemoclaw-rc-clean.XXXXXX")" || {
-      echo "[SECURITY] could not allocate temp file for rc cleanup: $rc_file" >&2
-      failed=1
-      continue
-    }
-    if ! awk -v shim="$_RUNTIME_SHELL_ENV_SHIM" '
-      $0 == "# Source runtime proxy config" {
-        if ((getline next_line) > 0) {
-          if (next_line == shim || next_line ~ /\/tmp\/nemoclaw-proxy-env\.sh/) {
-            next
-          }
-          print $0
-          print next_line
-          next
-        }
-      }
-      $0 == shim { next }
-      $0 ~ /\/tmp\/nemoclaw-proxy-env\.sh/ { next }
-      { print }
-    ' "$rc_file" >"$tmp_file"; then
-      rm -f "$tmp_file"
-      echo "[SECURITY] could not clean runtime env shim from $rc_file" >&2
-      failed=1
-      continue
-    fi
-    if [ "$(id -u)" -eq 0 ] && ! chown root:root "$tmp_file" 2>/dev/null; then
-      rm -f "$tmp_file"
-      echo "[SECURITY] could not take ownership of cleaned rc file: $rc_file" >&2
-      failed=1
-      continue
-    fi
-    if ! mv -f "$tmp_file" "$rc_file"; then
-      rm -f "$tmp_file"
-      echo "[SECURITY] could not replace cleaned rc file: $rc_file" >&2
-      failed=1
-      continue
-    fi
-    if [ -L "$rc_file" ] || [ ! -f "$rc_file" ]; then
-      echo "[SECURITY] cleaned rc file was replaced by an unsafe path: $rc_file" >&2
-      failed=1
-      continue
-    fi
-    chmod 644 "$rc_file" 2>/dev/null || true
+    if ! command python3 - "$rc_file" "$_RUNTIME_SHELL_ENV_SHIM" "$(id -u)" <<'PY'
+import errno
+import os
+import stat
+import sys
+import tempfile
 
-    if grep -qxF "$_RUNTIME_SHELL_ENV_SHIM" "$rc_file" 2>/dev/null; then
-      echo "[SECURITY] runtime env shim still present after cleanup: $rc_file" >&2
+rc_path, shim, uid_text = sys.argv[1:4]
+uid = int(uid_text)
+tmp_path = None
+
+try:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(rc_path, flags)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            print(f"[SECURITY] refusing symlinked rc file during cleanup: {rc_path}", file=sys.stderr)
+        else:
+            print(f"[SECURITY] could not open rc file for cleanup: {rc_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    with os.fdopen(fd, "r", encoding="utf-8", errors="surrogateescape") as handle:
+        st = os.fstat(handle.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            print(f"[SECURITY] refusing non-regular rc file during cleanup: {rc_path}", file=sys.stderr)
+            sys.exit(1)
+        lines = handle.readlines()
+
+    cleaned = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        bare = line.rstrip("\n")
+        if bare == "# Source runtime proxy config":
+            if index + 1 < len(lines):
+                next_line = lines[index + 1]
+                next_bare = next_line.rstrip("\n")
+                if next_bare == shim or "/tmp/nemoclaw-proxy-env.sh" in next_line:
+                    index += 2
+                    continue
+                cleaned.append(line)
+                cleaned.append(next_line)
+                index += 2
+                continue
+        if bare == shim or "/tmp/nemoclaw-proxy-env.sh" in line:
+            index += 1
+            continue
+        cleaned.append(line)
+        index += 1
+
+    if any(line.rstrip("\n") == shim or "/tmp/nemoclaw-proxy-env.sh" in line for line in cleaned):
+        print(f"[SECURITY] runtime env shim still present after cleanup: {rc_path}", file=sys.stderr)
+        sys.exit(1)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="nemoclaw-rc-clean.", dir="/tmp", text=True)
+    with os.fdopen(tmp_fd, "w", encoding="utf-8", errors="surrogateescape") as handle:
+        handle.writelines(cleaned)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if uid == 0:
+        os.chown(tmp_path, 0, 0)
+    os.chmod(tmp_path, 0o644)
+    os.replace(tmp_path, rc_path)
+    tmp_path = None
+except Exception as exc:
+    print(f"[SECURITY] could not safely clean runtime env shim from {rc_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
+finally:
+    if tmp_path:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+PY
+    then
       failed=1
+      continue
     fi
   done
 
