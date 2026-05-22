@@ -204,12 +204,10 @@ const { detectVllmProfile, installVllm } = require("./inference/vllm");
 const inferenceConfig: typeof import("./inference/config") = require("./inference/config");
 const {
   DEFAULT_CLOUD_MODEL,
-  DEFAULT_ROUTE_CREDENTIAL_ENV,
   getProviderSelectionConfig,
   parseGatewayInference,
 } = inferenceConfig;
-const resumeProviderRecovery: typeof import("./onboard/resume-provider-recovery") =
-  require("./onboard/resume-provider-recovery");
+const { ensureResumeProviderReady } = require("./onboard/resume-provider-shim");
 
 const onboardProviders = require("./onboard/providers");
 const hermesProviderAuth = require("./hermes-provider-auth");
@@ -1791,16 +1789,6 @@ function upsertMessagingProviders(tokenDefs: MessagingTokenDef[]) {
 function providerExistsInGateway(name: string) {
   return onboardProviders.providerExistsInGateway(name, runOpenshell);
 }
-
-const resumeProviderRecoveryDeps: import("./onboard/resume-provider-recovery").ResumeProviderRecoveryDeps = {
-  remoteProviderConfig: REMOTE_PROVIDER_CONFIG, defaultRouteCredentialEnv: DEFAULT_ROUTE_CREDENTIAL_ENV,
-  isRoutedInferenceProvider, providerExistsInGateway, getProviderLabel, isNonInteractive,
-  hydrateCredentialEnv: (e) => hydrateCredentialEnv(e) ?? undefined,
-  log: (m) => console.log(m), warn: (m) => console.error(m), note,
-  exit: (c) => process.exit(c), replaceNamedCredential, validateNvidiaApiKeyValue,
-};
-const ensureResumeProviderReady = (p: string | null | undefined, c: string | null | undefined) =>
-  resumeProviderRecovery.ensureResumeProviderReady(p, c, resumeProviderRecoveryDeps);
 
 function getMessagingChannelForEnvKey(envKey: string): string | null {
   if (envKey === "DISCORD_BOT_TOKEN") return "discord";
@@ -10139,6 +10127,9 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
 module.exports = {
   buildOrphanedSandboxRollbackMessage,
   buildProviderArgs,
+  isRoutedInferenceProvider,
+  note,
+  replaceNamedCredential,
   buildGatewayBootstrapSecretsScript,
   buildCompatibleEndpointSandboxSmokeCommand,
   buildCompatibleEndpointSandboxSmokeScript,

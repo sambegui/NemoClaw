@@ -31,7 +31,7 @@ type DepsRecorder = {
 
 function makeDeps(overrides: {
   providerExists?: boolean;
-  credentialValue?: string | undefined;
+  credentialValue?: string | null;
   nonInteractive?: boolean;
   remoteProviderConfig?: Record<string, RemoteProviderConfigEntry>;
 }): DepsRecorder {
@@ -47,7 +47,7 @@ function makeDeps(overrides: {
     defaultRouteCredentialEnv: "OPENAI_API_KEY",
     isRoutedInferenceProvider: () => false,
     providerExistsInGateway: () => overrides.providerExists ?? true,
-    hydrateCredentialEnv: () => overrides.credentialValue,
+    hydrateCredentialEnv: () => overrides.credentialValue ?? null,
     getProviderLabel: (key) => key,
     isNonInteractive: () => overrides.nonInteractive ?? false,
     log: (m) => log.push(m),
@@ -100,7 +100,7 @@ describe("ensureResumeProviderReady", () => {
   it("re-prompts for credentials when the provider was reset and credential is missing (#3278)", async () => {
     const recorder = makeDeps({
       providerExists: false,
-      credentialValue: undefined,
+      credentialValue: null,
     });
     const result = await ensureResumeProviderReady(
       "compatible-endpoint",
@@ -117,7 +117,7 @@ describe("ensureResumeProviderReady", () => {
   it("exits 1 in non-interactive mode when the provider is missing and no credential is set", async () => {
     const recorder = makeDeps({
       providerExists: false,
-      credentialValue: undefined,
+      credentialValue: null,
       nonInteractive: true,
     });
     await ensureResumeProviderReady("compatible-endpoint", "COMPATIBLE_API_KEY", recorder.deps);

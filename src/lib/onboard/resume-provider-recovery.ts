@@ -26,7 +26,7 @@ export type ResumeProviderRecoveryDeps = {
   defaultRouteCredentialEnv: string;
   isRoutedInferenceProvider: (provider: string) => boolean;
   providerExistsInGateway: (name: string) => boolean;
-  hydrateCredentialEnv: (envName: string) => string | undefined;
+  hydrateCredentialEnv: (envName: string) => string | null;
   getProviderLabel: (key: string) => string;
   isNonInteractive: () => boolean;
   log: (message: string) => void;
