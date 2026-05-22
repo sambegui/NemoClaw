@@ -2049,18 +2049,36 @@ describe("CLI dispatch", () => {
     expect(snapshots.out).toContain("No snapshots found for 'alpha'.");
   });
 
-  it("policy and channel mutations reject missing parser-owned values before dispatch", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-mutation-missing-values-"));
-    writeSandboxRegistry(home);
+  it(
+    "policy and channel mutations reject missing parser-owned values before dispatch",
+    testTimeoutOptions(30_000),
+    () => {
+      const home = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nemoclaw-cli-mutation-missing-values-"),
+      );
+      writeSandboxRegistry(home);
 
-    const missingPolicyFile = runWithEnv("alpha policy-add --from-file 2>&1", { HOME: home });
-    expect(missingPolicyFile.code).not.toBe(0);
-    expect(missingPolicyFile.out).toContain("--from-file");
+      const missingPolicyFile = runWithEnv("alpha policy-add --from-file 2>&1", {
+        HOME: home,
+      });
+      expect(missingPolicyFile.code).not.toBe(0);
+      expect(missingPolicyFile.out).toContain("--from-file");
 
-    const missingChannel = runWithEnv("alpha channels add 2>&1", { HOME: home });
-    expect(missingChannel.code).not.toBe(0);
-    expect(missingChannel.out).toContain("channel");
-  });
+      for (const action of ["add", "remove", "start", "stop"]) {
+        const missingChannel = runWithEnv(`alpha channels ${action} 2>&1`, { HOME: home });
+        expect(missingChannel.code).toBe(PARSER_EXIT_CODE);
+        expect(missingChannel.out).toContain("Missing 1 required arg:");
+        expect(missingChannel.out).toContain("channel  Messaging channel");
+        expect(missingChannel.out).toContain("USAGE");
+        expect(missingChannel.out).toContain(
+          `$ nemoclaw sandbox channels ${action} <name> <channel> [--dry-run]`,
+        );
+        expect(missingChannel.out).not.toContain("RequiredArgsError");
+        expect(missingChannel.out).not.toContain("at validateArgs");
+        expect(missingChannel.out).not.toContain(`Command alpha:channels:${action} not found`);
+      }
+    },
+  );
 
   it("diagnostic commands reject invalid parser-owned flags before dispatch", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-diagnostics-invalid-flags-"));
@@ -3834,6 +3852,95 @@ describe("CLI dispatch", () => {
     expect(calls.filter((call) => call === "sandbox list").length).toBeGreaterThanOrEqual(2);
     expect(calls).toContain("sandbox connect alpha");
   });
+
+  it(
+    "fails fast with gateway recovery guidance when connect readiness sees a disconnected gateway",
+    () => {
+      const home = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nemoclaw-cli-connect-gateway-down-"),
+      );
+      const localBin = path.join(home, "bin");
+      const registryDir = path.join(home, ".nemoclaw");
+      const markerFile = path.join(home, "openshell-calls");
+      fs.mkdirSync(localBin, { recursive: true });
+      fs.mkdirSync(registryDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(registryDir, "sandboxes.json"),
+        JSON.stringify({
+          sandboxes: {
+            alpha: {
+              name: "alpha",
+              model: "test-model",
+              provider: "nvidia-prod",
+              gpuEnabled: false,
+              policies: [],
+            },
+          },
+          defaultSandbox: "alpha",
+        }),
+        { mode: 0o600 },
+      );
+      fs.writeFileSync(
+        path.join(localBin, "openshell"),
+        [
+          "#!/usr/bin/env bash",
+          `marker_file=${JSON.stringify(markerFile)}`,
+          'printf \'%s\\n\' "$*" >> "$marker_file"',
+          'if [ "$1" = "sandbox" ] && [ "$2" = "get" ] && [ "$3" = "alpha" ]; then',
+          "  echo 'Sandbox:'",
+          "  echo",
+          "  echo '  Id: abc'",
+          "  echo '  Name: alpha'",
+          "  echo '  Namespace: openshell'",
+          "  echo '  Phase: Pending'",
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "sandbox" ] && [ "$2" = "list" ]; then',
+          "  echo 'alpha   unknown   103s ago'",
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "status" ]; then',
+          "  echo 'Server Status'",
+          "  echo",
+          "  echo '  Gateway: nemoclaw'",
+          "  echo '  Status: Disconnected'",
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "gateway" ] && [ "$2" = "info" ] && [ "$3" = "-g" ] && [ "$4" = "nemoclaw" ]; then',
+          "  echo 'Gateway Info'",
+          "  echo",
+          "  echo '  Gateway: nemoclaw'",
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "sandbox" ] && [ "$2" = "connect" ] && [ "$3" = "alpha" ]; then',
+          "  echo 'should-not-connect' >> \"$marker_file\"",
+          "  exit 0",
+          "fi",
+          "exit 0",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+
+      const r = runWithEnv(
+        "alpha connect",
+        {
+          HOME: home,
+          NEMOCLAW_CONNECT_TIMEOUT: "1",
+          PATH: `${localBin}:${process.env.PATH || ""}`,
+        },
+        execTimeout(10_000),
+      );
+
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("OpenShell gateway is not running or unreachable");
+      expect(r.out).toContain("nemoclaw onboard");
+      expect(r.out).not.toContain("Timed out after 1s");
+      const calls = fs.readFileSync(markerFile, "utf8").trim().split("\n").filter(Boolean);
+      expect(calls).toContain("status");
+      expect(calls).not.toContain("should-not-connect");
+    },
+    testTimeout(15_000),
+  );
 
   it("prints recovery guidance when readiness polling hits a terminal sandbox state", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-connect-failed-"));

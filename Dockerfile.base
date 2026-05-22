@@ -205,7 +205,7 @@ RUN --mount=type=bind,source=nemoclaw-blueprint/blueprint.yaml,target=/tmp/bluep
 USER sandbox
 WORKDIR /sandbox
 # hadolint ignore=DL3059,DL4006
-RUN openclaw plugins install '@tencent-weixin/openclaw-weixin@2.4.2' --pin \
+RUN openclaw plugins install '@tencent-weixin/openclaw-weixin@2.4.3' --pin \
     && openclaw config set plugins.entries.openclaw-weixin.enabled true
 # hadolint ignore=DL3002
 USER root
