@@ -162,6 +162,10 @@ The cleanup targets `/sandbox/.openclaw/<channel>/` for OpenClaw and `/sandbox/.
 The cleanup tries `openshell sandbox exec` and falls back to SSH if that does not produce the success sentinel.
 If neither transport can reach a running sandbox for a QR-paired channel, the command exits non-zero and asks you to start the sandbox and re-run; the registry, policy preset, and `session.policyPresets` stay untouched so a re-run can complete the removal cleanly.
 
+`channels remove whatsapp` clears the client-side Baileys session inside the sandbox; it cannot deregister the linked device with WhatsApp's servers because that requires an active Baileys connection to issue the logout RPC, which we no longer have once the session files are gone.
+The phone account will continue to list the sandbox as a Linked Device until you remove it manually from your phone (Settings → Linked Devices → tap the entry → Log out) or until WhatsApp's 14-day inactivity timeout expires.
+Removing the entry from the phone is recommended if you plan to re-pair the same phone with a different sandbox.
+
 Use `channels stop` when you want to pause a bridge without deleting credentials:
 
 ```console
