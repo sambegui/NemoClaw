@@ -58,9 +58,13 @@ import {
   createSystemDeps as createSessionDeps,
   getActiveSandboxSessions,
 } from "../../state/sandbox-session";
-import * as shields from "../../shields";
 import { removeSandboxRegistryEntry } from "./destroy";
 import { executeSandboxCommand } from "./process-recovery";
+import {
+  openRebuildShieldsWindow,
+  relockRebuildShieldsWindow,
+  type RebuildShieldsWindow,
+} from "./rebuild-shields";
 
 /**
  * Emit timestamped rebuild diagnostics when verbose rebuild logging is enabled.
@@ -439,64 +443,21 @@ export async function rebuildSandbox(
     }
   }
 
-  // Step 1b: Auto-unlock shields if locked. Without this, the sandbox-state
-  // backup tar fails because high-risk state dirs are owned by root:root.
-  // We re-apply the lockdown after a successful rebuild (#3113).
-  const shieldsWereLocked = !shields.isShieldsDown(sandboxName);
-  if (shieldsWereLocked) {
-    console.log("");
-    console.log(`  ${YW}Shields are UP${R} — temporarily unlocking for rebuild backup...`);
-    try {
-      shields.shieldsDown(sandboxName, {
-        reason: "auto-unlock for rebuild",
-        skipTimer: true,
-        throwOnError: true,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("");
-      console.error(`  ${_RD}Failed to auto-unlock shields:${R} ${message}`);
-      console.error("  Sandbox is untouched — no data was lost.");
-      console.error(
-        `  Run \`${CLI_NAME} ${sandboxName} shields down\` manually, then retry rebuild.`,
-      );
-      bail(`Failed to auto-unlock shields: ${message}`);
-      return;
-    }
+  let rebuildShieldsWindow: RebuildShieldsWindow;
+  try {
+    rebuildShieldsWindow = openRebuildShieldsWindow(sandboxName, CLI_NAME);
+  } catch (err) {
+    bail(err instanceof Error ? err.message : String(err));
+    return;
   }
 
-  // Re-lock shields if we auto-unlocked. Idempotent across multiple call sites
-  // (success path + bail-before-destroy path). After destroy, the sandbox is
-  // gone — we surface manual recovery instructions instead.
-  let shieldsRelocked = false;
-  const relockShieldsIfNeeded = (sandboxStillExists: boolean): void => {
-    if (!shieldsWereLocked || shieldsRelocked) return;
-    if (!sandboxStillExists) {
-      console.warn("");
-      console.warn(
-        `  ${YW}⚠${R} Cannot re-apply shields lockdown — sandbox no longer exists.`,
-      );
-      console.warn(
-        `  After recovery, run \`${CLI_NAME} ${sandboxName} shields up\` to restore lockdown.`,
-      );
-      return;
-    }
-    console.log("");
-    console.log("  Re-applying shields lockdown...");
-    try {
-      shields.shieldsUp(sandboxName, { throwOnError: true });
-      console.log(`  ${G}✓${R} Shields restored to UP`);
-      shieldsRelocked = true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `  ${YW}⚠${R} Failed to re-apply shields lockdown: ${message}`,
-      );
-      console.error(
-        `  Run \`${CLI_NAME} ${sandboxName} shields up\` manually to restore lockdown.`,
-      );
-    }
-  };
+  const relockShieldsIfNeeded = (sandboxStillExists: boolean): boolean =>
+    relockRebuildShieldsWindow(
+      sandboxName,
+      rebuildShieldsWindow,
+      sandboxStillExists,
+      CLI_NAME,
+    );
 
   // Step 2: Backup
   console.log("  Backing up sandbox state...");
@@ -778,7 +739,7 @@ export async function rebuildSandbox(
     console.error(
       `       ${CLI_NAME} ${sandboxName} snapshot restore "${backupManifest.timestamp}"`,
     );
-    if (shieldsWereLocked) {
+    if (rebuildShieldsWindow.wasLocked) {
       console.error(`    4. Restore shields lockdown:`);
       console.error(`       ${CLI_NAME} ${sandboxName} shields up`);
     }
@@ -926,7 +887,12 @@ export async function rebuildSandbox(
   // Step 8: Re-apply shields lockdown if it was active before rebuild (#3113).
   // Sandbox now exists and policy presets have been re-applied, so this is
   // the correct point to restore the restrictive policy + lock config files.
-  relockShieldsIfNeeded(true);
+  if (!relockShieldsIfNeeded(true)) {
+    console.error("");
+    console.error("  Sandbox rebuilt, but shields lockdown could not be restored.");
+    bail("Failed to re-apply shields lockdown.");
+    return;
+  }
 
   console.log("");
   if (restore.success) {

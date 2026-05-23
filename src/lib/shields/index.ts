@@ -910,18 +910,13 @@ interface ShieldsDownOpts {
   timeout?: string | null;
   reason?: string | null;
   policy?: string;
-  // Internal: skip the auto-restore timer fork. Used by `rebuild` which
-  // re-locks immediately after backup/recreate, so a detached timer racing
-  // with a destroyed-then-recreated sandbox is undesirable (#3113).
   skipTimer?: boolean;
-  // Internal: throw on error instead of process.exit(1). Lets system-level
-  // operations (e.g., rebuild) recover instead of dying mid-flow.
   throwOnError?: boolean;
 }
 
 function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
   validateName(sandboxName, "sandbox name");
-  const fail = opts.throwOnError
+  const fail: (msg: string) => never = opts.throwOnError
     ? (msg: string) => {
         throw new Error(msg);
       }
@@ -935,8 +930,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       "  Run `nemoclaw shields up` first, or use --extend (not yet implemented).",
     );
-    fail(`Config is already unlocked for ${sandboxName}`);
-    return;
+    return fail(`Config is already unlocked for ${sandboxName}`);
   }
 
   // Kill stale auto-restore markers only when this command will actually
@@ -964,8 +958,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
   const policyYaml = parseCurrentPolicy(rawPolicy);
   if (!policyYaml) {
     console.error("  Cannot capture current policy. Is the sandbox running?");
-    fail("Cannot capture current policy");
-    return;
+    return fail("Cannot capture current policy");
   }
 
   const ts = Date.now();
@@ -997,8 +990,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       `  Unknown policy "${policyName}". Use "permissive" or a path to a YAML file.`,
     );
-    fail(`Unknown policy "${policyName}"`);
-    return;
+    return fail(`Unknown policy "${policyName}"`);
   }
 
   console.log(`  Applying ${policyName} policy...`);
@@ -1028,8 +1020,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       `  Re-run \`nemoclaw ${sandboxName} shields down\` after correcting file ownership.`,
     );
-    fail(message);
-    return;
+    return fail(message);
   }
 
   // 3. Update state
@@ -1134,8 +1125,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
           `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
         );
       }
-      fail(`Cannot start auto-restore timer: ${message}`);
-      return;
+      return fail(`Cannot start auto-restore timer: ${message}`);
     }
   }
 
@@ -1177,14 +1167,12 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
 // ---------------------------------------------------------------------------
 
 interface ShieldsUpOpts {
-  // Internal: throw on error instead of process.exit(1). Lets system-level
-  // operations (e.g., rebuild) recover instead of dying mid-flow (#3113).
   throwOnError?: boolean;
 }
 
 function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
   validateName(sandboxName, "sandbox name");
-  const fail = opts.throwOnError
+  const fail: (msg: string) => never = opts.throwOnError
     ? (msg: string) => {
         throw new Error(msg);
       }
@@ -1215,8 +1203,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
     console.error(
       "  Sandbox remains unlocked; recapture shields-down state before running shields up.",
     );
-    fail("Saved policy snapshot is missing");
-    return;
+    return fail("Saved policy snapshot is missing");
   }
   if (snapshotPath) {
     console.log("  Restoring restrictive policy from snapshot...");
@@ -1229,8 +1216,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
       console.error(
         `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
-      fail(activation.error ?? "unknown restore error");
-      return;
+      return fail(activation.error ?? "unknown restore error");
     }
   } else {
     // 2b. Lock config file to read-only.
@@ -1252,8 +1238,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
       console.error(
         `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
-      fail(message);
-      return;
+      return fail(message);
     }
   }
 
