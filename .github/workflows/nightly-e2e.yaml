@@ -83,6 +83,7 @@ on:
           skill-agent-e2e, docs-validation-e2e, messaging-providers-e2e,
           openclaw-slack-pairing-e2e,
           openclaw-tui-chat-correlation-e2e,
+          issue-3600-gpu-proof-optional-e2e,
           openclaw-discord-pairing-e2e,
           messaging-compatible-endpoint-e2e,
           kimi-inference-compat-e2e,
@@ -414,7 +415,7 @@ jobs:
           ref: ${{ inputs.target_ref || github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
           node-version: "22"
 
@@ -457,7 +458,7 @@ jobs:
           ref: ${{ inputs.target_ref || github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
           node-version: "22"
 
@@ -1801,7 +1802,7 @@ jobs:
           ref: ${{ inputs.target_ref || github.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
           node-version: "22"
 
@@ -2444,6 +2445,8 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         openclaw-slack-pairing-e2e,
+        openclaw-tui-chat-correlation-e2e,
+        issue-3600-gpu-proof-optional-e2e,
         openclaw-discord-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-add-remove-e2e,
@@ -2544,6 +2547,8 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         openclaw-slack-pairing-e2e,
+        openclaw-tui-chat-correlation-e2e,
+        issue-3600-gpu-proof-optional-e2e,
         openclaw-discord-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-add-remove-e2e,
@@ -2701,6 +2706,8 @@ jobs:
         docs-validation-e2e,
         messaging-providers-e2e,
         openclaw-slack-pairing-e2e,
+        openclaw-tui-chat-correlation-e2e,
+        issue-3600-gpu-proof-optional-e2e,
         openclaw-discord-pairing-e2e,
         messaging-compatible-endpoint-e2e,
         channels-add-remove-e2e,
