@@ -174,6 +174,13 @@ interface ShieldsPosture {
   state: LoadedShieldsState;
 }
 
+type AgentConfigTarget = {
+  agentName?: string;
+  configPath: string;
+  configDir: string;
+  sensitiveFiles?: string[];
+};
+
 /**
  * Derive the effective shields mode from persisted state.
  *
@@ -496,12 +503,7 @@ function assertNoLegacyStateLayout(
 
 function unlockAgentConfig(
   sandboxName: string,
-  target: {
-    agentName?: string;
-    configPath: string;
-    configDir: string;
-    sensitiveFiles?: string[];
-  },
+  target: AgentConfigTarget,
 ): void {
   const errors: string[] = [];
   const filesToUnlock = [target.configPath, ...(target.sensitiveFiles || [])];
@@ -632,12 +634,7 @@ function unlockAgentConfig(
 
 function lockAgentConfig(
   sandboxName: string,
-  target: {
-    agentName?: string;
-    configPath: string;
-    configDir: string;
-    sensitiveFiles?: string[];
-  },
+  target: AgentConfigTarget,
 ): void {
   const errors: string[] = [];
   const filesToLock = [target.configPath, ...(target.sensitiveFiles || [])];
@@ -771,6 +768,45 @@ function lockAgentConfig(
 
   if (issues.length > 0) {
     throw new Error(`Config not locked: ${issues.join(", ")}`);
+  }
+}
+
+function rollbackShieldsDown(
+  sandboxName: string,
+  target: AgentConfigTarget,
+  snapshotPath: string,
+): void {
+  console.error("  Rolling back — restoring policy from snapshot...");
+  const rollbackResult = run(buildPolicySetCommand(snapshotPath, sandboxName), {
+    ignoreError: true,
+  });
+  let rollbackLocked = false;
+  if (rollbackResult.status === 0) {
+    try {
+      lockAgentConfig(sandboxName, target);
+      rollbackLocked = true;
+    } catch {
+      console.error(
+        "  Warning: Rollback re-lock could not be verified. Check config manually.",
+      );
+    }
+  } else {
+    console.error("  Warning: Policy restore failed during rollback.");
+  }
+  if (rollbackLocked) {
+    saveShieldsState(sandboxName, {
+      shieldsDown: false,
+      shieldsDownAt: null,
+      shieldsDownTimeout: null,
+      shieldsDownReason: null,
+      shieldsDownPolicy: null,
+    });
+    console.error("  Lockdown restored. Config was never left unguarded.");
+  } else {
+    console.error("  Config remains unlocked — manual intervention required.");
+    console.error(
+      `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
+    );
   }
 }
 
@@ -1007,6 +1043,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     unlockAgentConfig(sandboxName, target);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    rollbackShieldsDown(sandboxName, target, snapshotPath);
     console.error(`  ERROR: ${message}`);
     console.error(
       "  Config did not reach the mutable-default state; refusing to save shields-down state.",
@@ -1081,44 +1118,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`  Cannot start auto-restore timer: ${message}`);
-      console.error("  Rolling back — restoring policy from snapshot...");
-      const rollbackResult = run(
-        buildPolicySetCommand(snapshotPath, sandboxName),
-        {
-          ignoreError: true,
-        },
-      );
-      let rollbackLocked = false;
-      if (rollbackResult.status === 0) {
-        try {
-          lockAgentConfig(sandboxName, target);
-          rollbackLocked = true;
-        } catch {
-          console.error(
-            "  Warning: Rollback re-lock could not be verified. Check config manually.",
-          );
-        }
-      } else {
-        console.error("  Warning: Policy restore failed during rollback.");
-      }
-      if (rollbackLocked) {
-        saveShieldsState(sandboxName, {
-          shieldsDown: false,
-          shieldsDownAt: null,
-          shieldsDownTimeout: null,
-          shieldsDownReason: null,
-          shieldsDownPolicy: null,
-        });
-        console.error("  Lockdown restored. Config was never left unguarded.");
-      } else {
-        // Leave state as shieldsDown: true — don't lie about protection level
-        console.error(
-          "  Config remains unlocked — manual intervention required.",
-        );
-        console.error(
-          `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
-        );
-      }
+      rollbackShieldsDown(sandboxName, target, snapshotPath);
       process.exit(1);
     }
   }
