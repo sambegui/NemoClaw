@@ -12,7 +12,7 @@ export interface RebuildShieldsWindow {
 export function openRebuildShieldsWindow(
   sandboxName: string,
   cliName: string,
-): RebuildShieldsWindow {
+): RebuildShieldsWindow | null {
   const window = {
     relocked: false,
     wasLocked: !shields.isShieldsDown(sandboxName),
@@ -25,7 +25,6 @@ export function openRebuildShieldsWindow(
     shields.shieldsDown(sandboxName, {
       reason: "auto-unlock for rebuild",
       skipTimer: true,
-      throwOnError: true,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -35,9 +34,19 @@ export function openRebuildShieldsWindow(
     console.error(
       `  Run \`${cliName} ${sandboxName} shields down\` manually, then retry rebuild.`,
     );
-    throw new Error(`Failed to auto-unlock shields: ${message}`);
+    return null;
   }
   return window;
+}
+
+export function printRebuildShieldsRecovery(
+  sandboxName: string,
+  window: RebuildShieldsWindow,
+  cliName: string,
+): void {
+  if (!window.wasLocked) return;
+  console.error(`    4. Restore shields lockdown:`);
+  console.error(`       ${cliName} ${sandboxName} shields up`);
 }
 
 export function relockRebuildShieldsWindow(
@@ -61,7 +70,7 @@ export function relockRebuildShieldsWindow(
   console.log("");
   console.log("  Re-applying shields lockdown...");
   try {
-    shields.shieldsUp(sandboxName, { throwOnError: true });
+    shields.shieldsUp(sandboxName);
     console.log(`  ${G}✓${R} Shields restored to UP`);
     window.relocked = true;
     return true;

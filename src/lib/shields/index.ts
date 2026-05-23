@@ -911,16 +911,10 @@ interface ShieldsDownOpts {
   reason?: string | null;
   policy?: string;
   skipTimer?: boolean;
-  throwOnError?: boolean;
 }
 
 function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
   validateName(sandboxName, "sandbox name");
-  const fail: (msg: string) => never = opts.throwOnError
-    ? (msg: string) => {
-        throw new Error(msg);
-      }
-    : (_msg: string) => process.exit(1);
 
   const state = loadShieldsState(sandboxName);
   if (state.shieldsDown) {
@@ -930,7 +924,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       "  Run `nemoclaw shields up` first, or use --extend (not yet implemented).",
     );
-    return fail(`Config is already unlocked for ${sandboxName}`);
+    process.exit(1);
   }
 
   // Kill stale auto-restore markers only when this command will actually
@@ -958,7 +952,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
   const policyYaml = parseCurrentPolicy(rawPolicy);
   if (!policyYaml) {
     console.error("  Cannot capture current policy. Is the sandbox running?");
-    return fail("Cannot capture current policy");
+    process.exit(1);
   }
 
   const ts = Date.now();
@@ -990,7 +984,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       `  Unknown policy "${policyName}". Use "permissive" or a path to a YAML file.`,
     );
-    return fail(`Unknown policy "${policyName}"`);
+    process.exit(1);
   }
 
   console.log(`  Applying ${policyName} policy...`);
@@ -1020,7 +1014,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
     console.error(
       `  Re-run \`nemoclaw ${sandboxName} shields down\` after correcting file ownership.`,
     );
-    return fail(message);
+    process.exit(1);
   }
 
   // 3. Update state
@@ -1125,7 +1119,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
           `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
         );
       }
-      return fail(`Cannot start auto-restore timer: ${message}`);
+      process.exit(1);
     }
   }
 
@@ -1166,17 +1160,8 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
 // hardening step that restricts the sandbox beyond its default state.
 // ---------------------------------------------------------------------------
 
-interface ShieldsUpOpts {
-  throwOnError?: boolean;
-}
-
-function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
+function shieldsUp(sandboxName: string): void {
   validateName(sandboxName, "sandbox name");
-  const fail: (msg: string) => never = opts.throwOnError
-    ? (msg: string) => {
-        throw new Error(msg);
-      }
-    : (_msg: string) => process.exit(1);
 
   const state = loadShieldsState(sandboxName);
   // shieldsDown === false means explicitly locked by a previous shields-up.
@@ -1203,7 +1188,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
     console.error(
       "  Sandbox remains unlocked; recapture shields-down state before running shields up.",
     );
-    return fail("Saved policy snapshot is missing");
+    process.exit(1);
   }
   if (snapshotPath) {
     console.log("  Restoring restrictive policy from snapshot...");
@@ -1216,7 +1201,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
       console.error(
         `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
-      return fail(activation.error ?? "unknown restore error");
+      process.exit(1);
     }
   } else {
     // 2b. Lock config file to read-only.
@@ -1238,7 +1223,7 @@ function shieldsUp(sandboxName: string, opts: ShieldsUpOpts = {}): void {
       console.error(
         `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
-      return fail(message);
+      process.exit(1);
     }
   }
 

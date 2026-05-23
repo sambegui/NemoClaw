@@ -29,11 +29,11 @@ describe("rebuild shields window", () => {
 
     const window = openRebuildShieldsWindow("locked-sandbox", "nemoclaw");
 
-    expect(window.wasLocked).toBe(true);
+    expect(window).not.toBeNull();
+    expect(window!.wasLocked).toBe(true);
     expect(shieldsMock.shieldsDown).toHaveBeenCalledWith("locked-sandbox", {
       reason: "auto-unlock for rebuild",
       skipTimer: true,
-      throwOnError: true,
     });
   });
 
@@ -44,9 +44,7 @@ describe("rebuild shields window", () => {
 
     expect(relocked).toBe(true);
     expect(window.relocked).toBe(true);
-    expect(shieldsMock.shieldsUp).toHaveBeenCalledWith("locked-sandbox", {
-      throwOnError: true,
-    });
+    expect(shieldsMock.shieldsUp).toHaveBeenCalledWith("locked-sandbox");
 
     expect(relockRebuildShieldsWindow("locked-sandbox", window, true, "nemoclaw")).toBe(true);
     expect(shieldsMock.shieldsUp).toHaveBeenCalledTimes(1);
@@ -72,9 +70,10 @@ describe("rebuild shields window", () => {
 
     const window = openRebuildShieldsWindow("mutable-sandbox", "nemoclaw");
 
-    expect(window.wasLocked).toBe(false);
+    expect(window).not.toBeNull();
+    expect(window!.wasLocked).toBe(false);
     expect(shieldsMock.shieldsDown).not.toHaveBeenCalled();
-    expect(relockRebuildShieldsWindow("mutable-sandbox", window, true, "nemoclaw")).toBe(true);
+    expect(relockRebuildShieldsWindow("mutable-sandbox", window!, true, "nemoclaw")).toBe(true);
     expect(shieldsMock.shieldsUp).not.toHaveBeenCalled();
   });
 });
