@@ -58,6 +58,7 @@ import {
   createSystemDeps as createSessionDeps,
   getActiveSandboxSessions,
 } from "../../state/sandbox-session";
+import * as shields from "../../shields";
 import { removeSandboxRegistryEntry } from "./destroy";
 import { executeSandboxCommand } from "./process-recovery";
 
@@ -438,6 +439,65 @@ export async function rebuildSandbox(
     }
   }
 
+  // Step 1b: Auto-unlock shields if locked. Without this, the sandbox-state
+  // backup tar fails because high-risk state dirs are owned by root:root.
+  // We re-apply the lockdown after a successful rebuild (#3113).
+  const shieldsWereLocked = !shields.isShieldsDown(sandboxName);
+  if (shieldsWereLocked) {
+    console.log("");
+    console.log(`  ${YW}Shields are UP${R} — temporarily unlocking for rebuild backup...`);
+    try {
+      shields.shieldsDown(sandboxName, {
+        reason: "auto-unlock for rebuild",
+        skipTimer: true,
+        throwOnError: true,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("");
+      console.error(`  ${_RD}Failed to auto-unlock shields:${R} ${message}`);
+      console.error("  Sandbox is untouched — no data was lost.");
+      console.error(
+        `  Run \`${CLI_NAME} ${sandboxName} shields down\` manually, then retry rebuild.`,
+      );
+      bail(`Failed to auto-unlock shields: ${message}`);
+      return;
+    }
+  }
+
+  // Re-lock shields if we auto-unlocked. Idempotent across multiple call sites
+  // (success path + bail-before-destroy path). After destroy, the sandbox is
+  // gone — we surface manual recovery instructions instead.
+  let shieldsRelocked = false;
+  const relockShieldsIfNeeded = (sandboxStillExists: boolean): void => {
+    if (!shieldsWereLocked || shieldsRelocked) return;
+    if (!sandboxStillExists) {
+      console.warn("");
+      console.warn(
+        `  ${YW}⚠${R} Cannot re-apply shields lockdown — sandbox no longer exists.`,
+      );
+      console.warn(
+        `  After recovery, run \`${CLI_NAME} ${sandboxName} shields up\` to restore lockdown.`,
+      );
+      return;
+    }
+    console.log("");
+    console.log("  Re-applying shields lockdown...");
+    try {
+      shields.shieldsUp(sandboxName, { throwOnError: true });
+      console.log(`  ${G}✓${R} Shields restored to UP`);
+      shieldsRelocked = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `  ${YW}⚠${R} Failed to re-apply shields lockdown: ${message}`,
+      );
+      console.error(
+        `  Run \`${CLI_NAME} ${sandboxName} shields up\` manually to restore lockdown.`,
+      );
+    }
+  };
+
   // Step 2: Backup
   console.log("  Backing up sandbox state...");
   log(`Agent type: ${sb.agent || "openclaw"}, stateDirs from manifest`);
@@ -456,6 +516,7 @@ export async function rebuildSandbox(
       console.error(`  Failed files: ${backup.failedFiles.join(", ")}`);
     }
     console.error("  Aborting rebuild to prevent data loss.");
+    relockShieldsIfNeeded(true);
     bail("Failed to back up sandbox state.");
     return;
   }
@@ -463,6 +524,7 @@ export async function rebuildSandbox(
   if (!backupManifest) {
     console.error("  Failed to record backup metadata.");
     console.error("  Aborting rebuild to prevent data loss.");
+    relockShieldsIfNeeded(true);
     bail("Failed to record backup metadata.");
     return;
   }
@@ -515,6 +577,7 @@ export async function rebuildSandbox(
   if (deleteResult.status !== 0 && !alreadyGone) {
     console.error("  Failed to delete sandbox. Aborting rebuild.");
     console.error("  State backup is preserved at: " + backupManifest.backupPath);
+    relockShieldsIfNeeded(true);
     bail("Failed to delete sandbox.", deleteResult.status || 1);
     return;
   }
@@ -715,7 +778,12 @@ export async function rebuildSandbox(
     console.error(
       `       ${CLI_NAME} ${sandboxName} snapshot restore "${backupManifest.timestamp}"`,
     );
+    if (shieldsWereLocked) {
+      console.error(`    4. Restore shields lockdown:`);
+      console.error(`       ${CLI_NAME} ${sandboxName} shields up`);
+    }
     console.error("");
+    relockShieldsIfNeeded(false);
     bail(
       `Recreate failed (sandbox destroyed). Backup: ${backupManifest.backupPath}`,
       onboardExitCode,
@@ -854,6 +922,11 @@ export async function rebuildSandbox(
     agentVersion: agentDef.expectedVersion || null,
   });
   log(`Registry updated: agentVersion=${agentDef.expectedVersion}`);
+
+  // Step 8: Re-apply shields lockdown if it was active before rebuild (#3113).
+  // Sandbox now exists and policy presets have been re-applied, so this is
+  // the correct point to restore the restrictive policy + lock config files.
+  relockShieldsIfNeeded(true);
 
   console.log("");
   if (restore.success) {
