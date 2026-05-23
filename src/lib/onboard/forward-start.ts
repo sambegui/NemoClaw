@@ -51,6 +51,9 @@ export interface DetachedForwardStartOptions {
   // no-op so the helper stays terminal-quiet in non-interactive contexts.
   onProgress?: (info: { elapsedMs: number; listSnapshot: string }) => void;
   progressIntervalMs?: number;
+  // Number of EADDRINUSE-style retries after the initial attempt. Honoured
+  // only by `runDetachedForwardStartWithPortReleaseRetries`. Defaults to 3.
+  maxRetries?: number;
 }
 
 function readDiagnosticFile(filePath: string): string {
@@ -102,14 +105,25 @@ export function buildDetachedForwardStartSpawn(
   argv: readonly string[],
 ): DetachedForwardSpawnRunner {
   return ({ stdout, stderr }, onAsyncError) => {
+    // Preflight: the helper polls synchronously, so a Node `error` event
+    // dispatched after `spawn` returns cannot reach the poll loop while it
+    // is sleeping on a `spawnSync` child. Catch the obvious ENOENT/EACCES
+    // cases up front via `fs.accessSync` so the helper returns the real
+    // failure immediately instead of timing out 180s later.
+    try {
+      fs.accessSync(argv[0], fs.constants.X_OK);
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
     try {
       const child = spawnChild(argv[0], argv.slice(1), {
         stdio: ["ignore", stdout, stderr],
         detached: true,
       });
-      // Async failures (ENOENT/EACCES at execve, signal during spawn) arrive
-      // via `error` after `spawn` already returned. Without a listener they
-      // bubble to the process and crash onboard.
+      // Belt-and-braces: register the `error` listener in case a runtime
+      // execve failure still slips through the preflight (race against
+      // permission changes, NFS mounts going stale, etc.). The poll loop
+      // checks `asyncSpawnError` between iterations.
       if (onAsyncError) {
         child.on("error", onAsyncError);
       } else {
@@ -279,9 +293,9 @@ export function runDetachedForwardStartWithPortReleaseRetries(
   fetchForwardList: ForwardListFetcher,
   expect: { port: number; sandboxName: string },
   beforeRetry: () => void,
-  maxRetries = 3,
   options: DetachedForwardStartOptions = {},
 ): DetachedForwardStartOutcome {
+  const maxRetries = options.maxRetries ?? 3;
   let attempt = runDetachedForwardStartWithDiagnostics(
     runDetachedSpawn,
     fetchForwardList,

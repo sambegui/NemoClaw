@@ -17,7 +17,7 @@ const {
 }: typeof import("./onboard/branding") = require("./onboard/branding");
 const { cleanupTempDir }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
 const { stopStaleDashboardListenersForSandbox } = require("./onboard/stale-gateway-cleanup");
-const { bestEffortForwardStop } = require("./onboard/forward-cleanup");
+const { bestEffortForwardStop, bestEffortForwardStopForSandbox } = require("./onboard/forward-cleanup");
 const { buildDetachedForwardStartSpawn, buildForwardStartProgressLogger, looksLikeForwardPortConflict, runDetachedForwardStartWithPortReleaseRetries }: typeof import("./onboard/forward-start") = require("./onboard/forward-start");
 const { ensureManagedOllamaLoopbackSystemdOverride, ensureOllamaLoopbackSystemdOverride }: typeof import("./onboard/ollama-systemd") = require("./onboard/ollama-systemd");
 const {
@@ -8616,13 +8616,12 @@ function ensureDashboardForward(
   const parsedUrl = new URL(chatUiUrl.includes("://") ? chatUiUrl : `http://${chatUiUrl}`);
   parsedUrl.port = String(actualPort);
   const actualTarget = getDashboardForwardTarget(parsedUrl.toString());
-  bestEffortForwardStop(runOpenshell, actualPort);
+  bestEffortForwardStopForSandbox(runOpenshell, runCaptureOpenshell, actualPort, sandboxName);
   const { ok: fwdOk, diagnostic: fwdDiagnostic } = runDetachedForwardStartWithPortReleaseRetries(
     buildDetachedForwardStartSpawn(openshellArgv(["forward", "start", "--background", actualTarget, sandboxName])),
-    () => runCaptureOpenshell(["forward", "list"]),
+    () => runCaptureOpenshell(["forward", "list"], { timeout: 5_000 }),
     { port: actualPort, sandboxName },
-    () => { sleep(1); bestEffortForwardStop(runOpenshell, actualPort); },
-    3,
+    () => { sleep(1); bestEffortForwardStopForSandbox(runOpenshell, runCaptureOpenshell, actualPort, sandboxName); },
     { onProgress: buildForwardStartProgressLogger(actualPort) },
   );
   if (!fwdOk) {

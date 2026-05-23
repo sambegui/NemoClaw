@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildDetachedForwardStartSpawn,
   looksLikeForwardPortConflict,
   runDetachedForwardStartWithDiagnostics,
   runDetachedForwardStartWithPortReleaseRetries,
@@ -98,34 +99,29 @@ describe("runDetachedForwardStartWithDiagnostics", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("surfaces async spawn errors fired after the runner returned", () => {
+  it("preflights argv[0] and short-circuits on a missing openshell binary", () => {
     const fetchList = vi.fn().mockReturnValue("");
-    let asyncErrorCallback: ((err: Error) => void) | undefined;
-    const spawn = vi.fn().mockImplementation((_stdio, onAsyncError) => {
-      asyncErrorCallback = onAsyncError;
-      return { pid: 4242 };
-    });
-    // The sleep stub is the only synchronous yield point in the helper's
-    // poll loop. Simulate Node's `error` event firing during that pause so
-    // the next iteration observes `asyncSpawnError` and returns spawn-error.
-    let sleepCalls = 0;
-    const sleep = vi.fn().mockImplementation(() => {
-      sleepCalls += 1;
-      if (sleepCalls === 1 && asyncErrorCallback) {
-        asyncErrorCallback(new Error("spawn ENOENT"));
-      }
-    });
+    const sleep = vi.fn();
+    // Real `buildDetachedForwardStartSpawn` checks `fs.accessSync(argv[0],
+    // X_OK)` before spawning, so a missing binary surfaces as a synchronous
+    // spawn-error instead of relying on Node's async `error` event (which
+    // cannot fire while the helper is sleeping inside spawnSync). #4072 P3.
+    const spawn = buildDetachedForwardStartSpawn(["/nonexistent/openshell-binary-for-test"]);
 
     const result = runDetachedForwardStartWithDiagnostics(
       spawn,
       fetchList,
       { port: 18789, sandboxName: "my-sandbox" },
-      { overallTimeoutMs: 1_000, pollIntervalMs: 5, sleepMs: sleep },
+      { overallTimeoutMs: 5_000, pollIntervalMs: 5, sleepMs: sleep },
     );
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("spawn-error");
-    expect(result.diagnostic).toMatch(/spawn ENOENT/);
+    expect(result.diagnostic).toMatch(/ENOENT|EACCES|no such file|permission denied/i);
+    // No polling should have happened; the helper returned at the spawn
+    // preflight step.
+    expect(fetchList).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it("invokes onProgress while waiting for the forward to appear", () => {
@@ -228,8 +224,7 @@ describe("runDetachedForwardStartWithPortReleaseRetries", () => {
       fetchList,
       { port: 18789, sandboxName: "my-sandbox" },
       beforeRetry,
-      3,
-      { overallTimeoutMs: 30, pollIntervalMs: 10, sleepMs: sleep },
+      { overallTimeoutMs: 30, pollIntervalMs: 10, sleepMs: sleep, maxRetries: 3 },
     );
 
     expect(result.ok).toBe(true);
@@ -248,8 +243,7 @@ describe("runDetachedForwardStartWithPortReleaseRetries", () => {
       fetchList,
       { port: 18789, sandboxName: "my-sandbox" },
       beforeRetry,
-      3,
-      { overallTimeoutMs: 20, pollIntervalMs: 10, sleepMs: sleep },
+      { overallTimeoutMs: 20, pollIntervalMs: 10, sleepMs: sleep, maxRetries: 3 },
     );
 
     expect(result.ok).toBe(false);
@@ -271,8 +265,7 @@ describe("runDetachedForwardStartWithPortReleaseRetries", () => {
       fetchList,
       { port: 18789, sandboxName: "my-sandbox" },
       beforeRetry,
-      2,
-      { overallTimeoutMs: 20, pollIntervalMs: 10, sleepMs: sleep },
+      { overallTimeoutMs: 20, pollIntervalMs: 10, sleepMs: sleep, maxRetries: 2 },
     );
 
     expect(result.ok).toBe(false);
