@@ -414,7 +414,7 @@ jobs:
           ref: ${{ inputs.target_ref || github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@e6c0a5f2b715a71878efbdd1228a4bb278e7ab3e # v6.0.1
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -457,7 +457,7 @@ jobs:
           ref: ${{ inputs.target_ref || github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@e6c0a5f2b715a71878efbdd1228a4bb278e7ab3e # v6.0.1
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
