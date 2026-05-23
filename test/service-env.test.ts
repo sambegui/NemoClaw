@@ -7,7 +7,14 @@ import {
   execFileSync,
   type ExecFileSyncOptionsWithStringEncoding,
 } from "node:child_process";
-import { mkdtempSync, writeFileSync, unlinkSync, readFileSync, lstatSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  writeFileSync,
+  unlinkSync,
+  readFileSync,
+  lstatSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveOpenshell } from "../dist/lib/adapters/openshell/resolve";
@@ -717,6 +724,66 @@ describe("service environment", () => {
 
         expect(readFileSync(rcPath, "utf-8")).toBe("# clean bashrc\n");
         expect(readFileSync(profilePath, "utf-8")).toBe("# clean profile\n");
+      } finally {
+        try {
+          execFileSync("chmod", ["755", fakeHome]);
+        } catch {
+          /* ignore */
+        }
+        try {
+          unlinkSync(tmpFile);
+        } catch {
+          /* ignore */
+        }
+        try {
+          execFileSync("rm", ["-rf", fakeHome]);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    const itOnProcFd = existsSync("/proc/self/fd") ? it : it.skip;
+    itOnProcFd("removes legacy rc shims without directory write permission", () => {
+      const fakeHome = mkdtempSync(join(tmpdir(), "nemoclaw-rc-shim-unwritable-dir-test-"));
+      const proxyEnvPath = join(fakeHome, "proxy-env.sh");
+      const rcPath = join(fakeHome, ".bashrc");
+      const profilePath = join(fakeHome, ".profile");
+      const tmpFile = join(tmpdir(), `rc-shim-unwritable-dir-test-${process.pid}.sh`);
+      try {
+        for (const rcPathToWrite of [rcPath, profilePath]) {
+          writeFileSync(
+            rcPathToWrite,
+            [
+              "# old rc",
+              "# Source runtime proxy config",
+              `[ -f ${proxyEnvPath} ] && . ${proxyEnvPath}`,
+              "export PATH=/usr/local/bin:$PATH",
+              "",
+            ].join("\n"),
+            { mode: 0o444 },
+          );
+        }
+        execFileSync("chmod", ["555", fakeHome]);
+
+        const wrapper = [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          `_SANDBOX_HOME=${JSON.stringify(fakeHome)}`,
+          `_RUNTIME_SHELL_ENV_FILE=${JSON.stringify(proxyEnvPath)}`,
+          '_RUNTIME_SHELL_ENV_SHIM="[ -f ${_RUNTIME_SHELL_ENV_FILE} ] && . ${_RUNTIME_SHELL_ENV_FILE}"',
+          extractRuntimeShellEnvShimSnippet(),
+          "ensure_runtime_shell_env_shim",
+        ].join("\n");
+        writeFileSync(tmpFile, wrapper, { mode: 0o700 });
+        execFileSync("bash", [tmpFile], { encoding: "utf-8" });
+
+        for (const rcPathToRead of [rcPath, profilePath]) {
+          const rcFile = readFileSync(rcPathToRead, "utf-8");
+          expect(rcFile.toLowerCase()).not.toContain("proxy");
+          expect(rcFile).not.toContain(proxyEnvPath);
+          expect(rcFile).toContain("export PATH");
+        }
       } finally {
         try {
           execFileSync("chmod", ["755", fakeHome]);

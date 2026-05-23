@@ -1841,7 +1841,51 @@ import tempfile
 
 rc_path, shim, uid_text = sys.argv[1:4]
 uid = int(uid_text)
+fd = None
 tmp_path = None
+
+
+def same_file(left, right):
+    return left.st_dev == right.st_dev and left.st_ino == right.st_ino
+
+
+def rewrite_open_rc_file(read_fd, original_stat, cleaned_lines):
+    # The runtime test image can make /sandbox non-writable while leaving legacy
+    # shims in the rc files. In that case atomic rename into /sandbox fails, so
+    # rewrite the already-validated inode through /proc/self/fd instead.
+    if uid == 0:
+        os.fchown(read_fd, 0, 0)
+    os.fchmod(read_fd, 0o600)
+    write_fd = os.open(
+        f"/proc/self/fd/{read_fd}",
+        os.O_WRONLY | os.O_TRUNC | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        if not same_file(original_stat, os.fstat(write_fd)):
+            raise RuntimeError("rc file descriptor target changed during cleanup")
+        with os.fdopen(write_fd, "w", encoding="utf-8", errors="surrogateescape") as handle:
+            write_fd = None
+            handle.writelines(cleaned_lines)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if write_fd is not None:
+            os.close(write_fd)
+        os.fchmod(read_fd, 0o644)
+
+
+def rewrite_by_rename(cleaned_lines):
+    global tmp_path
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="nemoclaw-rc-clean.", dir="/tmp", text=True)
+    with os.fdopen(tmp_fd, "w", encoding="utf-8", errors="surrogateescape") as handle:
+        handle.writelines(cleaned_lines)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if uid == 0:
+        os.chown(tmp_path, 0, 0)
+    os.chmod(tmp_path, 0o644)
+    os.replace(tmp_path, rc_path)
+    tmp_path = None
 
 try:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -1854,11 +1898,11 @@ try:
             print(f"[SECURITY] could not open rc file for cleanup: {rc_path}: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    with os.fdopen(fd, "r", encoding="utf-8", errors="surrogateescape") as handle:
-        st = os.fstat(handle.fileno())
-        if not stat.S_ISREG(st.st_mode):
-            print(f"[SECURITY] refusing non-regular rc file during cleanup: {rc_path}", file=sys.stderr)
-            sys.exit(1)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):
+        print(f"[SECURITY] refusing non-regular rc file during cleanup: {rc_path}", file=sys.stderr)
+        sys.exit(1)
+    with os.fdopen(os.dup(fd), "r", encoding="utf-8", errors="surrogateescape") as handle:
         lines = handle.readlines()
 
     cleaned = []
@@ -1889,20 +1933,18 @@ try:
     if cleaned == lines:
         sys.exit(0)
 
-    tmp_fd, tmp_path = tempfile.mkstemp(prefix="nemoclaw-rc-clean.", dir="/tmp", text=True)
-    with os.fdopen(tmp_fd, "w", encoding="utf-8", errors="surrogateescape") as handle:
-        handle.writelines(cleaned)
-        handle.flush()
-        os.fsync(handle.fileno())
-    if uid == 0:
-        os.chown(tmp_path, 0, 0)
-    os.chmod(tmp_path, 0o644)
-    os.replace(tmp_path, rc_path)
-    tmp_path = None
+    try:
+        rewrite_open_rc_file(fd, st, cleaned)
+    except OSError as exc:
+        if exc.errno != errno.ENOENT:
+            raise
+        rewrite_by_rename(cleaned)
 except Exception as exc:
     print(f"[SECURITY] could not safely clean runtime env shim from {rc_path}: {exc}", file=sys.stderr)
     sys.exit(1)
 finally:
+    if fd is not None:
+        os.close(fd)
     if tmp_path:
         try:
             os.unlink(tmp_path)
