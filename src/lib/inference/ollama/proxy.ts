@@ -5,6 +5,8 @@
 // Ollama auth-proxy lifecycle: token persistence, PID management,
 // proxy start/stop, model pull and validation.
 
+import type { GpuInfo } from "../local";
+
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 const http = require("http");
@@ -374,7 +376,7 @@ function probeOllamaAuthProxyHealth(): { ok: boolean; endpoint: string; detail: 
   };
 }
 
-async function promptOllamaModel(gpu = null) {
+async function promptOllamaModel(gpu: GpuInfo | null = null) {
   const installed = getOllamaModelOptions();
   // Filter installed entries by registry-known memory fit so a host that
   // currently cannot load the only installed model still gets a usable

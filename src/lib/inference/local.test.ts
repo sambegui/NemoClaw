@@ -8,10 +8,17 @@ import os from "node:os";
 import path from "node:path";
 
 // Import from compiled dist/ for correct coverage attribution.
+import { OLLAMA_MODEL_REGISTRY } from "../../../dist/lib/inference/ollama-model-registry";
+
+// Derive the "large enough to fit every registry entry" memory threshold
+// from the registry itself so adding or resizing a model in the registry
+// does not require updating these tests.
+const LARGE_OLLAMA_FIT_MEMORY_MB = Math.max(
+  ...OLLAMA_MODEL_REGISTRY.map((entry) => entry.requiredMemoryMB),
+);
 import {
   CONTAINER_REACHABILITY_IMAGE,
   DEFAULT_OLLAMA_MODEL,
-  LARGE_OLLAMA_MIN_MEMORY_MB,
   LOCAL_INFERENCE_SANDBOX_HOST_URL_ENV,
   QWEN3_6_OLLAMA_MODEL,
   getOllamaContainerPort,
@@ -565,7 +572,7 @@ describe("local inference helpers", () => {
     expect(
       getBootstrapOllamaModelOptions({
         type: "nvidia",
-        totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB,
+        totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB,
       }),
     ).toEqual(["qwen2.5:7b", DEFAULT_OLLAMA_MODEL, QWEN3_6_OLLAMA_MODEL]);
     expect(getDefaultOllamaModel({ type: "nvidia", totalMemoryMB: 10_000 }, () => "")).toBe(
@@ -573,7 +580,7 @@ describe("local inference helpers", () => {
     );
     expect(
       getDefaultOllamaModel(
-        { type: "nvidia", totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB },
+        { type: "nvidia", totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB },
         () => "",
       ),
     ).toBe(QWEN3_6_OLLAMA_MODEL);
@@ -688,12 +695,12 @@ describe("local inference helpers", () => {
     expect(
       getBootstrapOllamaModelOptions({
         type: "apple",
-        totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB,
+        totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB,
       }),
     ).toEqual(["qwen2.5:7b", DEFAULT_OLLAMA_MODEL, QWEN3_6_OLLAMA_MODEL]);
     expect(
       getDefaultOllamaModel(
-        { type: "apple", totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB },
+        { type: "apple", totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB },
         () => "",
       ),
     ).toBe(QWEN3_6_OLLAMA_MODEL);
@@ -706,20 +713,20 @@ describe("local inference helpers", () => {
     // where totalMemoryMB is set but the device type is "generic" or
     // unspecified.
     expect(
-      getBootstrapOllamaModelOptions({ totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB }),
+      getBootstrapOllamaModelOptions({ totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB }),
     ).toEqual(["qwen2.5:7b"]);
     expect(
-      getDefaultOllamaModel({ totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB }, () => ""),
+      getDefaultOllamaModel({ totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB }, () => ""),
     ).toBe("qwen2.5:7b");
     expect(
       getBootstrapOllamaModelOptions({
         type: "generic",
-        totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB * 4,
+        totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB * 4,
       }),
     ).toEqual(["qwen2.5:7b"]);
     expect(
       getDefaultOllamaModel(
-        { type: "generic", totalMemoryMB: LARGE_OLLAMA_MIN_MEMORY_MB * 4 },
+        { type: "generic", totalMemoryMB: LARGE_OLLAMA_FIT_MEMORY_MB * 4 },
         () => "",
       ),
     ).toBe("qwen2.5:7b");
