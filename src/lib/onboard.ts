@@ -420,6 +420,7 @@ import {
 } from "./onboard/sandbox-gpu-mode";
 import {
   exitOnSandboxGpuConfigErrors,
+  formatSandboxGpuPassthroughNote,
   sandboxGpuRemediationLines,
   validateSandboxGpuPreflight,
 } from "./onboard/sandbox-gpu-preflight";
@@ -3205,19 +3206,14 @@ function waitForSandboxReady(sandboxName: string, attempts = 10, delaySeconds = 
 
 // ── Step 1: Preflight ────────────────────────────────────────────
 
-// CDI spec gap (#3152). When Docker is configured for CDI device injection
-// (CDISpecDirs is set) but no nvidia.com/gpu spec is present, OpenShell's
-// `gateway start --gpu` fails minutes later with `unresolvable CDI devices
-// nvidia.com/gpu=all`. Block now and surface `nvidia-ctk cdi generate`. The
-// check is a no-op when the user opts out of GPU passthrough (--no-gpu),
-// since the legacy nvidia runtime does not need a CDI spec.
-//
-// Extracted so the same guard runs on the `--resume` branch, where preflight()
-// itself is skipped via the cached session.
+// Keep the Docker CDI guard near preflight so resume hits the same early failure path.
+// Jetson/Tegra uses Docker's NVIDIA runtime backend and is exempt from CDI.
 function assertCdiNvidiaGpuSpecPresent(
   host: ReturnType<typeof assessHost>,
   optedOutGpuPassthrough: boolean,
+  hostGpuPlatform: string | null | undefined = null,
 ): void {
+  if (hostGpuPlatform === "jetson") return;
   if (!host.cdiNvidiaGpuSpecMissing || optedOutGpuPassthrough) return;
   console.error(
     "  Docker is configured for CDI device injection (CDISpecDirs is set), but no",
@@ -3264,7 +3260,7 @@ async function preflight(
     preflightOpts.optedOutGpuPassthrough === true ||
     preflightOpts.noGpu === true ||
     !sandboxGpuConfig.sandboxGpuEnabled;
-  assertCdiNvidiaGpuSpecPresent(host, optedOutGpuPassthrough);
+  assertCdiNvidiaGpuSpecPresent(host, optedOutGpuPassthrough, sandboxGpuConfig.hostGpuPlatform);
 
   // DNS resolution from inside containers (#2101). A corp firewall that
   // blocks outbound UDP:53 to public resolvers leaves the sandbox build
@@ -5465,6 +5461,7 @@ async function createSandbox(
     gpuDevice: effectiveSandboxGpuConfig.sandboxGpuDevice,
     openshellSandboxCommand: sandboxStartupCommand,
     timeoutSecs: sandboxReadyTimeoutSecs,
+    backend: effectiveSandboxGpuConfig.hostGpuPlatform === "jetson" ? "jetson" : "generic",
     deps: { runOpenshell, runCaptureOpenshell, sleep },
   });
   const createResult = await streamSandboxCreate(createCommand, sandboxEnv, {
@@ -9291,10 +9288,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         assessHost,
         assertCdiNvidiaGpuSpecPresent,
         resolveSandboxGpuConfig,
-        validateSandboxGpuPreflight: (config) => {
-          exitOnSandboxGpuConfigErrors(config);
-          validateSandboxGpuPreflight(config);
-        },
+        validateSandboxGpuPreflight,
         skippedStepMessage,
         startRecordedStep,
         recordStepComplete,
@@ -9311,14 +9305,16 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const gpu = preflightResult.gpu ?? null;
     if (gpuPassthrough) {
       note(
-        resumeHasResolvedGpuIntent && recordedGpuPassthroughBeforePreflight
-          ? "  [resume] Continuing GPU passthrough from the saved onboarding session."
-          : requestedGpuPassthrough || sandboxGpuConfig.mode === "1"
-            ? "  GPU passthrough requested; passing --gpu to OpenShell gateway and sandbox creation."
-            : "  NVIDIA GPU detected; enabling OpenShell GPU passthrough. Use --no-gpu to opt out.",
+        formatSandboxGpuPassthroughNote({
+          hostGpuPlatform: sandboxGpuConfig.hostGpuPlatform,
+          resumeHasResolvedGpuIntent,
+          recordedGpuPassthroughBeforePreflight,
+          requestedGpuPassthrough,
+          sandboxGpuMode: sandboxGpuConfig.mode,
+        }),
       );
     } else if (gpu?.platform === "jetson") {
-      note("  GPU sandbox passthrough disabled by default on Jetson.");
+      note("  Sandbox GPU disabled by configuration on Jetson/Tegra.");
     } else if (process.platform === "linux" && !opts.noGpu) {
       try {
         const lspci = spawnSync("lspci", { encoding: "utf-8", timeout: 5000 });
