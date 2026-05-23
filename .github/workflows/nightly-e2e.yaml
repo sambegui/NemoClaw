@@ -419,7 +419,7 @@ jobs:
           node-version: "22"
 
       - name: Install test dependencies
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Run OpenClaw TUI chat correlation E2E test
         env:

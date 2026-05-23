@@ -52,6 +52,12 @@ if ! grep -q "2026.5.18" <<<"$openclaw_version"; then
 fi
 
 cd "$REPO"
+
+if [ ! -x ./node_modules/.bin/vitest ]; then
+  echo "Restoring repository dev dependencies for the live Vitest harness"
+  npm ci --include=dev
+fi
+
 NEMOCLAW_ISSUE_2603_LIVE=1 \
   NEMOCLAW_ISSUE_2603_SANDBOX="$SANDBOX_NAME" \
-  npx vitest run test/openclaw-tui-chat-correlation.test.ts --reporter=verbose
+  ./node_modules/.bin/vitest run test/openclaw-tui-chat-correlation.test.ts --reporter=verbose
