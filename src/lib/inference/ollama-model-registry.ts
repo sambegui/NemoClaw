@@ -84,7 +84,10 @@ export function modelFitsAvailableMemory(tag: string, gpu: GpuInfo | null): bool
 /**
  * Bootstrap model tags the host can plausibly load right now. Always
  * includes `SMALLEST_OLLAMA_MODEL_TAG` so the menu has at least one
- * fallback even when capacity probing returns nothing useful.
+ * fallback even when capacity probing says nothing in the registry fits;
+ * use `anyRegistryModelFits` to detect that under-spec case explicitly
+ * and warn the user before we hand them a model the runner is likely to
+ * reject too.
  *
  * Output is smallest-first so menu indices stay stable as registry entries
  * are added. Only confirmed-NVIDIA and Apple-Silicon devices are eligible
@@ -103,6 +106,21 @@ export function fittableOllamaModelTags(gpu: GpuInfo | null): string[] {
   );
   if (fitting.length === 0) return fallback;
   return [SMALLEST_OLLAMA_MODEL_TAG, ...fitting.map((entry) => entry.tag).reverse()];
+}
+
+/**
+ * `true` when at least one registry entry fits the host's currently
+ * available memory. Returns `true` when memory is unknown so callers do
+ * not warn blind. Confirmed-eligible device types (`nvidia`, `apple`)
+ * compare against the registry; ambiguous types fall through to `true`
+ * for the same reason as `fittableOllamaModelTags` — we cannot tell, so
+ * the runner is left to surface any real failure.
+ */
+export function anyRegistryModelFits(gpu: GpuInfo | null): boolean {
+  if (!gpu || (gpu.type !== "nvidia" && gpu.type !== "apple")) return true;
+  const memory = effectiveGpuMemoryMB(gpu);
+  if (memory == null) return true;
+  return OLLAMA_MODEL_REGISTRY.some((entry) => entry.requiredMemoryMB <= memory);
 }
 
 /**

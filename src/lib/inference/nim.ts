@@ -78,10 +78,10 @@ export interface GpuDetection {
   totalMemoryMB: number;
   // Currently free GPU memory at probe time. NVIDIA: summed from
   // `nvidia-smi memory.free`. Unified-memory (Spark/Jetson): approximated
-  // from host `MemAvailable` since GPU memory is the system pool. Absent
-  // when no probe was able to produce a usable figure (notably macOS,
-  // which currently only reports total memory); downstream callers fall
-  // back to `totalMemoryMB`.
+  // from host `MemAvailable` since GPU memory is the system pool. macOS:
+  // approximated from `vm_stat` reclaimable pages. Absent when every
+  // probe was inconclusive; downstream callers fall back to
+  // `totalMemoryMB`.
   availableMemoryMB?: number;
   perGpuMB: number;
   cores?: number | null;
@@ -185,6 +185,32 @@ function readHostMemoryMB(): number {
     /* ignored */
   }
   return 0;
+}
+
+// macOS equivalent of `MemAvailable`: parse `vm_stat` output, sum the
+// kernel-reclaimable page classes (free + inactive + speculative), and
+// scale by the reported page size. The result is the same "could I load
+// a 22 GB model right now?" signal the unified-memory Linux path uses.
+// Returns 0 when any expected field is missing so the caller can treat
+// the figure as "unknown" and fall back to total memory.
+function readMacOsAvailableMemoryMB(): number {
+  try {
+    const out = runCapture(["vm_stat"], { ignoreError: true });
+    if (!out) return 0;
+    const pageMatch = out.match(/page size of (\d+) bytes/);
+    if (!pageMatch) return 0;
+    const pageBytes = parseInt(pageMatch[1], 10);
+    if (!Number.isFinite(pageBytes) || pageBytes <= 0) return 0;
+    const grab = (label: string): number => {
+      const match = out.match(new RegExp(`Pages ${label}:\\s+(\\d+)\\.`));
+      return match ? parseInt(match[1], 10) : 0;
+    };
+    const pages = grab("free") + grab("inactive") + grab("speculative");
+    if (pages <= 0) return 0;
+    return Math.floor((pages * pageBytes) / 1024 / 1024);
+  } catch {
+    return 0;
+  }
 }
 
 // `free -m` columns: total used free shared buff/cache available.
@@ -507,12 +533,14 @@ export function detectGpu(): GpuDetection | null {
             }
           }
 
+          const availableMemoryMB = readMacOsAvailableMemoryMB();
           return {
             type: "apple",
             name,
             count: 1,
             cores: coresMatch ? parseInt(coresMatch[1], 10) : null,
             totalMemoryMB: memoryMB,
+            ...(availableMemoryMB > 0 ? { availableMemoryMB } : {}),
             perGpuMB: memoryMB,
             nimCapable: false,
           };

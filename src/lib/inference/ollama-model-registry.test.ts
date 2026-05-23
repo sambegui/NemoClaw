@@ -170,9 +170,9 @@ describe("OLLAMA_DOWNLOAD_SIZE_FALLBACK_BYTES", () => {
   it("treats apple silicon the same as nvidia when availableMemoryMB is supplied", () => {
     // The registry filter is identical across confirmed types — given the
     // same availableMemoryMB it returns the same set of fittable tags. The
-    // macOS detection path does not currently populate availableMemoryMB
-    // (no vm_stat probe yet), so in practice an apple host falls through to
-    // the totalMemoryMB-only behaviour.
+    // macOS detection path populates availableMemoryMB from `vm_stat`
+    // reclaimable pages; this test exercises the filter logic directly so
+    // it does not depend on the macOS-only probe.
     expect(
       fittableOllamaModelTags({ type: "apple", totalMemoryMB: 131_072, availableMemoryMB: 12_000 }),
     ).toEqual([SMALLEST_OLLAMA_MODEL_TAG]);

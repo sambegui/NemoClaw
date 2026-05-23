@@ -20,9 +20,13 @@ const { shellQuote, runCapture, runCaptureEx } = require("../runner");
 import { OLLAMA_PORT, OLLAMA_PROXY_PORT, VLLM_PORT } from "../core/ports";
 import { sleepSeconds } from "../core/wait";
 import {
+  anyRegistryModelFits,
+  effectiveGpuMemoryMB,
   fittableOllamaModelTags,
   largestFittableOllamaModelTag,
   modelFitsAvailableMemory,
+  OLLAMA_MODEL_REGISTRY,
+  SMALLEST_OLLAMA_MODEL_TAG,
 } from "./ollama-model-registry";
 
 const { containerCanReachHostLoopback, inferContainerRuntime, isWsl } = require("../platform");
@@ -53,9 +57,24 @@ export function resetOllamaContainerPortCache(): void {
 export const HOST_GATEWAY_URL = "http://host.openshell.internal";
 export const LOCAL_INFERENCE_SANDBOX_HOST_URL_ENV = "NEMOCLAW_LOCAL_INFERENCE_SANDBOX_HOST_URL";
 export const CONTAINER_REACHABILITY_IMAGE = "curlimages/curl:8.10.1";
-export const DEFAULT_OLLAMA_MODEL = "nemotron-3-nano:30b";
-export const QWEN3_6_OLLAMA_MODEL = "qwen3.6:35b";
-export const SMALL_OLLAMA_MODEL = "qwen2.5:7b";
+// These tags are convenience aliases for callers that want to refer to a
+// specific bootstrap model by role rather than by string. The canonical
+// metadata (memory requirements, download sizes) lives in
+// `ollama-model-registry.ts`; the assertion below makes module load fail
+// loudly if a registry edit drops a tag a caller still references by
+// name, so the two stay in sync.
+function assertRegistryTag(tag: string): string {
+  if (!OLLAMA_MODEL_REGISTRY.some((entry) => entry.tag === tag)) {
+    throw new Error(
+      `Tag '${tag}' is not in OLLAMA_MODEL_REGISTRY. Update the registry first.`,
+    );
+  }
+  return tag;
+}
+
+export const SMALL_OLLAMA_MODEL = SMALLEST_OLLAMA_MODEL_TAG;
+export const DEFAULT_OLLAMA_MODEL = assertRegistryTag("nemotron-3-nano:30b");
+export const QWEN3_6_OLLAMA_MODEL = assertRegistryTag("qwen3.6:35b");
 export const LARGE_OLLAMA_MIN_MEMORY_MB = 32768;
 
 export type RunCaptureFn = (cmd: string | string[], opts?: { ignoreError?: boolean }) => string;
@@ -131,11 +150,12 @@ export interface GpuInfo {
   // (#3510).
   type?: string;
   // Currently free GPU memory at probe time. Populated by `detectGpu` from
-  // `nvidia-smi memory.free` (or `MemAvailable` on unified-memory hosts).
-  // Used by the bootstrap-model selector so an idle 128 GiB Spark and a
-  // 128 GiB Spark with another GPU workload eating 116 GiB do not get the
-  // same model recommendation. Absent => the selector falls back to
-  // `totalMemoryMB`, preserving the previous behaviour.
+  // `nvidia-smi memory.free`, `MemAvailable` on unified-memory hosts, or
+  // `vm_stat` reclaimable pages on macOS. Used by the bootstrap-model
+  // selector so an idle 128 GiB Spark and a 128 GiB Spark with another
+  // GPU workload eating 116 GiB do not get the same model recommendation.
+  // Absent => the selector falls back to `totalMemoryMB`, preserving the
+  // previous behaviour.
   availableMemoryMB?: number;
 }
 
@@ -749,9 +769,9 @@ export function getOllamaModelOptions(runCaptureImpl?: RunCaptureFn): string[] {
 export function getBootstrapOllamaModelOptions(gpu: GpuInfo | null): string[] {
   // Delegate to the registry so the menu reflects what the host can
   // actually load right now. Only confirmed-NVIDIA and Apple-Silicon
-  // devices get larger options; ambiguous types fall back to the smallest
-  // model so a partial detection cannot promote a host to a 22 GB model
-  // (see #3510 for the historical context behind the device-type guard).
+  // devices get larger options; ambiguous device types fall back to the
+  // smallest model so a partial GPU detection cannot promote a host to a
+  // 22 GB model.
   return fittableOllamaModelTags(gpu);
 }
 
@@ -779,6 +799,14 @@ export function resolveNonInteractiveOllamaModel(
         `falling back to '${fallback}'. Override by freeing memory and re-running, or unset NEMOCLAW_MODEL.`,
     );
     return fallback;
+  }
+  if (!explicit && !anyRegistryModelFits(gpu)) {
+    const memory = effectiveGpuMemoryMB(gpu);
+    log(
+      `  ! No known Ollama bootstrap model fits the host's currently available GPU memory` +
+        `${memory ? ` (~${memory} MB free)` : ""}. Proceeding with the smallest known model; ` +
+        "the runner may still reject the load — free memory and re-run if it does.",
+    );
   }
   return explicit || getDefaultOllamaModel(gpu);
 }

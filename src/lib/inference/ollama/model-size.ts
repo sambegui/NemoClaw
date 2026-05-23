@@ -10,9 +10,9 @@ const MANIFEST_ACCEPT_HEADER =
   "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json";
 
 // Single source of truth lives in `ollama-model-registry.ts`. The fallback
-// table is re-exported here under the original name only so any external
-// callers that imported it before the centralisation still resolve to the
-// same data.
+// table is aliased locally so existing call sites in this module still
+// read from a `FALLBACK_SIZE_BYTES` reference; nothing outside this file
+// reaches in for it.
 const FALLBACK_SIZE_BYTES = OLLAMA_DOWNLOAD_SIZE_FALLBACK_BYTES;
 
 export type CaptureFn = (cmd: readonly string[], opts?: { ignoreError?: boolean }) => string;

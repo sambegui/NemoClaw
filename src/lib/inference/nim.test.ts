@@ -425,6 +425,10 @@ describe("nim", () => {
           name: "NVIDIA GB10",
           count: 1,
           totalMemoryMB: 131072,
+          // MemAvailable from the stubbed `free -m` row is propagated so the
+          // bootstrap-model selector can size against currently free memory
+          // on unified-memory hosts.
+          availableMemoryMB: 119808,
           perGpuMB: 131072,
           nimCapable: true,
           unifiedMemory: true,
@@ -469,6 +473,7 @@ describe("nim", () => {
             name: "NVIDIA JMJWOA-Generic-GPU",
             count: 1,
             totalMemoryMB: 122543,
+            availableMemoryMB: 111279,
             perGpuMB: 122543,
             unifiedMemory: true,
             spark: true,
@@ -526,6 +531,7 @@ describe("nim", () => {
             name: "NVIDIA Jetson AGX Orin",
             count: 1,
             totalMemoryMB: 32768,
+            availableMemoryMB: 27136,
             perGpuMB: 32768,
             nimCapable: true,
             unifiedMemory: true,
@@ -542,7 +548,7 @@ describe("nim", () => {
         if (!Array.isArray(cmd)) throw new Error("expected argv array");
         if (cmd[0] === "nvidia-smi") return "";
         if (cmd[0] === "free" && cmd[1] === "-m") {
-          return "              total        used        free\nMem:          65536        4096       50000\nSwap:             0           0           0";
+          return "              total        used        free      shared  buff/cache   available\nMem:          65536        4096       50000         512       10928       60000\nSwap:             0           0           0";
         }
         return "";
       });
@@ -565,6 +571,7 @@ describe("nim", () => {
           name: "NVIDIA Jetson AGX Orin",
           count: 1,
           totalMemoryMB: 65536,
+          availableMemoryMB: 60000,
           perGpuMB: 65536,
           nimCapable: true,
           unifiedMemory: true,
@@ -575,6 +582,35 @@ describe("nim", () => {
       } finally {
         fs.readFileSync = origReadFileSync;
         fs.existsSync = origExistsSync;
+        restore();
+      }
+    });
+
+    it("omits availableMemoryMB when memory.free fails to parse on the primary path", () => {
+      // nvidia-smi sometimes reports `[N/A]` or empty strings for memory.free
+      // (driver / virtualisation quirks). Total still parses, so we keep
+      // surfacing it; available is dropped so callers fall back to total.
+      const runCapture = vi.fn((cmd: string | string[]) => {
+        if (!Array.isArray(cmd)) throw new Error("expected argv array");
+        if (
+          cmd[0] === "nvidia-smi" &&
+          cmd.some((a: string) => a.includes("name,memory.total"))
+        ) {
+          return "NVIDIA H100 80GB HBM3, 81920, [N/A]\n";
+        }
+        return "";
+      });
+      const { nimModule, restore } = loadNimWithMockedRunner(runCapture);
+
+      try {
+        const result = nimModule.detectGpu();
+        expect(result).toMatchObject({
+          type: "nvidia",
+          name: "NVIDIA H100 80GB HBM3",
+          totalMemoryMB: 81920,
+        });
+        expect(result?.availableMemoryMB).toBeUndefined();
+      } finally {
         restore();
       }
     });
