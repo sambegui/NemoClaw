@@ -46,6 +46,11 @@ export interface DetachedForwardStartOptions {
   overallTimeoutMs?: number;
   pollIntervalMs?: number;
   sleepMs?: (ms: number) => void;
+  // Called once per `progressIntervalMs` while the helper is still waiting
+  // for the forward to appear in `openshell forward list`. The default is a
+  // no-op so the helper stays terminal-quiet in non-interactive contexts.
+  onProgress?: (info: { elapsedMs: number; listSnapshot: string }) => void;
+  progressIntervalMs?: number;
 }
 
 function readDiagnosticFile(filePath: string): string {
@@ -126,6 +131,20 @@ function isForwardConfirmed(
 }
 
 /**
+ * Default progress logger for the detached forward-start helper. Emits a
+ * single line to stdout every `progressIntervalMs` while the helper is
+ * still polling. Kept here so the onboard call site does not need to
+ * recreate the same closure inline.
+ */
+export function buildForwardStartProgressLogger(port: number): (info: { elapsedMs: number }) => void {
+  return ({ elapsedMs }) => {
+    console.log(
+      `  Still waiting for forward on port ${port} to register (${Math.round(elapsedMs / 1000)}s elapsed)...`,
+    );
+  };
+}
+
+/**
  * Spawn `openshell forward start --background` as a detached child and wait
  * for the resulting forward to appear in `openshell forward list`. Returns
  * `ok: true` as soon as the live entry is observed, regardless of whether
@@ -145,9 +164,16 @@ export function runDetachedForwardStartWithDiagnostics(
   expect: { port: number; sandboxName: string },
   options: DetachedForwardStartOptions = {},
 ): DetachedForwardStartOutcome {
-  const overallTimeoutMs = options.overallTimeoutMs ?? 60_000;
+  // 180s deadline accommodates Docker compatibility gateways (host glibc
+  // older than openshell-gateway's requirement runs the gateway in an extra
+  // Docker container, adding per-call gRPC latency that can push the
+  // forward-registration handshake past a tighter timeout). See #4064.
+  const overallTimeoutMs = options.overallTimeoutMs ?? 180_000;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const sleepImpl = options.sleepMs ?? blockingSleepMs;
+  const onProgress = options.onProgress;
+  const progressIntervalMs = options.progressIntervalMs ?? 30_000;
+  let nextProgressAt = Date.now() + progressIntervalMs;
 
   const forwardDiagPath = secureTempFile("nemoclaw-forward-start", ".out");
   const forwardDiagDir = path.dirname(forwardDiagPath);
@@ -201,6 +227,7 @@ export function runDetachedForwardStartWithDiagnostics(
 
     const start = Date.now();
     const deadline = start + overallTimeoutMs;
+    let lastListSnapshot = "";
     while (Date.now() < deadline) {
       let list = "";
       try {
@@ -208,6 +235,7 @@ export function runDetachedForwardStartWithDiagnostics(
       } catch (err) {
         lastFetchError = err instanceof Error ? err.message : String(err);
       }
+      lastListSnapshot = list;
       if (isForwardConfirmed(list, expect)) {
         return { ok: true, diagnostic: readDiag(), pid, reason: "ok" };
       }
@@ -218,13 +246,20 @@ export function runDetachedForwardStartWithDiagnostics(
       if (looksLikeForwardPortConflict(diagSoFar)) {
         return { ok: false, diagnostic: diagSoFar, pid, reason: "spawn-conflict" };
       }
+      if (onProgress && Date.now() >= nextProgressAt) {
+        onProgress({ elapsedMs: Date.now() - start, listSnapshot: list });
+        nextProgressAt = Date.now() + progressIntervalMs;
+      }
       sleepImpl(pollIntervalMs);
     }
     const finalDiag = readDiag();
+    const listTail = lastListSnapshot
+      ? ` last forward list: ${compactText(redact(lastListSnapshot)).slice(0, 240)}`
+      : " last forward list: <empty>";
+    const timeoutSummary = `forward did not appear in list within ${overallTimeoutMs}ms;${listTail}`;
     return {
       ok: false,
-      diagnostic:
-        finalDiag || `forward did not appear in list within ${overallTimeoutMs}ms`,
+      diagnostic: finalDiag ? `${timeoutSummary} ${finalDiag}` : timeoutSummary,
       pid,
       reason: "timeout",
     };

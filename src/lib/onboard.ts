@@ -18,7 +18,7 @@ const {
 const { cleanupTempDir }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
 const { stopStaleDashboardListenersForSandbox } = require("./onboard/stale-gateway-cleanup");
 const { bestEffortForwardStop } = require("./onboard/forward-cleanup");
-const { buildDetachedForwardStartSpawn, looksLikeForwardPortConflict, runDetachedForwardStartWithPortReleaseRetries }: typeof import("./onboard/forward-start") = require("./onboard/forward-start");
+const { buildDetachedForwardStartSpawn, buildForwardStartProgressLogger, looksLikeForwardPortConflict, runDetachedForwardStartWithPortReleaseRetries }: typeof import("./onboard/forward-start") = require("./onboard/forward-start");
 const { ensureManagedOllamaLoopbackSystemdOverride, ensureOllamaLoopbackSystemdOverride }: typeof import("./onboard/ollama-systemd") = require("./onboard/ollama-systemd");
 const {
   CUSTOM_BUILD_CONTEXT_WARN_BYTES,
@@ -8622,6 +8622,8 @@ function ensureDashboardForward(
     () => runCaptureOpenshell(["forward", "list"]),
     { port: actualPort, sandboxName },
     () => { sleep(1); bestEffortForwardStop(runOpenshell, actualPort); },
+    3,
+    { onProgress: buildForwardStartProgressLogger(actualPort) },
   );
   if (!fwdOk) {
     const looksLikePortConflict = looksLikeForwardPortConflict(fwdDiagnostic);

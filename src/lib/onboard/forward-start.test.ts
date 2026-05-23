@@ -128,6 +128,43 @@ describe("runDetachedForwardStartWithDiagnostics", () => {
     expect(result.diagnostic).toMatch(/spawn ENOENT/);
   });
 
+  it("invokes onProgress while waiting for the forward to appear", () => {
+    let now = 0;
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      const fetchList = vi.fn().mockReturnValue("");
+      const spawn = vi.fn().mockReturnValue({ pid: 42 });
+      const sleep = vi.fn().mockImplementation((ms) => {
+        now += ms;
+      });
+      const onProgress = vi.fn();
+
+      const result = runDetachedForwardStartWithDiagnostics(
+        spawn,
+        fetchList,
+        { port: 18789, sandboxName: "my-sandbox" },
+        {
+          overallTimeoutMs: 120_000,
+          pollIntervalMs: 1_000,
+          sleepMs: sleep,
+          onProgress,
+          progressIntervalMs: 30_000,
+        },
+      );
+
+      expect(result.ok).toBe(false);
+      expect(onProgress).toHaveBeenCalled();
+      const calls = onProgress.mock.calls;
+      expect(calls.length).toBeGreaterThanOrEqual(3);
+      expect(calls[0][0].elapsedMs).toBeGreaterThanOrEqual(30_000);
+      expect(result.diagnostic).toMatch(/forward did not appear in list within 120000ms/);
+      expect(result.diagnostic).toMatch(/last forward list: <empty>/);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("surfaces persistent fetchForwardList failures in the timeout diagnostic", () => {
     const fetchList = vi.fn().mockImplementation(() => {
       throw new Error("gateway transport: connection refused");
