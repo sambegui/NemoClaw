@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { detectOpenShellStateRpcResultIssue } from "./adapters/openshell/gateway-drift";
+import { stripAnsi } from "./adapters/openshell/client";
 import { captureOpenshell } from "./adapters/openshell/runtime";
 import { recoverNamedGatewayRuntime } from "./gateway-runtime-action";
 
@@ -13,13 +14,25 @@ export type SandboxListRecoveryResult = {
   recoverySucceeded: boolean;
 };
 
+export function isRecoverableSandboxListGatewayFailure(result: SandboxListResult): boolean {
+  if (result.status === 0 || detectOpenShellStateRpcResultIssue(result)) {
+    return false;
+  }
+  const output = stripAnsi(String(result.output || ""));
+  return /Connection refused|client error \(Connect\)|tcp connect error|No active gateway|No gateway configured|Status:\s*Disconnected/i.test(
+    output,
+  );
+}
+
 export async function captureSandboxListWithGatewayRecovery(): Promise<SandboxListRecoveryResult> {
   const initial = captureOpenshell(["sandbox", "list"]);
-  if (initial.status === 0 || detectOpenShellStateRpcResultIssue(initial)) {
+  if (!isRecoverableSandboxListGatewayFailure(initial)) {
     return { result: initial, recoveryAttempted: false, recoverySucceeded: false };
   }
 
-  const recovery = await recoverNamedGatewayRuntime();
+  const recovery = await recoverNamedGatewayRuntime({
+    recoverableStates: ["missing_named", "named_unhealthy", "named_unreachable"],
+  });
   if (!recovery.recovered) {
     return { result: initial, recoveryAttempted: true, recoverySucceeded: false };
   }

@@ -125,9 +125,23 @@ describe("rebuild gateway drift preflight", () => {
       "Sandbox 'alpha' is not running.",
     );
 
-    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith();
+    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith({
+      recoverableStates: ["missing_named", "named_unhealthy", "named_unreachable"],
+    });
     expect(captureOpenshellSpy).toHaveBeenCalledTimes(2);
     expect(captureOpenshellSpy).toHaveBeenNthCalledWith(1, ["sandbox", "list"]);
     expect(captureOpenshellSpy).toHaveBeenNthCalledWith(2, ["sandbox", "list"]);
+  });
+
+  it("does not recover generic sandbox list failures", async () => {
+    detectPreflightIssueSpy.mockReturnValue(null);
+    captureOpenshellSpy.mockReturnValue({ status: 1, output: "unknown option: sandbox list" });
+
+    await expect(rebuildSandbox("alpha", ["--yes"], { throwOnError: true })).rejects.toThrow(
+      "Failed to query running sandboxes from OpenShell.",
+    );
+
+    expect(recoverNamedGatewayRuntimeSpy).not.toHaveBeenCalled();
+    expect(captureOpenshellSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -135,11 +135,23 @@ describe("gateway drift preflight for maintenance actions", () => {
 
     await backupAll();
 
-    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith();
+    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith({
+      recoverableStates: ["missing_named", "named_unhealthy", "named_unreachable"],
+    });
     expect(captureOpenshellSpy).toHaveBeenCalledTimes(2);
     expect(captureOpenshellSpy).toHaveBeenNthCalledWith(1, ["sandbox", "list"]);
     expect(captureOpenshellSpy).toHaveBeenNthCalledWith(2, ["sandbox", "list"]);
     expect(backupSandboxStateSpy).toHaveBeenCalledWith("alpha");
+  });
+
+  it("backup-all does not recover generic sandbox list failures", async () => {
+    captureOpenshellSpy.mockReturnValue({ status: 1, output: "usage: openshell sandbox list" });
+
+    await expect(backupAll()).rejects.toThrow("process.exit(1)");
+
+    expect(recoverNamedGatewayRuntimeSpy).not.toHaveBeenCalled();
+    expect(captureOpenshellSpy).toHaveBeenCalledTimes(1);
+    expect(backupSandboxStateSpy).not.toHaveBeenCalled();
   });
 
   it("backup-all fails closed on protobuf mismatch instead of treating sandboxes as stopped", async () => {
@@ -182,13 +194,25 @@ describe("gateway drift preflight for maintenance actions", () => {
 
     await upgradeSandboxes({ check: true });
 
-    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith();
+    expect(recoverNamedGatewayRuntimeSpy).toHaveBeenCalledWith({
+      recoverableStates: ["missing_named", "named_unhealthy", "named_unreachable"],
+    });
     expect(captureOpenshellSpy).toHaveBeenCalledTimes(2);
     expect(classifyUpgradeableSandboxesSpy).toHaveBeenCalledWith(
       [{ name: "alpha", provider: "nvidia-prod", model: "nemotron" }],
       new Set(["alpha"]),
       expect.any(Function),
     );
+  });
+
+  it("upgrade-sandboxes does not recover generic sandbox list failures", async () => {
+    captureOpenshellSpy.mockReturnValue({ status: 1, output: "unknown option: --json" });
+
+    await expect(upgradeSandboxes({ check: true })).rejects.toThrow("process.exit(1)");
+
+    expect(recoverNamedGatewayRuntimeSpy).not.toHaveBeenCalled();
+    expect(captureOpenshellSpy).toHaveBeenCalledTimes(1);
+    expect(classifyUpgradeableSandboxesSpy).not.toHaveBeenCalled();
   });
 
   it("upgrade-sandboxes fails closed on protobuf mismatch before classifying stopped sandboxes", async () => {
