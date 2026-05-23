@@ -471,6 +471,45 @@ describe("generate-openclaw-config.py: config generation", () => {
     expect(config.channels.discord.accounts.default.proxy).toBeUndefined();
   });
 
+  it("#4070: opens Discord DMs to configured guild members when the user allowlist is empty", () => {
+    const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
+    const discordGuilds = Buffer.from(
+      JSON.stringify({
+        "1491590992753590594": {
+          requireMention: true,
+        },
+      }),
+    ).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      NEMOCLAW_DISCORD_GUILDS_B64: discordGuilds,
+    });
+
+    expect(config.channels.discord.accounts.default).toMatchObject({
+      dmPolicy: "open",
+      allowFrom: ["*"],
+    });
+  });
+
+  it("does not open Discord DMs when the guild config has no valid guild id", () => {
+    const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
+    const discordGuilds = Buffer.from(
+      JSON.stringify({
+        " ": {
+          requireMention: true,
+        },
+      }),
+    ).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      NEMOCLAW_DISCORD_GUILDS_B64: discordGuilds,
+    });
+
+    expect(config.channels.discord.accounts.default.dmPolicy).toBeUndefined();
+    expect(config.channels.discord.accounts.default.allowFrom).toBeUndefined();
+    expect(config.channels.discord.guilds).toBeUndefined();
+  });
+
   it("#3894: routes Discord gateway traffic through OpenClaw's managed proxy", () => {
     const channels = Buffer.from(JSON.stringify(["discord"])).toString("base64");
     const config = runConfigScript({

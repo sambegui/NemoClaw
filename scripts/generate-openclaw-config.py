@@ -505,6 +505,7 @@ def build_config(env: dict | None = None) -> dict:
             env.get("NEMOCLAW_DISCORD_GUILDS_B64", "e30=") or "e30="
         ).decode("utf-8")
     )
+    _has_discord_guilds = any(str(guild_id).strip() for guild_id in _discord_guilds)
     _telegram_config = json.loads(
         base64.b64decode(
             env.get("NEMOCLAW_TELEGRAM_CONFIG_B64", "e30=") or "e30="
@@ -565,7 +566,10 @@ def build_config(env: dict | None = None) -> dict:
             account["proxy"] = proxy_url
         if ch == "telegram":
             account["groupPolicy"] = "open"
-        if ch in _allowed_ids and _allowed_ids[ch]:
+        if ch == "discord" and _has_discord_guilds and not _allowed_ids.get(ch):
+            account["dmPolicy"] = "open"
+            account["allowFrom"] = ["*"]
+        elif ch in _allowed_ids and _allowed_ids[ch]:
             account["dmPolicy"] = "allowlist"
             account["allowFrom"] = _allowed_ids[ch]
             if ch == "slack":
@@ -597,7 +601,7 @@ def build_config(env: dict | None = None) -> dict:
     # allowFrom.json — not the openclaw.json accounts.<id>.allowFrom mechanism
     # that telegram/discord/slack use.
 
-    if "discord" in _ch_cfg and _discord_guilds:
+    if "discord" in _ch_cfg and _has_discord_guilds:
         _ch_cfg["discord"].update(
             {"groupPolicy": "allowlist", "guilds": _discord_guilds}
         )
