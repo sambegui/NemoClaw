@@ -36,6 +36,29 @@ set -euo pipefail
 # cannot resolve id/chown/chmod/tee from an attacker-controlled location.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+# Reject an invalid explicit dashboard port before installing the tee/fd startup
+# capture below. Some CI Docker runners can drop very early fd4 output from
+# short-lived containers, and this validation is meant to be fail-fast and
+# directly visible to callers.
+_EARLY_DASHBOARD_PORT_RAW="${NEMOCLAW_DASHBOARD_PORT:-}"
+if [ -n "$_EARLY_DASHBOARD_PORT_RAW" ]; then
+  _EARLY_DASHBOARD_PORT="$(printf '%s' "$_EARLY_DASHBOARD_PORT_RAW" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  _EARLY_DASHBOARD_PORT_VALID=1
+  case "$_EARLY_DASHBOARD_PORT" in
+    *[!0-9]* | '')
+      _EARLY_DASHBOARD_PORT_VALID=0
+      ;;
+  esac
+  if [ "$_EARLY_DASHBOARD_PORT_VALID" -eq 1 ] && { [ "$_EARLY_DASHBOARD_PORT" -lt 1024 ] || [ "$_EARLY_DASHBOARD_PORT" -gt 65535 ]; }; then
+    _EARLY_DASHBOARD_PORT_VALID=0
+  fi
+  if [ "$_EARLY_DASHBOARD_PORT_VALID" -ne 1 ]; then
+    printf '%s\n' "[SECURITY] Invalid NEMOCLAW_DASHBOARD_PORT='${NEMOCLAW_DASHBOARD_PORT}' — must be an integer between 1024 and 65535" >&2
+    exit 1
+  fi
+fi
+unset _EARLY_DASHBOARD_PORT_RAW _EARLY_DASHBOARD_PORT _EARLY_DASHBOARD_PORT_VALID
+
 # ── Early stderr/stdout capture ──────────────────────────────────
 # Capture all entrypoint output to /tmp/nemoclaw-start.log so that if
 # the script crashes before touch /tmp/gateway.log (e.g., a Landlock
@@ -1449,65 +1472,6 @@ export http_proxy="$_PROXY_URL"
 export https_proxy="$_PROXY_URL"
 export no_proxy="$_NO_PROXY_VAL"
 
-DISCORD_LOOPBACK_PROXY_PORT="${NEMOCLAW_DISCORD_PROXY_PORT:-3128}"
-case "$DISCORD_LOOPBACK_PROXY_PORT" in
-  *[!0-9]* | '')
-    echo "[channels] Invalid NEMOCLAW_DISCORD_PROXY_PORT='${NEMOCLAW_DISCORD_PROXY_PORT:-}' - using 3128" >&2
-    DISCORD_LOOPBACK_PROXY_PORT=3128
-    ;;
-esac
-if [ "$DISCORD_LOOPBACK_PROXY_PORT" -lt 1 ] || [ "$DISCORD_LOOPBACK_PROXY_PORT" -gt 65535 ]; then
-  echo "[channels] Invalid NEMOCLAW_DISCORD_PROXY_PORT='${DISCORD_LOOPBACK_PROXY_PORT}' - using 3128" >&2
-  DISCORD_LOOPBACK_PROXY_PORT=3128
-fi
-
-_DISCORD_LOOPBACK_PROXY_SCRIPT="/tmp/nemoclaw-discord-loopback-proxy.js"
-_DISCORD_LOOPBACK_PROXY_SOURCE="/usr/local/lib/nemoclaw/preloads/discord-loopback-proxy.js"
-
-start_discord_loopback_proxy() {
-  [ -n "${DISCORD_BOT_TOKEN:-}" ] || return 0
-  command -v node >/dev/null 2>&1 || {
-    echo "[channels] Discord loopback proxy skipped: node is not available" >&2
-    return 0
-  }
-  if [ ! -f "$_DISCORD_LOOPBACK_PROXY_SOURCE" ]; then
-    echo "[channels] Discord loopback proxy skipped: helper is not installed" >&2
-    return 0
-  fi
-
-  local log="/tmp/nemoclaw-discord-loopback-proxy.log"
-  local port="$DISCORD_LOOPBACK_PROXY_PORT"
-
-  if node -e '
-const net = require("net");
-const port = Number(process.argv[1]);
-const socket = net.createConnection({ host: "127.0.0.1", port, timeout: 500 });
-socket.on("connect", () => process.exit(0));
-socket.on("error", () => process.exit(1));
-socket.on("timeout", () => process.exit(1));
-' "$port" >/dev/null 2>&1; then
-    echo "[channels] Discord loopback proxy already listening on 127.0.0.1:${port}" >&2
-    return 0
-  fi
-
-  emit_sandbox_sourced_file "$_DISCORD_LOOPBACK_PROXY_SCRIPT" <"$_DISCORD_LOOPBACK_PROXY_SOURCE"
-  : >"$log"
-  chmod 600 "$log" 2>/dev/null || true
-
-  if [ "$(id -u)" -eq 0 ]; then
-    chown root:root "$log" 2>/dev/null || true
-    nohup "${STEP_DOWN_PREFIX_SANDBOX[@]}" env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-      -u http_proxy -u https_proxy -u all_proxy NODE_USE_ENV_PROXY=0 \
-      node "$_DISCORD_LOOPBACK_PROXY_SCRIPT" "$port" "$PROXY_HOST" "$PROXY_PORT" >>"$log" 2>&1 &
-  else
-    nohup env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-      -u http_proxy -u https_proxy -u all_proxy NODE_USE_ENV_PROXY=0 \
-      node "$_DISCORD_LOOPBACK_PROXY_SCRIPT" "$port" "$PROXY_HOST" "$PROXY_PORT" >>"$log" 2>&1 &
-  fi
-  DISCORD_LOOPBACK_PROXY_PID=$!
-  echo "[channels] Discord loopback proxy launched (pid ${DISCORD_LOOPBACK_PROXY_PID}, 127.0.0.1:${port} -> ${PROXY_HOST}:${PROXY_PORT})" >&2
-}
-
 # Git TLS CA bundle fix (NemoClaw#2270).
 # OpenShell's L7 proxy does MITM TLS termination and re-signs with its own CA.
 # OpenShell injects SSL_CERT_FILE and CURL_CA_BUNDLE pointing at the CA bundle,
@@ -2293,7 +2257,6 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 
   configure_messaging_channels
-  start_discord_loopback_proxy
   install_telegram_diagnostics
   install_slack_channel_guard
   verify_no_slack_secrets_on_disk
@@ -2338,7 +2301,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
   # (both are trust-boundary files; tampering would let the sandbox user
   # inject code into any Node process via NODE_OPTIONS).
-  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_DISCORD_LOOPBACK_PROXY_SCRIPT"
+  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT"
 
   # Start gateway in background, auto-pair, then wait
   nohup "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
@@ -2355,7 +2318,6 @@ if [ "$(id -u)" -ne 0 ]; then
   # registration and the final append is a small race window (same as before
   # the shared-library refactor). Acceptable for entrypoint-level cleanup.
   SANDBOX_CHILD_PIDS=("$GATEWAY_PID")
-  [ -n "${DISCORD_LOOPBACK_PROXY_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$DISCORD_LOOPBACK_PROXY_PID")
   [ -n "${AUTO_PAIR_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$AUTO_PAIR_PID")
   [ -n "${GATEWAY_LOG_TAIL_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$GATEWAY_LOG_TAIL_PID")
   [ -n "${GATEWAY_LOG_PERSIST_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$GATEWAY_LOG_PERSIST_PID")
@@ -2433,7 +2395,6 @@ lock_rc_files "$_SANDBOX_HOME"
 # Must run AFTER integrity check (to detect build-time tampering) and
 # BEFORE chattr +i (which locks the config permanently).
 configure_messaging_channels
-start_discord_loopback_proxy
 install_telegram_diagnostics
 install_slack_channel_guard
 verify_no_slack_secrets_on_disk
@@ -2550,7 +2511,7 @@ seed_default_workspace_templates_as_sandbox
 # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
 # (both are trust-boundary files; tampering would let the sandbox user
 # inject code into any Node process via NODE_OPTIONS).
-validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_DISCORD_LOOPBACK_PROXY_SCRIPT"
+validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT"
 
 # Start the gateway as the 'gateway' user.
 # SECURITY: The sandbox user cannot kill this process because it runs
@@ -2583,7 +2544,6 @@ start_auto_pair
 # registration and the final append is a small race window (same as before
 # the shared-library refactor). Acceptable for entrypoint-level cleanup.
 SANDBOX_CHILD_PIDS=("$GATEWAY_PID")
-[ -n "${DISCORD_LOOPBACK_PROXY_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$DISCORD_LOOPBACK_PROXY_PID")
 [ -n "${AUTO_PAIR_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$AUTO_PAIR_PID")
 [ -n "${GATEWAY_LOG_TAIL_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$GATEWAY_LOG_TAIL_PID")
 [ -n "${GATEWAY_LOG_PERSIST_PID:-}" ] && SANDBOX_CHILD_PIDS+=("$GATEWAY_LOG_PERSIST_PID")
