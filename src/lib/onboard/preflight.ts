@@ -625,7 +625,11 @@ export function planHostRemediation(assessment: HostAssessment): RemediationActi
         kind: "sudo",
         reason:
           "Docker is installed and the service is running, but the current user cannot reach the daemon. " +
-          "This usually means your user is not in the docker group.",
+          "This usually means your user is not in the docker group. " +
+          "NemoClaw needs Docker access. " +
+          "On personal Linux development machines, adding your user to the docker group is the standard way to run Docker without sudo. " +
+          "Docker group members can control the daemon with root-level impact, so grant this access only to trusted local accounts; on shared or managed systems, use your organization's approved Docker access path. " +
+          "Background: https://docs.docker.com/engine/security/#docker-daemon-attack-surface.",
         commands: [
           "sudo usermod -aG docker $USER",
           "newgrp docker   # or log out and back in",
@@ -1321,12 +1325,26 @@ export function probeContainerDns(opts: ProbeContainerDnsOpts = {}): DnsProbeRes
   // begins with `Server: ... / Address: <ip>:53` — proves only that we
   // reached *something* claiming to be a resolver, not that we got an
   // answer. Real success requires either an actual `Name:`+`Address:`
-  // resolution pair OR an NXDOMAIN response body.
-  const probeAnswered =
-    /^Server:\s*\S/im.test(output) &&
-    ((/\bName:\s*\S/i.test(output) && /\bAddress:\s*\d/.test(output)) ||
-      /server can't find\b.*NXDOMAIN/i.test(output));
-  if (probeAnswered) {
+  // resolution pair OR an NXDOMAIN response body. Keep this line-based so
+  // CodeQL does not treat partial host regexes as URL validation.
+  const outputLines = output.split(/\r?\n/).map((line) => line.trim());
+  const hasResolverHeader = outputLines.some((line) => {
+    const fields = line.split(/\s+/);
+    return fields[0] === "Server:" && Boolean(fields[1]);
+  });
+  const hasResolvedName = outputLines.some((line) => {
+    const fields = line.split(/\s+/);
+    return fields[0] === "Name:" && Boolean(fields[1]);
+  });
+  const hasAddress = outputLines.some((line) => {
+    const fields = line.split(/\s+/);
+    return fields[0] === "Address:" && /^\d/.test(fields[1] ?? "");
+  });
+  const hasNxdomainAnswer = outputLines.some((line) => {
+    const lower = line.toLowerCase();
+    return lower.includes("server can't find") && lower.includes("nxdomain");
+  });
+  if (hasResolverHeader && ((hasResolvedName && hasAddress) || hasNxdomainAnswer)) {
     return { ok: true };
   }
 
