@@ -375,8 +375,8 @@ ws.on("error", (error) => {
 ws.on("open", async () => {
   try {
     await request("connect", {
-      minProtocol: 3,
-      maxProtocol: 3,
+      minProtocol: 4,
+      maxProtocol: 4,
       client: {
         id: "openclaw-control-ui",
         displayName: "issue2603-live-repro",
