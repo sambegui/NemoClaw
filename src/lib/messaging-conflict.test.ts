@@ -3,12 +3,15 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { SandboxEntry } from "./registry";
+import type { SandboxEntry } from "./state/registry";
 import {
   backfillMessagingChannels,
   findAllOverlaps,
   findChannelConflicts,
 } from "./messaging-conflict";
+
+type ConflictProbe = Parameters<typeof backfillMessagingChannels>[1];
+type ProviderExists = ConflictProbe["providerExists"];
 
 function makeRegistry(sandboxes: SandboxEntry[]) {
   const store = new Map(sandboxes.map((s) => [s.name, { ...s }]));
@@ -27,14 +30,53 @@ function makeRegistry(sandboxes: SandboxEntry[]) {
 }
 
 describe("findChannelConflicts", () => {
-  it("returns conflicts when another sandbox already has the channel", () => {
+  it("returns unknown conflicts when another sandbox has the channel without hashes", () => {
     const registry = makeRegistry([
       { name: "alice", messagingChannels: ["telegram"] },
       { name: "bob", messagingChannels: [] },
     ]);
     expect(findChannelConflicts("bob", ["telegram"], registry)).toEqual([
-      { channel: "telegram", sandbox: "alice" },
+      { channel: "telegram", sandbox: "alice", reason: "unknown-token" },
     ]);
+  });
+
+  it("returns conflicts only when the same channel credential hash matches", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+      {
+        name: "carol",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-c" },
+      },
+    ]);
+    expect(
+      findChannelConflicts(
+        "bob",
+        [{ channel: "telegram", credentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" } }],
+        registry,
+      ),
+    ).toEqual([{ channel: "telegram", sandbox: "alice", reason: "matching-token" }]);
+  });
+
+  it("allows multiple telegram sandboxes with distinct token hashes", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+    ]);
+    expect(
+      findChannelConflicts(
+        "bob",
+        [{ channel: "telegram", credentialHashes: { TELEGRAM_BOT_TOKEN: "hash-b" } }],
+        registry,
+      ),
+    ).toEqual([]);
   });
 
   it("excludes the current sandbox from its own conflicts", () => {
@@ -51,6 +93,24 @@ describe("findChannelConflicts", () => {
     const registry = makeRegistry([{ name: "alice", messagingChannels: ["telegram"] }]);
     expect(findChannelConflicts("bob", [], registry)).toEqual([]);
   });
+
+  it("ignores a stopped (disabled) channel — its credential is not in use (#3381)", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        disabledChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+    ]);
+    expect(
+      findChannelConflicts(
+        "bob",
+        [{ channel: "telegram", credentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" } }],
+        registry,
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("findAllOverlaps", () => {
@@ -61,20 +121,54 @@ describe("findAllOverlaps", () => {
       { name: "carol", messagingChannels: ["discord"] },
     ]);
     expect(findAllOverlaps(registry)).toEqual([
-      { channel: "telegram", sandboxes: ["alice", "bob"] },
+      { channel: "telegram", sandboxes: ["alice", "bob"], reason: "unknown-token" },
     ]);
   });
 
-  it("reports all pairs when three sandboxes share a channel", () => {
+  it("reports all unknown pairs when three sandboxes share a channel without hashes", () => {
     const registry = makeRegistry([
       { name: "a", messagingChannels: ["telegram"] },
       { name: "b", messagingChannels: ["telegram"] },
       { name: "c", messagingChannels: ["telegram"] },
     ]);
     expect(findAllOverlaps(registry)).toEqual([
-      { channel: "telegram", sandboxes: ["a", "b"] },
-      { channel: "telegram", sandboxes: ["a", "c"] },
-      { channel: "telegram", sandboxes: ["b", "c"] },
+      { channel: "telegram", sandboxes: ["a", "b"], reason: "unknown-token" },
+      { channel: "telegram", sandboxes: ["a", "c"], reason: "unknown-token" },
+      { channel: "telegram", sandboxes: ["b", "c"], reason: "unknown-token" },
+    ]);
+  });
+
+  it("does not report overlaps when same-channel credential hashes differ", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+      {
+        name: "bob",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-b" },
+      },
+    ]);
+    expect(findAllOverlaps(registry)).toEqual([]);
+  });
+
+  it("reports matching-token overlaps when same-channel credential hashes match", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+      {
+        name: "bob",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+    ]);
+    expect(findAllOverlaps(registry)).toEqual([
+      { channel: "telegram", sandboxes: ["alice", "bob"], reason: "matching-token" },
     ]);
   });
 
@@ -85,15 +179,32 @@ describe("findAllOverlaps", () => {
     ]);
     expect(findAllOverlaps(registry)).toEqual([]);
   });
+
+  it("ignores stopped (disabled) channels so nemoclaw status does not report phantom overlaps (#3381)", () => {
+    const registry = makeRegistry([
+      {
+        name: "alice",
+        messagingChannels: ["telegram"],
+        disabledChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+      {
+        name: "bob",
+        messagingChannels: ["telegram"],
+        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
+      },
+    ]);
+    expect(findAllOverlaps(registry)).toEqual([]);
+  });
 });
 
 describe("backfillMessagingChannels", () => {
   it("fills in missing messagingChannels by probing OpenShell", () => {
     const registry = makeRegistry([{ name: "alice" }]);
-    const probe = {
-      providerExists: vi.fn((name: string) =>
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>((name) =>
         name === "alice-telegram-bridge" ? "present" : "absent",
-      ) as (name: string) => "present" | "absent" | "error",
+      ),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).toHaveBeenCalledWith("alice", {
@@ -102,14 +213,39 @@ describe("backfillMessagingChannels", () => {
     expect(probe.providerExists).toHaveBeenCalledWith("alice-telegram-bridge");
     expect(probe.providerExists).toHaveBeenCalledWith("alice-discord-bridge");
     expect(probe.providerExists).toHaveBeenCalledWith("alice-slack-bridge");
+    expect(probe.providerExists).toHaveBeenCalledWith("alice-wechat-bridge");
+  });
+
+  it("backfills wechat when only the wechat bridge provider is present", () => {
+    // The probe-by-suffix mechanism relies on every channel having an entry
+    // in PROVIDER_SUFFIXES; if wechat were ever dropped from that map, this
+    // test starts catching the absent provider.
+    const registry = makeRegistry([{ name: "alice" }]);
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>((name) =>
+        name === "alice-wechat-bridge" ? "present" : "absent",
+      ),
+    };
+    backfillMessagingChannels(registry, probe);
+    expect(registry.updateSandbox).toHaveBeenCalledWith("alice", {
+      messagingChannels: ["wechat"],
+    });
+  });
+
+  it("surfaces a wechat conflict when two sandboxes share the channel without hashes", () => {
+    const registry = makeRegistry([
+      { name: "alice", messagingChannels: ["wechat"] },
+      { name: "bob", messagingChannels: [] },
+    ]);
+    expect(findChannelConflicts("bob", ["wechat"], registry)).toEqual([
+      { channel: "wechat", sandbox: "alice", reason: "unknown-token" },
+    ]);
   });
 
   it("leaves entries with existing messagingChannels alone", () => {
-    const registry = makeRegistry([
-      { name: "alice", messagingChannels: ["telegram"] },
-    ]);
-    const probe = {
-      providerExists: vi.fn(() => "present") as (name: string) => "present" | "absent" | "error",
+    const registry = makeRegistry([{ name: "alice", messagingChannels: ["telegram"] }]);
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>(() => "present"),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).not.toHaveBeenCalled();
@@ -118,8 +254,8 @@ describe("backfillMessagingChannels", () => {
 
   it("writes an empty array when all probes return absent", () => {
     const registry = makeRegistry([{ name: "alice" }]);
-    const probe = {
-      providerExists: vi.fn(() => "absent") as (name: string) => "present" | "absent" | "error",
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>(() => "absent"),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).toHaveBeenCalledWith("alice", { messagingChannels: [] });
@@ -130,11 +266,11 @@ describe("backfillMessagingChannels", () => {
     // be collapsed into "provider not attached" and persisted, because that
     // would prevent all future backfill retries and hide real overlaps.
     const registry = makeRegistry([{ name: "alice" }]);
-    const probe = {
-      providerExists: vi.fn((name: string) => {
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>((name) => {
         if (name.endsWith("-telegram-bridge")) return "error";
         return name.endsWith("-discord-bridge") ? "present" : "absent";
-      }) as (name: string) => "present" | "absent" | "error",
+      }),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).not.toHaveBeenCalled();
@@ -142,10 +278,10 @@ describe("backfillMessagingChannels", () => {
 
   it("also treats a thrown probe as error (defensive; callers should return 'error' instead)", () => {
     const registry = makeRegistry([{ name: "alice" }]);
-    const probe = {
-      providerExists: vi.fn(() => {
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>(() => {
         throw new Error("unexpected");
-      }) as (name: string) => "present" | "absent" | "error",
+      }),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).not.toHaveBeenCalled();
@@ -154,14 +290,14 @@ describe("backfillMessagingChannels", () => {
   it("re-attempts backfill on a subsequent call after a prior error", () => {
     const registry = makeRegistry([{ name: "alice" }]);
     let firstPass = true;
-    const probe = {
-      providerExists: vi.fn((name: string) => {
+    const probe: ConflictProbe = {
+      providerExists: vi.fn<ProviderExists>((name) => {
         if (name.endsWith("-telegram-bridge") && firstPass) {
           firstPass = false;
           return "error";
         }
         return name === "alice-telegram-bridge" ? "present" : "absent";
-      }) as (name: string) => "present" | "absent" | "error",
+      }),
     };
     backfillMessagingChannels(registry, probe);
     expect(registry.updateSandbox).not.toHaveBeenCalled();

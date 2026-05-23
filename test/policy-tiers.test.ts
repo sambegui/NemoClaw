@@ -11,8 +11,8 @@
 //   - Integration with the existing policies module
 
 import { describe, expect, it } from "vitest";
-import policies from "../dist/lib/policies";
-import tiers from "../dist/lib/tiers";
+import policies from "../dist/lib/policy";
+import tiers from "../dist/lib/policy/tiers";
 
 interface TierPreset {
   name: string;
@@ -30,10 +30,39 @@ interface Preset {
   name: string;
 }
 
+type TierShape = {
+  name?: string;
+  label?: string;
+  description?: string;
+  presets?: TierPreset[];
+};
+
+function requireTierPreset(value: TierPreset | undefined, name: string): TierPreset {
+  expect(value).toBeDefined();
+  if (!value) {
+    throw new Error(`Expected preset '${name}' to be present`);
+  }
+  return value;
+}
+
+function isTier(value: TierShape | null): value is Tier {
+  return (
+    value !== null &&
+    typeof value.name === "string" &&
+    typeof value.label === "string" &&
+    typeof value.description === "string" &&
+    Array.isArray(value.presets)
+  );
+}
+
 function mustGetTier(name: string): Tier {
   const tier = tiers.getTier(name);
   expect(tier).not.toBeNull();
-  return tier as Tier;
+  const tierObject: TierShape | null = typeof tier === "object" && tier !== null ? tier : null;
+  if (!isTier(tierObject)) {
+    throw new Error(`Expected tier '${name}' to be present`);
+  }
+  return tierObject;
 }
 
 describe("tiers", () => {
@@ -109,11 +138,13 @@ describe("tiers", () => {
       }
     });
 
-    it("does not include messaging presets (slack, discord, telegram)", () => {
+    it("does not include messaging presets (slack, discord, telegram, wechat, whatsapp)", () => {
       const names = mustGetTier("balanced").presets.map((preset: TierPreset) => preset.name);
       expect(names).not.toContain("slack");
       expect(names).not.toContain("discord");
       expect(names).not.toContain("telegram");
+      expect(names).not.toContain("wechat");
+      expect(names).not.toContain("whatsapp");
     });
   });
 
@@ -130,11 +161,13 @@ describe("tiers", () => {
       }
     });
 
-    it("includes messaging presets (slack, discord, telegram)", () => {
+    it("includes messaging presets (slack, discord, telegram, wechat, whatsapp)", () => {
       const names = mustGetTier("open").presets.map((preset: TierPreset) => preset.name);
       expect(names).toContain("slack");
       expect(names).toContain("discord");
       expect(names).toContain("telegram");
+      expect(names).toContain("wechat");
+      expect(names).toContain("whatsapp");
     });
 
     it("includes productivity presets (jira, outlook)", () => {
@@ -169,10 +202,16 @@ describe("tiers", () => {
       const resolved: TierPreset[] = tiers.resolveTierPresets("balanced", {
         overrides: { npm: "read" },
       });
-      const npm = resolved.find((preset: TierPreset) => preset.name === "npm");
-      expect(npm!.access).toBe("read");
-      const pypi = resolved.find((preset: TierPreset) => preset.name === "pypi");
-      expect(pypi!.access).toBe("read-write");
+      const npm = requireTierPreset(
+        resolved.find((preset: TierPreset) => preset.name === "npm"),
+        "npm",
+      );
+      expect(npm.access).toBe("read");
+      const pypi = requireTierPreset(
+        resolved.find((preset: TierPreset) => preset.name === "pypi"),
+        "pypi",
+      );
+      expect(pypi.access).toBe("read-write");
     });
 
     it("restricts to selected presets when selected list is provided", () => {

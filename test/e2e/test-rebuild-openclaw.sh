@@ -28,8 +28,13 @@
 set -euo pipefail
 
 SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-e2e-rebuild-oc}"
+
+# shellcheck source=test/e2e/lib/sandbox-teardown.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/sandbox-teardown.sh"
+register_sandbox_for_teardown "$SANDBOX_NAME"
+
 OLD_OPENCLAW_VERSION="2026.3.11"
-MARKER_FILE="/sandbox/.openclaw-data/workspace/rebuild-marker.txt"
+MARKER_FILE="/sandbox/.openclaw/workspace/rebuild-marker.txt"
 MARKER_CONTENT="REBUILD_OC_E2E_$(date +%s)"
 REGISTRY_FILE="$HOME/.nemoclaw/sandboxes.json"
 SESSION_FILE="$HOME/.nemoclaw/onboard-session.json"
@@ -137,7 +142,7 @@ cat >"${TESTDIR}/Dockerfile" <<DOCKERFILE
 FROM ${OLD_BASE_TAG}
 USER sandbox
 WORKDIR /sandbox
-RUN mkdir -p /sandbox/.openclaw-data/workspace /sandbox/.openclaw && echo '{}' > /sandbox/.openclaw/openclaw.json
+RUN mkdir -p /sandbox/.openclaw/workspace /sandbox/.openclaw && echo '{}' > /sandbox/.openclaw/openclaw.json
 CMD ["/bin/bash"]
 DOCKERFILE
 
@@ -163,7 +168,7 @@ pass "Old sandbox created (OpenClaw ${OLD_OPENCLAW_VERSION})"
 info "Phase 4: Writing markers and registering sandbox..."
 
 openshell sandbox exec --name "${SANDBOX_NAME}" -- \
-  sh -c "mkdir -p /sandbox/.openclaw-data/workspace && echo '${MARKER_CONTENT}' > ${MARKER_FILE}" \
+  sh -c "mkdir -p /sandbox/.openclaw/workspace && echo '${MARKER_CONTENT}' > ${MARKER_FILE}" \
   || fail "Failed to write marker file"
 
 # Verify
@@ -241,14 +246,14 @@ NEMOCLAW_MODULE_DIR="$(node -e "
     if (m) {
       const nodeDir = path.dirname(path.dirname(m[1]));
       const candidate = path.join(nodeDir, 'lib/node_modules/nemoclaw');
-      if (fs.existsSync(path.join(candidate, 'dist/lib/policies.js'))) {
+      if (fs.existsSync(path.join(candidate, 'dist/lib/policy/index.js'))) {
         console.log(candidate);
         process.exit(0);
       }
     }
     // Last resort: relative to the repo root
     const repoCandidate = '${REPO_ROOT}';
-    if (fs.existsSync(path.join(repoCandidate, 'dist/lib/policies.js'))) {
+    if (fs.existsSync(path.join(repoCandidate, 'dist/lib/policy/index.js'))) {
       console.log(repoCandidate);
       process.exit(0);
     }
@@ -261,7 +266,7 @@ diag "NemoClaw module dir: ${NEMOCLAW_MODULE_DIR}"
 for preset in npm pypi; do
   info "  Applying preset: ${preset}"
   node -e "
-    const policies = require('${NEMOCLAW_MODULE_DIR}/dist/lib/policies.js');
+    const policies = require('${NEMOCLAW_MODULE_DIR}/dist/lib/policy/index.js');
     const ok = policies.applyPreset('${SANDBOX_NAME}', '${preset}');
     if (!ok) { console.error('applyPreset returned false for ${preset}'); process.exit(1); }
   " || fail "Failed to apply preset: ${preset}"
@@ -370,7 +375,12 @@ fi
 # No credentials in backup
 BACKUP_DIR="$HOME/.nemoclaw/rebuild-backups/${SANDBOX_NAME}"
 if [ -d "$BACKUP_DIR" ]; then
-  CRED_LEAKS=$(find "$BACKUP_DIR" \( -name "*.json" -o -name "*.env" -o -name ".env" \) -exec grep -l "nvapi-\|sk-\|Bearer " {} \; 2>/dev/null || true)
+  # Dependency lockfiles can contain public package metadata matching coarse
+  # token patterns; the product snapshot filter excludes them too.
+  CRED_LEAKS=$(find "$BACKUP_DIR" \
+    \( -name "package-lock.json" -o -name "npm-shrinkwrap.json" -o -name "yarn.lock" -o -name "pnpm-lock.yaml" -o -name "pnpm-lock.yml" \) -prune -o \
+    \( -name "*.json" -o -name "*.env" -o -name ".env" \) -type f \
+    -exec grep -l "nvapi-\|sk-\|Bearer " {} \; 2>/dev/null || true)
   if [ -z "$CRED_LEAKS" ]; then
     pass "No credentials in backup"
   else
@@ -441,7 +451,7 @@ fi
 
 # ── Cleanup ─────────────────────────────────────────────────────────
 info "Cleaning up..."
-nemoclaw "${SANDBOX_NAME}" destroy --yes 2>/dev/null || true
+[[ "${NEMOCLAW_E2E_KEEP_SANDBOX:-}" = "1" ]] || nemoclaw "${SANDBOX_NAME}" destroy --yes 2>/dev/null || true
 docker rmi "${OLD_BASE_TAG}" 2>/dev/null || true
 
 echo ""

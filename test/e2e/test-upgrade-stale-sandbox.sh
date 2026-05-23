@@ -24,6 +24,11 @@ set -euo pipefail
 
 OLD_OPENCLAW_VERSION="2026.3.11"
 SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-e2e-upgrade-stale}"
+
+# shellcheck source=test/e2e/lib/sandbox-teardown.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/sandbox-teardown.sh"
+register_sandbox_for_teardown "$SANDBOX_NAME"
+
 REGISTRY_FILE="$HOME/.nemoclaw/sandboxes.json"
 SESSION_FILE="$HOME/.nemoclaw/onboard-session.json"
 
@@ -123,7 +128,7 @@ cat >"${TESTDIR}/Dockerfile" <<DOCKERFILE
 FROM ${OLD_BASE_TAG}
 USER sandbox
 WORKDIR /sandbox
-RUN mkdir -p /sandbox/.openclaw-data/workspace /sandbox/.openclaw && echo '{}' > /sandbox/.openclaw/openclaw.json
+RUN mkdir -p /sandbox/.openclaw/workspace /sandbox/.openclaw && echo '{}' > /sandbox/.openclaw/openclaw.json
 CMD ["/bin/bash"]
 DOCKERFILE
 

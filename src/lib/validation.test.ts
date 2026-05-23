@@ -119,6 +119,39 @@ describe("classifyValidationFailure", () => {
     });
   });
 
+  it("classifies model-related 404/405 responses as model retries before endpoint retries", () => {
+    expect(
+      classifyValidationFailure({
+        httpStatus: 404,
+        message: "HTTP 404: model not found",
+      }),
+    ).toEqual({ kind: "model", retry: "model" });
+    expect(
+      classifyValidationFailure({
+        httpStatus: 405,
+        message: "HTTP 405: unsupported model",
+      }),
+    ).toEqual({ kind: "model", retry: "model" });
+  });
+
+  it("classifies TLS certificate errors as transport", () => {
+    expect(
+      classifyValidationFailure({
+        message: "transport error: invalid peer certificate: UnknownIssuer",
+      }),
+    ).toEqual({ kind: "transport", retry: "retry" });
+    expect(
+      classifyValidationFailure({
+        message: "SSL certificate problem: unable to get local issuer certificate",
+      }),
+    ).toEqual({ kind: "transport", retry: "retry" });
+    expect(
+      classifyValidationFailure({
+        message: "TLS handshake failure",
+      }),
+    ).toEqual({ kind: "transport", retry: "retry" });
+  });
+
   it("classifies 404 as endpoint", () => {
     expect(classifyValidationFailure({ httpStatus: 404 })).toEqual({
       kind: "endpoint",
@@ -182,6 +215,49 @@ describe("classifySandboxCreateFailure", () => {
     const result = classifySandboxCreateFailure("something else happened");
     expect(result.kind).toBe("unknown");
   });
+
+  it("detects TLS cert error from 'invalid peer certificate: BadSignature'", () => {
+    const result = classifySandboxCreateFailure("invalid peer certificate: BadSignature");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("detects TLS cert error from 'handshake verification failed'", () => {
+    const result = classifySandboxCreateFailure("handshake verification failed");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("detects TLS cert error from 'certificate verify failed'", () => {
+    const result = classifySandboxCreateFailure("certificate verify failed");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("detects TLS cert error from 'SSL certificate problem'", () => {
+    const result = classifySandboxCreateFailure("SSL certificate problem: unable to get local issuer certificate");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("detects TLS cert error from 'x509: certificate'", () => {
+    const result = classifySandboxCreateFailure("x509: certificate signed by unknown authority");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("detects TLS cert error from 'unknown authority'", () => {
+    const result = classifySandboxCreateFailure("failed: unknown authority");
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
+
+  it("does NOT classify generic TLS transport errors as tls_cert_mismatch", () => {
+    expect(classifySandboxCreateFailure("TLS error: connection refused by proxy").kind).toBe("unknown");
+    expect(classifySandboxCreateFailure("SSL error: unsupported protocol version").kind).toBe("unknown");
+    expect(classifySandboxCreateFailure("TLS error later during notify").kind).toBe("unknown");
+    expect(classifySandboxCreateFailure("ssl error: peer closed connection").kind).toBe("unknown");
+  });
+
+  it("classifies tls_cert_mismatch even when 'Created sandbox:' is also present", () => {
+    const output = "Created sandbox: test-sandbox\nError: handshake verification failed";
+    const result = classifySandboxCreateFailure(output);
+    expect(result.kind).toBe("tls_cert_mismatch");
+  });
 });
 
 describe("validateNvidiaApiKeyValue", () => {
@@ -195,6 +271,16 @@ describe("validateNvidiaApiKeyValue", () => {
 
   it("rejects key without nvapi- prefix", () => {
     expect(validateNvidiaApiKeyValue("sk-abc123")).toBeTruthy();
+  });
+
+  it("accepts non-nvapi keys when credentialEnv is not NVIDIA_API_KEY", () => {
+    expect(validateNvidiaApiKeyValue("sk-ant-abc123", "ANTHROPIC_API_KEY")).toBeNull();
+    expect(validateNvidiaApiKeyValue("sk-openai-xyz", "OPENAI_API_KEY")).toBeNull();
+    expect(validateNvidiaApiKeyValue("AIza-gemini", "GEMINI_API_KEY")).toBeNull();
+  });
+
+  it("still rejects empty keys for non-NVIDIA providers", () => {
+    expect(validateNvidiaApiKeyValue("", "ANTHROPIC_API_KEY")).toBeTruthy();
   });
 });
 
@@ -270,13 +356,17 @@ describe("shouldSkipResponsesProbe", () => {
     expect(shouldSkipResponsesProbe("nvidia-prod")).toBe(true);
   });
 
+  it("skips the Responses probe for nvidia-nim (same endpoint as nvidia-prod, no /v1/responses)", () => {
+    expect(shouldSkipResponsesProbe("nvidia-nim")).toBe(true);
+  });
+
   it("skips the Responses probe for gemini-api (Gemini does not support /v1/responses)", () => {
     expect(shouldSkipResponsesProbe("gemini-api")).toBe(true);
   });
 
   it("does not skip the Responses probe for other providers", () => {
     expect(shouldSkipResponsesProbe("openai-api")).toBe(false);
-    expect(shouldSkipResponsesProbe("anthropic-api")).toBe(false);
+    expect(shouldSkipResponsesProbe("anthropic-prod")).toBe(false);
     expect(shouldSkipResponsesProbe("compatible-endpoint")).toBe(false);
     expect(shouldSkipResponsesProbe("")).toBe(false);
   });

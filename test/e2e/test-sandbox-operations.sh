@@ -20,37 +20,12 @@
 set -euo pipefail
 
 # ── Overall timeout (prevents hung CI jobs) ──────────────────────────────────
-TIMEOUT_CMD=""
-if command -v timeout >/dev/null 2>&1; then
-  TIMEOUT_CMD="timeout"
-elif command -v gtimeout >/dev/null 2>&1; then
-  TIMEOUT_CMD="gtimeout"
-fi
-
-if [ "${NEMOCLAW_E2E_NO_TIMEOUT:-0}" != "1" ] && [ "${NEMOCLAW_E2E_TIMEOUT_WRAPPED:-0}" != "1" ]; then
-  TIMEOUT_SECONDS="${NEMOCLAW_E2E_TIMEOUT_SECONDS:-1800}"
-  if [ -n "$TIMEOUT_CMD" ]; then
-    export NEMOCLAW_E2E_TIMEOUT_WRAPPED=1
-    exec "$TIMEOUT_CMD" -s TERM "$TIMEOUT_SECONDS" "$0" "$@"
-  else
-    echo "ERROR: 'timeout' not found. Install coreutils (macOS: 'brew install coreutils')" >&2
-    echo "       or bypass with NEMOCLAW_E2E_NO_TIMEOUT=1" >&2
-    exit 127
-  fi
-fi
-
-# Run with $TIMEOUT_CMD if set; run directly if empty (NEMOCLAW_E2E_NO_TIMEOUT bypass).
-# Avoids `$TIMEOUT_CMD 60 ssh …` becoming `60 ssh …` → "60: command not found".
-# Usage: run_with_timeout <seconds> <command> [args...]
-run_with_timeout() {
-  local seconds="$1"
-  shift
-  if [ "${NEMOCLAW_E2E_NO_TIMEOUT:-0}" != "1" ] && [ -n "$TIMEOUT_CMD" ]; then
-    "$TIMEOUT_CMD" "$seconds" "$@"
-  else
-    "$@"
-  fi
-}
+export NEMOCLAW_E2E_DEFAULT_TIMEOUT=1800
+SCRIPT_DIR_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=test/e2e/e2e-timeout.sh
+source "${SCRIPT_DIR_TIMEOUT}/e2e-timeout.sh"
+# shellcheck source=test/e2e/lib/openclaw-json.sh
+source "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-json.sh"
 
 # ── Config ───────────────────────────────────────────────────────────────────
 SANDBOX_A="test-sbx-a"
@@ -134,6 +109,60 @@ sandbox_exec() {
   sandbox_exec_for "$SANDBOX_A" "$1"
 }
 
+is_onboard_import_stream_reset() {
+  local output_file="$1"
+  [[ -f "$output_file" ]] || return 1
+
+  grep -q "Connection reset by peer (os error 104)" "$output_file" \
+    && grep -Eq "The image appears to have reached the gateway before the stream failed|Recovery: nemoclaw onboard --resume" "$output_file"
+}
+
+is_transient_onboard_resume_error() {
+  local output_file="$1"
+  [[ -f "$output_file" ]] || return 1
+
+  grep -Eq "Connection reset by peer \(os error 104\)|transport error|gateway unavailable|No active gateway|No gateway metadata found" "$output_file"
+}
+
+resume_onboard_after_import_stream_reset() {
+  local name="$1" output_file="$2"
+  if ! is_onboard_import_stream_reset "$output_file"; then
+    return 1
+  fi
+
+  log "  [onboard] Image reached gateway but import stream reset; retrying with nemoclaw onboard --resume..."
+
+  local attempt delay resume_exit resume_output
+  for attempt in 1 2 3; do
+    rm -f "$HOME/.nemoclaw/onboard.lock" 2>/dev/null || true
+    resume_exit=0
+    resume_output="$(mktemp)"
+    log "  [onboard] Resume attempt ${attempt}/3..."
+    NEMOCLAW_SANDBOX_NAME="$name" \
+      NEMOCLAW_NON_INTERACTIVE=1 \
+      NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
+      nemoclaw onboard --resume --non-interactive --yes-i-accept-third-party-software \
+      2>&1 | tee -a "$LOG_FILE" "$resume_output" || resume_exit=$?
+
+    if [[ $resume_exit -eq 0 ]]; then
+      rm -f "$resume_output"
+      return 0
+    fi
+
+    log "  [onboard] nemoclaw onboard --resume attempt ${attempt}/3 exited with code $resume_exit"
+    if ((attempt < 3)) && is_transient_onboard_resume_error "$resume_output"; then
+      delay=$((attempt * 15))
+      log "  [onboard] Gateway transport still settling; retrying resume in ${delay}s..."
+      rm -f "$resume_output"
+      sleep "$delay"
+      continue
+    fi
+    rm -f "$resume_output"
+    return 1
+  done
+  return 1
+}
+
 # Onboard a sandbox by name. Removes stale locks, runs nemoclaw onboard in
 # non-interactive mode, and returns 0 if the sandbox appears in nemoclaw list.
 onboard_sandbox() {
@@ -143,18 +172,25 @@ onboard_sandbox() {
   # Remove stale lock from previous crashed runs
   rm -f "$HOME/.nemoclaw/onboard.lock" 2>/dev/null || true
 
-  local onboard_exit=0
+  local onboard_exit=0 onboard_output
+  onboard_output="$(mktemp)"
   NEMOCLAW_SANDBOX_NAME="$name" \
     NEMOCLAW_NON_INTERACTIVE=1 \
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
     NEMOCLAW_RECREATE_SANDBOX=1 \
     nemoclaw onboard --non-interactive --yes-i-accept-third-party-software \
-    2>&1 | tee -a "$LOG_FILE" || onboard_exit=$?
+    2>&1 | tee -a "$LOG_FILE" "$onboard_output" || onboard_exit=$?
 
   if [[ $onboard_exit -ne 0 ]]; then
     log "  [onboard_sandbox] nemoclaw onboard exited with code $onboard_exit"
-    return 1
+    if resume_onboard_after_import_stream_reset "$name" "$onboard_output"; then
+      onboard_exit=0
+    else
+      rm -f "$onboard_output"
+      return 1
+    fi
   fi
+  rm -f "$onboard_output"
 
   if ! nemoclaw list 2>/dev/null | grep -q "$name"; then
     log "  [onboard_sandbox] Sandbox '$name' not found in nemoclaw list after onboard"
@@ -185,9 +221,10 @@ install_nemoclaw() {
 
   log "=== Installing NemoClaw via install.sh ==="
 
-  local install_exit=0
+  local install_exit=0 install_output
+  install_output="$(mktemp)"
   bash "$REPO_ROOT/install.sh" --non-interactive --yes-i-accept-third-party-software \
-    2>&1 | tee -a "$LOG_FILE" || install_exit=$?
+    2>&1 | tee -a "$LOG_FILE" "$install_output" || install_exit=$?
 
   # Source shell profile to pick up PATH changes from install.sh
   if [ -f "$HOME/.bashrc" ]; then
@@ -202,6 +239,15 @@ install_nemoclaw() {
   if [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     export PATH="$HOME/.local/bin:$PATH"
   fi
+
+  if [[ $install_exit -ne 0 ]]; then
+    local install_sandbox
+    install_sandbox="${NEMOCLAW_SANDBOX_NAME:-my-assistant}"
+    if resume_onboard_after_import_stream_reset "$install_sandbox" "$install_output"; then
+      install_exit=0
+    fi
+  fi
+  rm -f "$install_output"
 
   if [[ $install_exit -ne 0 ]]; then
     echo -e "${RED}FATAL: install.sh failed (exit $install_exit)${NC}"
@@ -298,18 +344,53 @@ test_sbx_01_list_sandboxes() {
 }
 
 # ── TC-SBX-02: Connect & Chat ───────────────────────────────────────────────
+# Drives one openclaw-mediated turn through the sandbox and asserts the
+# model produced a real answer. Three properties keep this honest:
+#
+#   1. Uses `openclaw agent --json`, which calls routeLogsToStderr() in
+#      openclaw/src/commands/agent-via-gateway.ts:57 so stdout is a clean
+#      JSON envelope. Merged stdout/stderr is preserved for failure
+#      diagnostics, but assertions only read JSON payload text.
+#   2. The expected token (the integer 42) is not a literal substring of
+#      the prompt, so an error path that quoted the prompt back cannot
+#      false-positive the grep — which is what masked the openclaw 4.9
+#      SSRF regression from the prior `Say exactly: HELLO_E2E` assertion.
+#   3. Asserts on parsed model reply text from the JSON envelope, not on
+#      merged stdout/stderr or a single brittle envelope shape.
+#   4. Relies on generated `thinkingDefault: off` config so the first-turn
+#      smoke contract is not delayed by model-catalog inferred reasoning
+#      defaults without depending on transient CLI flags.
 test_sbx_02_connect_chat() {
   log "=== TC-SBX-02: Connect & Chat ==="
   require_sandbox "$SANDBOX_A" "TC-SBX-02" || return
 
-  log "  Sending one-shot message to agent via SSH..."
-  local reply
-  reply=$(sandbox_exec "openclaw agent --agent main -m 'Say exactly: HELLO_E2E' --session-id e2e-test" 2>&1) || true
+  log "  Sending one-shot message to agent via SSH (openclaw agent --json)..."
+  local session_id raw ssh_cfg rc
+  session_id="e2e-sbx-02-$(date +%s)-$$"
+  # Use a direct ssh invocation rather than sandbox_exec() so the JSON envelope
+  # is easy to parse while still preserving stderr in failure output.
+  ssh_cfg="$(mktemp)"
+  if ! openshell sandbox ssh-config "$SANDBOX_A" >"$ssh_cfg" 2>/dev/null; then
+    rm -f "$ssh_cfg"
+    fail "TC-SBX-02: Connect & Chat" "Failed to fetch SSH config for '$SANDBOX_A'"
+    return
+  fi
+  rc=0
+  raw=$(run_with_timeout 90 ssh -F "$ssh_cfg" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=10 -o LogLevel=ERROR \
+    "openshell-${SANDBOX_A}" \
+    "openclaw agent --agent main --json --session-id '${session_id}' -m 'What is 6 multiplied by 7? Reply with only the integer, no extra words.'" \
+    2>&1) || rc=$?
+  rm -f "$ssh_cfg"
 
-  if echo "$reply" | grep -qi "HELLO_E2E"; then
-    pass "TC-SBX-02: Agent replied with expected token"
+  local reply
+  reply=$(printf '%s' "$raw" | parse_openclaw_agent_text 2>/dev/null) || true
+
+  if [[ $rc -eq 0 && -n "$reply" ]] && echo "$reply" | grep -qE "(^|[^0-9])42([^0-9]|$)"; then
+    pass "TC-SBX-02: Agent computed 6×7=42 through openclaw → inference.local"
   else
-    fail "TC-SBX-02: Connect & Chat" "Got: $(echo "$reply" | head -3)"
+    fail "TC-SBX-02: Connect & Chat" "Expected '42' in agent reply (rc=$rc); reply='${reply:0:200}'; raw output='${raw:0:200}'"
   fi
 }
 
@@ -666,7 +747,9 @@ teardown() {
   done
   # Clean up gateway if no sandboxes remain
   openshell gateway destroy -g nemoclaw 2>/dev/null || true
-  rm -f "$HOME/.nemoclaw/onboard.lock" 2>/dev/null || true
+  # Do not unlink ~/.nemoclaw/onboard.lock: see rationale in
+  # test/e2e/lib/sandbox-teardown.sh — the lock is PID-ownership-aware
+  # and onboard cleans up stale locks itself.
   log "Teardown complete"
   set -e
 }

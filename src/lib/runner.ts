@@ -1,20 +1,50 @@
-// @ts-nocheck
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-const { execSync, spawnSync } = require("child_process");
+import type {
+  SpawnSyncOptions,
+  SpawnSyncOptionsWithStringEncoding,
+  SpawnSyncReturns,
+} from "node:child_process";
+import { NAME_ALLOWED_FORMAT, NAME_MAX_LENGTH } from "./name-validation";
+
+const { spawnSync } = require("child_process");
 const path = require("path");
 const { detectDockerHost } = require("./platform");
+const { buildSubprocessEnv } = require("./subprocess-env") as typeof import("./subprocess-env");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SCRIPTS = path.join(ROOT, "scripts");
+
+type RunnerScalar = string | number | boolean | null | undefined;
+
+type RunnerOptions = SpawnSyncOptions & {
+  ignoreError?: boolean;
+  suppressOutput?: boolean;
+};
+
+type CaptureOptions = Omit<SpawnSyncOptionsWithStringEncoding, "encoding"> & {
+  ignoreError?: boolean;
+};
+
+type SpawnResult = SpawnSyncReturns<string | Buffer>;
 
 const dockerHost = detectDockerHost();
 if (dockerHost) {
   process.env.DOCKER_HOST = dockerHost.dockerHost;
 }
 
-function logOpenshellRuntimeHint(file, renderedCommand = "") {
+function buildRunnerEnv(extraEnv?: NodeJS.ProcessEnv): Record<string, string> {
+  const normalizedExtra: Record<string, string> = {};
+  if (extraEnv) {
+    for (const [key, value] of Object.entries(extraEnv)) {
+      if (value !== undefined) normalizedExtra[key] = value;
+    }
+  }
+  return buildSubprocessEnv(normalizedExtra);
+}
+
+function logOpenshellRuntimeHint(file: string, renderedCommand = ""): void {
   if (
     file === "openshell" ||
     file?.endsWith("/openshell") ||
@@ -29,12 +59,18 @@ function logOpenshellRuntimeHint(file, renderedCommand = "") {
  * Spawn a command, streaming stdout/stderr (redacted) to the terminal.
  * Exits the process on failure unless opts.ignoreError is true.
  */
-function spawnAndHandle(file, args, opts = {}, stdio, renderedCommand) {
+function spawnAndHandle(
+  file: string,
+  args: readonly string[],
+  opts: RunnerOptions = {},
+  stdio: RunnerOptions["stdio"],
+  renderedCommand: string,
+): SpawnResult {
   const result = spawnSync(file, args, {
     ...opts,
     stdio,
     cwd: ROOT,
-    env: { ...process.env, ...opts.env },
+    env: buildRunnerEnv(opts.env),
   });
   if (!opts.suppressOutput) {
     writeRedactedResult(result, stdio);
@@ -56,31 +92,41 @@ function spawnAndHandle(file, args, opts = {}, stdio, renderedCommand) {
 }
 
 /**
- * Run a command, streaming stdout/stderr (redacted) to the terminal.
+ * Run a program directly with argv-style arguments, bypassing shell parsing.
  * Exits the process on failure unless opts.ignoreError is true.
  *
- * Accepts two forms:
- *   run("bash -c string")  — legacy: passes the string to bash for interpretation
- *   run(["docker", "rm", name])  — safe: calls spawnSync(exe, args) with no shell
- *
- * When an argv array is passed, the shell option is forbidden to prevent
- * callers from accidentally re-enabling shell interpretation.
+ * Shell-string execution is intentionally unsupported here. If a caller truly
+ * needs shell parsing, it must opt in explicitly via runShell().
  */
-function run(cmd, opts = {}) {
-  if (Array.isArray(cmd)) {
-    return runArrayCmd(cmd, opts);
+function run(cmd: readonly string[], opts: RunnerOptions = {}): SpawnResult {
+  if (!Array.isArray(cmd)) {
+    throw new Error("run no longer accepts shell strings; pass an argv array instead");
   }
+  return runArrayCmd(cmd, opts);
+}
+
+/**
+ * Run an explicit shell command string through bash -c.
+ * Exits the process on failure unless opts.ignoreError is true.
+ */
+function runShell(cmd: string, opts: RunnerOptions = {}): SpawnResult {
+  const shellCmd = String(cmd);
   const stdio = opts.stdio ?? ["ignore", "pipe", "pipe"];
-  return spawnAndHandle("bash", ["-c", cmd], opts, stdio, cmd);
+  return spawnAndHandle("bash", ["-c", shellCmd], opts, stdio, shellCmd);
 }
 
 /**
  * Internal: execute an argv array via spawnSync with no shell.
- * Shared by run() and kept separate for clarity.
+ * Shared by run() and runInteractive() and kept separate for clarity.
  */
-function runArrayCmd(cmd, opts = {}) {
+function runArrayCmd(
+  cmd: readonly string[],
+  opts: RunnerOptions = {},
+  defaultStdio: RunnerOptions["stdio"] = ["ignore", "pipe", "pipe"],
+  callerName = "run",
+): SpawnResult {
   if (cmd.length === 0) {
-    throw new Error("run: argv array must not be empty");
+    throw new Error(`${callerName}: argv array must not be empty`);
   }
 
   const exe = cmd[0];
@@ -89,16 +135,18 @@ function runArrayCmd(cmd, opts = {}) {
 
   // Guard: re-enabling shell interpretation defeats the purpose of argv arrays.
   if (spawnOpts.shell) {
-    throw new Error("run: shell option is forbidden when passing an argv array");
+    throw new Error(`${callerName}: shell option is forbidden when passing an argv array`);
   }
 
-  const stdio = stdioCfg ?? ["ignore", "pipe", "pipe"];
+  const stdio = stdioCfg ?? defaultStdio;
 
+  // run() always uses argv arrays and rejects `shell: true` above.
+  // codeql[js/indirect-command-line-injection]
   const result = spawnSync(exe, args, {
     ...spawnOpts,
     stdio,
     cwd: ROOT,
-    env: { ...process.env, ...extraEnv },
+    env: buildRunnerEnv(extraEnv),
   });
   if (!suppressOutput) {
     writeRedactedResult(result, stdio);
@@ -120,10 +168,21 @@ function runArrayCmd(cmd, opts = {}) {
 }
 
 /**
- * Run a shell command interactively (stdin inherited) while capturing and redacting stdout/stderr.
+ * Run a program directly with argv-style arguments while inheriting stdin.
  * Exits the process on failure unless opts.ignoreError is true.
  */
-function runInteractive(cmd, opts = {}) {
+function runInteractive(cmd: readonly string[], opts: RunnerOptions = {}): SpawnResult {
+  if (!Array.isArray(cmd)) {
+    throw new Error("runInteractive no longer accepts shell strings; pass an argv array instead");
+  }
+  return runArrayCmd(cmd, opts, ["inherit", "pipe", "pipe"], "runInteractive");
+}
+
+/**
+ * Run an explicit shell command string interactively (stdin inherited).
+ * Exits the process on failure unless opts.ignoreError is true.
+ */
+function runInteractiveShell(cmd: string, opts: RunnerOptions = {}): SpawnResult {
   const stdio = opts.stdio ?? ["inherit", "pipe", "pipe"];
   return spawnAndHandle("bash", ["-c", cmd], opts, stdio, cmd);
 }
@@ -132,7 +191,11 @@ function runInteractive(cmd, opts = {}) {
  * Run a program directly with argv-style arguments, bypassing shell parsing.
  * Exits the process on failure unless opts.ignoreError is true.
  */
-function runFile(file, args = [], opts = {}) {
+function runFile(
+  file: string,
+  args: readonly (string | number | boolean)[] = [],
+  opts: RunnerOptions = {},
+): SpawnResult {
   if (opts.shell) {
     throw new Error("runFile does not allow opts.shell=true");
   }
@@ -143,46 +206,24 @@ function runFile(file, args = [], opts = {}) {
 }
 
 /**
- * Run a command and return its stdout as a trimmed string.
+ * Run a program directly with argv-style arguments and capture trimmed stdout.
  * Throws a redacted error on failure, or returns '' when opts.ignoreError is true.
  *
- * Accepts two forms:
- *   runCapture("some shell command")  — legacy: passes the string to execSync (shell)
- *   runCapture(["curl", "-sf", url])  — safe: calls spawnSync(exe, args) with no shell
- *
- * When an argv array is passed, the shell option is forbidden to prevent
- * callers from accidentally re-enabling shell interpretation.
+ * Shell-string capture is intentionally unsupported. If you truly need shell
+ * parsing, spell it out explicitly at the call site (for example
+ * ["sh", "-c", script]) so reviews and static checks can see the boundary.
  */
-function runCapture(cmd, opts = {}) {
-  if (Array.isArray(cmd)) {
-    return runArrayCapture(cmd, opts);
+function runCapture(cmd: readonly string[], opts: CaptureOptions = {}): string {
+  if (!Array.isArray(cmd)) {
+    throw new Error("runCapture no longer accepts shell strings; pass an argv array instead");
   }
-  try {
-    return execSync(cmd, {
-      ...opts,
-      encoding: "utf-8",
-      cwd: ROOT,
-      env: { ...process.env, ...opts.env },
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-  } catch (err) {
-    if (opts.ignoreError) return "";
-    throw redactError(err);
-  }
-}
-
-/**
- * Internal: capture stdout from an argv array via spawnSync with no shell.
- * Shared by runCapture() and kept separate for clarity.
- */
-function runArrayCapture(cmd, opts = {}) {
   if (cmd.length === 0) {
     throw new Error("runCapture: argv array must not be empty");
   }
 
   const exe = cmd[0];
   const args = cmd.slice(1);
-  const { ignoreError, env: extraEnv, stdio: _stdio, encoding: _encoding, ...spawnOpts } = opts;
+  const { ignoreError, env: extraEnv, stdio: _stdio, ...spawnOpts } = opts;
 
   // Guard: re-enabling shell interpretation defeats the purpose of argv arrays.
   if (spawnOpts.shell) {
@@ -190,10 +231,12 @@ function runArrayCapture(cmd, opts = {}) {
   }
 
   try {
+    // runCapture() always uses argv arrays and rejects `shell: true` above.
+    // codeql[js/indirect-command-line-injection]
     const result = spawnSync(exe, args, {
       ...spawnOpts,
       cwd: ROOT,
-      env: { ...process.env, ...extraEnv },
+      env: buildRunnerEnv(extraEnv),
       stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf-8",
     });
@@ -217,89 +260,53 @@ function runArrayCapture(cmd, opts = {}) {
   }
 }
 
-/**
- * Redact known secret patterns from a string to prevent accidental leaks
- * in CLI log and error output. Covers NVIDIA API keys, bearer tokens,
- * generic API key assignments, and base64-style long tokens.
- */
-// Single source of truth for secret patterns — see secret-patterns.ts
-const { SECRET_PATTERNS } = require("./secret-patterns");
+// Unified redaction — see redact.ts (#2381).
+const { redact, redactError, writeRedactedResult } = require("./security/redact");
 
-/**
- * Partially redact a matched secret string: keep the first 4 chars and replace
- * the rest with asterisks (capped at 20 asterisks).
- */
-function redactMatch(match) {
-  return match.slice(0, 4) + "*".repeat(Math.min(match.length - 4, 20));
+/** Structured result returned by runCaptureEx. */
+export interface CaptureResult {
+  stdout: string;
+  exitCode: number | null;
+  /** True when spawnSync sets result.error due to a timeout (ETIMEDOUT). */
+  timedOut: boolean;
 }
 
 /**
- * Redact credentials from a URL string: clears url.password and blanks
- * known auth-style query params (auth, sig, signature, token, access_token).
- * Returns the original value unchanged if it cannot be parsed as a URL.
+ * Like runCapture but returns a structured result instead of throwing or
+ * collapsing errors to an empty string.  Use this when the caller needs to
+ * distinguish a real timeout (curl exit 28 / spawn ETIMEDOUT) from other
+ * failures such as connection-refused.
  */
-function redactUrl(value) {
-  if (typeof value !== "string" || value.length === 0) return value;
+function runCaptureEx(cmd: readonly string[], opts: Omit<CaptureOptions, "ignoreError"> = {}): CaptureResult {
+  if (!Array.isArray(cmd) || cmd.length === 0) {
+    throw new Error("runCaptureEx: cmd must be a non-empty argv array");
+  }
+  const exe = cmd[0];
+  const args = cmd.slice(1);
+  const { env: extraEnv, stdio: _stdio, ...spawnOpts } = opts as CaptureOptions;
   try {
-    const url = new URL(value);
-    if (url.password) {
-      url.password = "****";
-    }
-    for (const key of [...url.searchParams.keys()]) {
-      if (/(^|[-_])(?:signature|sig|token|auth|access_token)$/i.test(key)) {
-        url.searchParams.set(key, "****");
-      }
-    }
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-/**
- * Redact known secret patterns and authenticated URLs from a string.
- * Non-string values are returned unchanged.
- */
-function redact(str) {
-  if (typeof str !== "string") return str;
-  let out = str.replace(/https?:\/\/[^\s'"]+/g, redactUrl);
-  for (const pat of SECRET_PATTERNS) {
-    out = out.replace(pat, redactMatch);
-  }
-  return out;
-}
-
-/**
- * Redact sensitive fields on an error object before surfacing it to callers.
- * NOTE: this mutates the original error instance in place.
- */
-function redactError(err) {
-  if (!err || typeof err !== "object") return err;
-  const originalMessage = typeof err.message === "string" ? err.message : null;
-  if (typeof err.message === "string") err.message = redact(err.message);
-  if (typeof err.cmd === "string") err.cmd = redact(err.cmd);
-  if (typeof err.stdout === "string") err.stdout = redact(err.stdout);
-  if (typeof err.stderr === "string") err.stderr = redact(err.stderr);
-  if (Array.isArray(err.output)) {
-    err.output = err.output.map((value) => (typeof value === "string" ? redact(value) : value));
-  }
-  if (originalMessage && typeof err.stack === "string") {
-    err.stack = err.stack.replaceAll(originalMessage, err.message);
-  }
-  return err;
-}
-
-/**
- * Write redacted stdout/stderr from a spawnSync result to the parent process streams.
- * No-op when stdio is 'inherit' or not an array.
- */
-function writeRedactedResult(result, stdio) {
-  if (!result || stdio === "inherit" || !Array.isArray(stdio)) return;
-  if (stdio[1] === "pipe" && result.stdout) {
-    process.stdout.write(redact(result.stdout.toString()));
-  }
-  if (stdio[2] === "pipe" && result.stderr) {
-    process.stderr.write(redact(result.stderr.toString()));
+    const result = spawnSync(exe, args, {
+      ...spawnOpts,
+      cwd: ROOT,
+      // #2616: route via buildRunnerEnv so subprocess env is sanitized and
+      // NO_PROXY=localhost,127.0.0.1 is injected when HTTP_PROXY is set.
+      // Otherwise curl probes against localhost (Ollama validation, etc.)
+      // tunnel through the user's host proxy and fail with HTTP 500.
+      env: buildRunnerEnv(extraEnv),
+      stdio: ["pipe", "pipe", "pipe"],
+      encoding: "utf-8",
+    });
+    const timedOut =
+      (result.error != null && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") ||
+      result.status === 28;
+    const stdout = result.stdout || "";
+    return {
+      stdout: (typeof stdout === "string" ? stdout : stdout.toString("utf-8")).trim(),
+      exitCode: result.status,
+      timedOut,
+    };
+  } catch (err) {
+    throw redactError(err);
   }
 }
 
@@ -307,7 +314,7 @@ function writeRedactedResult(result, stdio) {
  * Shell-quote a value for safe interpolation into bash -c strings.
  * Wraps in single quotes and escapes embedded single quotes.
  */
-function shellQuote(value) {
+function shellQuote(value: RunnerScalar): string {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
@@ -315,16 +322,18 @@ function shellQuote(value) {
  * Validate a name (sandbox, instance, container) against RFC 1123 label rules.
  * Rejects shell metacharacters, path traversal, and empty/overlength names.
  */
-function validateName(name, label = "name") {
+function validateName(name: string, label = "name"): string {
   if (!name || typeof name !== "string") {
-    throw new Error(`${label} is required`);
+    throw new Error(`${label} is required. Allowed format: ${NAME_ALLOWED_FORMAT}.`);
   }
-  if (name.length > 63) {
-    throw new Error(`${label} too long (max 63 chars): '${name.slice(0, 20)}...'`);
+  if (name.length > NAME_MAX_LENGTH) {
+    throw new Error(
+      `${label} too long (max ${NAME_MAX_LENGTH} chars): '${name.slice(0, 20)}...'. Allowed format: ${NAME_ALLOWED_FORMAT}.`,
+    );
   }
   if (!/^[a-z]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
     throw new Error(
-      `Invalid ${label}: '${name}'. Must start with a letter and contain only lowercase alphanumerics with optional internal hyphens.`,
+      `Invalid ${label}: '${name}'. Allowed format: ${NAME_ALLOWED_FORMAT}.`,
     );
   }
   return name;
@@ -332,12 +341,15 @@ function validateName(name, label = "name") {
 
 export {
   ROOT,
-  SCRIPTS,
   redact,
   run,
   runCapture,
+  runCaptureEx,
   runFile,
   runInteractive,
+  runInteractiveShell,
+  runShell,
+  SCRIPTS,
   shellQuote,
   validateName,
 };

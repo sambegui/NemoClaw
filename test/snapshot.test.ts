@@ -1,4 +1,3 @@
-// @ts-nocheck
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -10,6 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, it, expect, afterAll, beforeEach } from "vitest";
 
 // Override HOME BEFORE importing sandbox-state — it reads process.env.HOME
@@ -21,11 +21,41 @@ const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-snap-naming-"))
 process.env.HOME = TMP_HOME;
 
 const REPO_ROOT = path.join(import.meta.dirname, "..");
-const sandboxState = await import(path.join(REPO_ROOT, "dist", "lib", "sandbox-state.js"));
+
+type BackupScalar = string | number | boolean | null | undefined;
+type BackupValue = BackupScalar | BackupManifestOverrides | BackupValue[];
+
+type SandboxStateModule = typeof import("../dist/lib/state/sandbox.js");
+type SandboxStateModuleCandidate = Partial<SandboxStateModule> | null;
+
+function isSandboxStateModule(value: SandboxStateModuleCandidate): value is SandboxStateModule {
+  return (
+    value !== null &&
+    typeof value.listBackups === "function" &&
+    typeof value.findBackup === "function" &&
+    typeof value.validateSnapshotName === "function" &&
+    typeof value.parseRestoreArgs === "function"
+  );
+}
+
+const loadedSandboxState = await import(
+  pathToFileURL(path.join(REPO_ROOT, "dist", "lib", "state", "sandbox.js")).href
+);
+if (!isSandboxStateModule(loadedSandboxState)) {
+  throw new Error("Expected sandbox-state module exports to be available");
+}
+const sandboxState = loadedSandboxState;
+const { parseRestoreArgs } = sandboxState;
 
 const BACKUPS_ROOT = path.join(TMP_HOME, ".nemoclaw", "rebuild-backups");
 
-function writeBackup(sandboxName, dirName, overrides = {}) {
+type BackupManifestOverrides = { [key: string]: BackupValue };
+
+function writeBackup(
+  sandboxName: string,
+  dirName: string,
+  overrides: BackupManifestOverrides = {},
+): BackupManifestOverrides {
   const dir = path.join(BACKUPS_ROOT, sandboxName, dirName);
   fs.mkdirSync(dir, { recursive: true });
   const manifest = {
@@ -36,15 +66,12 @@ function writeBackup(sandboxName, dirName, overrides = {}) {
     agentVersion: null,
     expectedVersion: null,
     stateDirs: [],
-    writableDir: "/sandbox/.openclaw-data",
+    dir: "/sandbox/.openclaw",
     backupPath: dir,
     blueprintDigest: null,
     ...overrides,
   };
-  fs.writeFileSync(
-    path.join(dir, "rebuild-manifest.json"),
-    JSON.stringify(manifest, null, 2),
-  );
+  fs.writeFileSync(path.join(dir, "rebuild-manifest.json"), JSON.stringify(manifest, null, 2));
   return manifest;
 }
 
@@ -60,6 +87,46 @@ afterAll(() => {
 beforeEach(() => {
   fs.rmSync(BACKUPS_ROOT, { recursive: true, force: true });
 });
+
+function writeExecutable(filePath: string, source: string): void {
+  fs.writeFileSync(filePath, source, { mode: 0o755 });
+}
+
+function writeOpenClawRegistry(sandboxName: string): void {
+  fs.mkdirSync(path.join(TMP_HOME, ".nemoclaw"), { recursive: true });
+  fs.writeFileSync(
+    path.join(TMP_HOME, ".nemoclaw", "sandboxes.json"),
+    JSON.stringify({
+      defaultSandbox: sandboxName,
+      sandboxes: {
+        [sandboxName]: {
+          name: sandboxName,
+          model: "m",
+          provider: "p",
+          gpuEnabled: false,
+          policies: [],
+          agent: null,
+        },
+      },
+    }),
+  );
+}
+
+function writeFakeOpenshell(binDir: string): string {
+  const openshell = path.join(binDir, "openshell");
+  writeExecutable(
+    openshell,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "sandbox" && args[1] === "ssh-config") {
+  process.stdout.write("Host openshell-alpha\\n  HostName 127.0.0.1\\n  User sandbox\\n");
+  process.exit(0);
+}
+process.exit(0);
+`,
+  );
+  return openshell;
+}
 
 describe("validateSnapshotName", () => {
   it("accepts normal names", () => {
@@ -114,6 +181,93 @@ describe("listBackups computes virtual versions", () => {
     expect(entry.name).toBe("before-upgrade");
     expect(entry.snapshotVersion).toBe(1);
   });
+
+  it("preserves legacy manifests created before blueprintDigest existed", () => {
+    const dir = path.join(BACKUPS_ROOT, "test-sandbox", "2026-04-21T13-59-00-000Z");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "rebuild-manifest.json"),
+      JSON.stringify({
+        version: 1,
+        sandboxName: "test-sandbox",
+        timestamp: "2026-04-21T13-59-00-000Z",
+        agentType: "openclaw",
+        agentVersion: null,
+        expectedVersion: null,
+        stateDirs: [],
+        writableDir: "/sandbox/.openclaw-data",
+        backupPath: dir,
+      }),
+    );
+
+    const [entry] = sandboxState.listBackups("test-sandbox");
+    expect(entry?.timestamp).toBe("2026-04-21T13-59-00-000Z");
+    expect(entry?.dir).toBe("/sandbox/.openclaw-data");
+    expect(entry?.writableDir).toBe("/sandbox/.openclaw-data");
+    expect(entry?.blueprintDigest).toBeNull();
+  });
+
+  it("ignores rebuild manifests with invalid typed fields", () => {
+    const dir = path.join(BACKUPS_ROOT, "test-sandbox", "2026-04-21T14-00-00-000Z");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "rebuild-manifest.json"),
+      JSON.stringify({
+        version: 1,
+        sandboxName: "test-sandbox",
+        timestamp: "2026-04-21T14-00-00-000Z",
+        agentType: "openclaw",
+        agentVersion: null,
+        expectedVersion: null,
+        stateDirs: [],
+        writableDir: "/sandbox/.openclaw-data",
+        backupPath: dir,
+        blueprintDigest: null,
+        policyPresets: [1],
+      }),
+    );
+
+    expect(sandboxState.listBackups("test-sandbox")).toEqual([]);
+  });
+
+  it("ignores rebuild manifests with unsafe backed-up directory paths", () => {
+    writeBackup("test-sandbox", "2026-04-21T14-00-00-000Z", {
+      stateDirs: ["workspace"],
+      backedUpDirs: ["../outside"],
+    });
+
+    expect(sandboxState.listBackups("test-sandbox")).toEqual([]);
+  });
+
+  it("ignores rebuild manifests whose backed-up dirs are not declared state dirs", () => {
+    writeBackup("test-sandbox", "2026-04-21T14-00-00-000Z", {
+      stateDirs: ["workspace"],
+      backedUpDirs: ["workspace", "agents"],
+    });
+
+    expect(sandboxState.listBackups("test-sandbox")).toEqual([]);
+  });
+
+  it("does not restore backed-up directory entries that are plain files", () => {
+    const manifest = writeBackup("test-sandbox", "2026-04-21T14-00-00-000Z", {
+      stateDirs: ["workspace"],
+      backedUpDirs: ["workspace"],
+    });
+    fs.writeFileSync(path.join(String(manifest.backupPath), "workspace"), "not a directory");
+
+    const restore = sandboxState.restoreSandboxState(
+      "test-sandbox",
+      String(manifest.backupPath),
+    );
+
+    expect(restore).toEqual({
+      success: true,
+      restoredDirs: [],
+      failedDirs: [],
+      restoredFiles: [],
+      failedFiles: [],
+    });
+  });
 });
 
 describe("findBackup", () => {
@@ -164,5 +318,871 @@ describe("findBackup", () => {
 
   it("returns no match when the sandbox has no snapshots", () => {
     expect(sandboxState.findBackup("unknown-sandbox", "v1").match).toBeNull();
+  });
+});
+
+// Argv parser for `snapshot restore [selector] [--to <dst>]`. Added alongside
+// the cross-sandbox restore flag: covers positional selectors, --to extraction,
+// ordering permutations, and error cases for a missing or flag-shaped value.
+describe("parseRestoreArgs", () => {
+  it("defaults to self-restore when --to is absent", () => {
+    expect(parseRestoreArgs("src", ["restore"])).toEqual({
+      ok: true,
+      targetSandbox: "src",
+      selector: null,
+    });
+  });
+
+  it("carries a positional selector through without --to", () => {
+    expect(parseRestoreArgs("src", ["restore", "v3"])).toEqual({
+      ok: true,
+      targetSandbox: "src",
+      selector: "v3",
+    });
+  });
+
+  it("accepts a user-assigned snapshot name as selector", () => {
+    expect(parseRestoreArgs("src", ["restore", "before-upgrade"])).toEqual({
+      ok: true,
+      targetSandbox: "src",
+      selector: "before-upgrade",
+    });
+  });
+
+  it("extracts --to and redirects the restore target", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "dst"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: null,
+    });
+  });
+
+  it("combines selector + --to with selector first", () => {
+    expect(parseRestoreArgs("src", ["restore", "v3", "--to", "dst"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: "v3",
+    });
+  });
+
+  it("combines selector + --to with --to first", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "dst", "v3"])).toEqual({
+      ok: true,
+      targetSandbox: "dst",
+      selector: "v3",
+    });
+  });
+
+  it("preserves timestamp-shaped selectors alongside --to", () => {
+    expect(parseRestoreArgs("src", ["restore", "2026-04-21T14-00-00-000Z", "--to", "dst"])).toEqual(
+      {
+        ok: true,
+        targetSandbox: "dst",
+        selector: "2026-04-21T14-00-00-000Z",
+      },
+    );
+  });
+
+  it("rejects --to at end-of-args with no value", () => {
+    const result = parseRestoreArgs("src", ["restore", "--to"]);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected parseRestoreArgs() to reject a trailing --to flag");
+    }
+    expect(result.error).toMatch(/--to requires a target sandbox name/);
+  });
+
+  it("rejects --to when followed immediately by another flag", () => {
+    // Without this guard, `--to --other` would swallow the flag as the dst
+    // name and confuse validateName with an error about a weird name.
+    const result = parseRestoreArgs("src", ["restore", "--to", "--other"]);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("Expected parseRestoreArgs() to reject --to without a target name");
+    }
+    expect(result.error).toMatch(/--to requires a target sandbox name/);
+  });
+
+  it("returns self-restore when target equals source explicitly", () => {
+    expect(parseRestoreArgs("src", ["restore", "--to", "src"])).toEqual({
+      ok: true,
+      targetSandbox: "src",
+      selector: null,
+    });
+  });
+
+  it("uses only the first positional as selector; ignores trailing positionals", () => {
+    // Trailing positionals are silently accepted today — pin that behavior so
+    // future changes notice if it shifts.
+    expect(parseRestoreArgs("src", ["restore", "v1", "v2"])).toEqual({
+      ok: true,
+      targetSandbox: "src",
+      selector: "v1",
+    });
+  });
+});
+
+describe("sandbox directory backup semantics", () => {
+  it("treats empty state directories as backed up when tar exits cleanly", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-empty-dirs-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["agents", "extensions", "workspace", "skills", "hooks", "cron"];
+      fs.mkdirSync(binDir, { recursive: true });
+      for (const dirName of existingDirs) {
+        fs.mkdirSync(path.join(openclawDir, dirName), { recursive: true });
+      }
+      fs.writeFileSync(path.join(openclawDir, "workspace", "marker.txt"), "marker\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.exit(0);
+}
+if (cmd.includes("tar -cf -")) {
+  const r = spawnSync("tar", ["-cf", "-", "-C", ${JSON.stringify(openclawDir)}, ...existingDirs], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  if (r.stderr) fs.writeSync(2, r.stderr);
+  process.exit(r.status || 0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(true);
+      expect(backup.failedDirs).toEqual([]);
+      expect(backup.backedUpDirs).toEqual(existingDirs);
+      expect(backup.manifest?.backedUpDirs).toEqual(existingDirs);
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes tar-failed directories from the restorable manifest", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-partial-tar-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const sshLog = path.join(fixture, "ssh-log.jsonl");
+      const existingDirs = ["agents", "workspace", "extensions"];
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "agents", "main", "sessions"), { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "extensions"), { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "workspace"), { recursive: true });
+      fs.writeFileSync(path.join(openclawDir, "workspace", "marker.txt"), "marker\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+fs.appendFileSync(${JSON.stringify(sshLog)}, JSON.stringify({ cmd }) + "\\n");
+function readStdin() {
+  for (;;) {
+    const buf = Buffer.alloc(65536);
+    const n = fs.readSync(0, buf, 0, buf.length, null);
+    if (n === 0) break;
+  }
+}
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.exit(0);
+}
+if (cmd.includes("tar -cf -")) {
+  const r = spawnSync("tar", ["-cf", "-", "-C", ${JSON.stringify(openclawDir)}, ...existingDirs], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  process.stderr.write("tar: agents/main/sessions/sessions.json: Cannot open: Permission denied\\n");
+  process.stderr.write("tar: Exiting with failure status due to previous errors\\n");
+  process.exit(2);
+}
+if (cmd.includes("rm -rf") || cmd.includes("tar --no-same-owner")) {
+  readStdin();
+  process.exit(0);
+}
+if (cmd.includes("chown") || cmd.includes("[ -r ")) {
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(false);
+      expect(backup.failedDirs).toEqual(["agents"]);
+      expect(backup.backedUpDirs).toEqual(["workspace", "extensions"]);
+      expect(backup.manifest?.backedUpDirs).toEqual(["workspace", "extensions"]);
+      expect(fs.existsSync(path.join(backup.manifest!.backupPath, "agents"))).toBe(true);
+
+      const restore = sandboxState.restoreSandboxState("alpha", backup.manifest!.backupPath);
+      expect(restore.success).toBe(true);
+      expect(restore.restoredDirs).toEqual(["workspace", "extensions"]);
+
+      const loggedCommands = fs
+        .readFileSync(sshLog, "utf-8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).cmd as string);
+      const cleanupCommand = loggedCommands.find((cmd) => cmd.includes("rm -rf"));
+      expect(cleanupCommand).toContain("/sandbox/.openclaw/workspace");
+      expect(cleanupCommand).not.toContain("rm -rf -- /sandbox/.openclaw/extensions");
+      expect(cleanupCommand).toContain("/sandbox/.openclaw/extensions");
+      expect(cleanupCommand).toContain("! -name 'nemoclaw'");
+      expect(cleanupCommand).toContain("! -name 'openclaw-weixin'");
+      expect(cleanupCommand).not.toContain("/sandbox/.openclaw/agents");
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves fresh image-managed OpenClaw extensions while restoring user extensions", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-extension-restore-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const sshLog = path.join(fixture, "ssh-log.jsonl");
+      const extensionsDir = path.join(openclawDir, "extensions");
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(path.join(extensionsDir, "nemoclaw"), { recursive: true });
+      fs.mkdirSync(path.join(extensionsDir, "openclaw-weixin"), { recursive: true });
+      fs.mkdirSync(path.join(extensionsDir, "stale-user-extension"), { recursive: true });
+      fs.writeFileSync(path.join(extensionsDir, "nemoclaw", "marker.txt"), "fresh-nemoclaw\n");
+      fs.writeFileSync(path.join(extensionsDir, "openclaw-weixin", "marker.txt"), "fresh-weixin\n");
+      fs.writeFileSync(
+        path.join(extensionsDir, "stale-user-extension", "marker.txt"),
+        "stale\n",
+      );
+
+      const manifest = writeBackup("alpha", "2026-05-19T12-00-00-000Z", {
+        stateDirs: ["extensions"],
+        backedUpDirs: ["extensions"],
+      });
+      const backupExtensionsDir = path.join(String(manifest.backupPath), "extensions");
+      fs.mkdirSync(path.join(backupExtensionsDir, "nemoclaw"), { recursive: true });
+      fs.mkdirSync(path.join(backupExtensionsDir, "openclaw-weixin"), { recursive: true });
+      fs.mkdirSync(path.join(backupExtensionsDir, "user-extension"), { recursive: true });
+      fs.writeFileSync(path.join(backupExtensionsDir, "nemoclaw", "marker.txt"), "old-nemoclaw\n");
+      fs.writeFileSync(
+        path.join(backupExtensionsDir, "openclaw-weixin", "marker.txt"),
+        "old-weixin\n",
+      );
+      fs.writeFileSync(path.join(backupExtensionsDir, "user-extension", "marker.txt"), "restored\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const cmd = process.argv[process.argv.length - 1] || "";
+fs.appendFileSync(${JSON.stringify(sshLog)}, JSON.stringify({ cmd }) + "\\n");
+function readStdin() {
+  const chunks = [];
+  for (;;) {
+    const buf = Buffer.alloc(65536);
+    const n = fs.readSync(0, buf, 0, buf.length, null);
+    if (n === 0) break;
+    chunks.push(buf.subarray(0, n));
+  }
+  return Buffer.concat(chunks);
+}
+if (cmd.includes("/sandbox/.openclaw/extensions") && cmd.includes("-exec rm -rf")) {
+  const extensionsDir = ${JSON.stringify(extensionsDir)};
+  fs.mkdirSync(extensionsDir, { recursive: true });
+  for (const entry of fs.readdirSync(extensionsDir)) {
+    if (entry === "nemoclaw" || entry === "openclaw-weixin") continue;
+    fs.rmSync(path.join(extensionsDir, entry), { recursive: true, force: true });
+  }
+  process.exit(0);
+}
+if (cmd.includes("tar --no-same-owner -xf -")) {
+  const r = spawnSync("tar", ["--no-same-owner", "-xf", "-", "-C", ${JSON.stringify(openclawDir)}], {
+    input: readStdin(),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  if (r.stderr) fs.writeSync(2, r.stderr);
+  process.exit(r.status || 0);
+}
+if (cmd.includes("chown") || cmd.includes("[ -d ")) {
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const restore = sandboxState.restoreSandboxState("alpha", String(manifest.backupPath));
+      expect(restore.success).toBe(true);
+      expect(restore.restoredDirs).toEqual(["extensions"]);
+      expect(
+        fs.readFileSync(path.join(extensionsDir, "nemoclaw", "marker.txt"), "utf-8"),
+      ).toBe("fresh-nemoclaw\n");
+      expect(
+        fs.readFileSync(path.join(extensionsDir, "openclaw-weixin", "marker.txt"), "utf-8"),
+      ).toBe("fresh-weixin\n");
+      expect(fs.existsSync(path.join(extensionsDir, "stale-user-extension"))).toBe(false);
+      expect(
+        fs.readFileSync(path.join(extensionsDir, "user-extension", "marker.txt"), "utf-8"),
+      ).toBe("restored\n");
+
+      const loggedCommands = fs
+        .readFileSync(sshLog, "utf-8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).cmd as string);
+      const cleanupCommand = loggedCommands.find((cmd) => cmd.includes("/sandbox/.openclaw/extensions"));
+      expect(cleanupCommand).not.toContain("rm -rf -- /sandbox/.openclaw/extensions");
+      expect(cleanupCommand).toContain("! -name 'nemoclaw'");
+      expect(cleanupCommand).toContain("! -name 'openclaw-weixin'");
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts whitelisted npm symlinks under extensions/ during pre-backup audit", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-audit-whitelist-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["agents", "extensions", "workspace"];
+      fs.mkdirSync(binDir, { recursive: true });
+      for (const d of existingDirs) fs.mkdirSync(path.join(openclawDir, d), { recursive: true });
+
+      const auditLines = [
+        "l\t/sandbox/.openclaw/extensions/openclaw-weixin/node_modules/.bin/qrcode-terminal\t../qrcode-terminal/bin/qrcode-terminal.js",
+        "l\t/sandbox/.openclaw/extensions/openclaw-weixin/node_modules/openclaw\t/usr/local/lib/node_modules/openclaw",
+      ].join("\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.stdout.write(${JSON.stringify(auditLines)} + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("tar -cf -")) {
+  const r = spawnSync("tar", ["-cf", "-", "-C", ${JSON.stringify(openclawDir)}, ...existingDirs], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  process.exit(r.status || 0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(true);
+      expect(backup.backedUpDirs).toEqual(existingDirs);
+      expect(backup.error).toBeUndefined();
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts extension npm .bin symlinks that resolve inside node_modules", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-audit-npm-bin-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["extensions"];
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "extensions"), { recursive: true });
+
+      const auditLines = [
+        "l\t/sandbox/.openclaw/extensions/nemoclaw/node_modules/.bin/json5\t../json5/lib/cli.js",
+        "l\t/sandbox/.openclaw/extensions/nemoclaw/node_modules/.bin/yaml\t../yaml/bin.mjs",
+        "l\t/sandbox/.openclaw/extensions/nemoclaw/node_modules/.bin/node-which\t../which/bin/node-which",
+      ].join("\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+const openclawDir = ${JSON.stringify(openclawDir)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.stdout.write(${JSON.stringify(auditLines)} + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("tar -cf -")) {
+  const r = spawnSync("tar", ["-cf", "-", "-C", openclawDir, ...existingDirs], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  process.exit(r.status || 0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(true);
+      expect(backup.error).toBeUndefined();
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects extension npm .bin symlinks that escape node_modules", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-audit-npm-bin-escape-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["extensions"];
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "extensions"), { recursive: true });
+
+      const auditLines = [
+        "l\t/sandbox/.openclaw/extensions/nemoclaw/node_modules/.bin/leak\t../../../../openclaw.json",
+      ].join("\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.stdout.write(${JSON.stringify(auditLines)} + "\\n");
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(false);
+      expect(backup.error).toMatch(/node_modules\/\.bin\/leak/);
+      expect(backup.error).toMatch(/openclaw\.json/);
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("still rejects non-whitelisted symlinks alongside whitelisted ones", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-audit-mixed-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["extensions", "workspace"];
+      fs.mkdirSync(binDir, { recursive: true });
+      for (const d of existingDirs) fs.mkdirSync(path.join(openclawDir, d), { recursive: true });
+
+      const auditLines = [
+        "l\t/sandbox/.openclaw/extensions/openclaw-weixin/node_modules/openclaw\t/usr/local/lib/node_modules/openclaw",
+        "l\t/sandbox/.openclaw/workspace/leak\t/etc/passwd",
+      ].join("\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.stdout.write(${JSON.stringify(auditLines)} + "\\n");
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(false);
+      expect(backup.error).toMatch(/workspace\/leak/);
+      expect(backup.error).not.toMatch(/openclaw-weixin/);
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects whitelisted-path symlinks with a tampered target", () => {
+    // Source path matches the whitelist, but linkTarget points to /etc/passwd
+    // instead of the expected /usr/local/lib/node_modules/openclaw. The audit
+    // must compare both fields and reject — source-only matching would let a
+    // compromised agent repoint these symlinks at arbitrary host paths.
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-audit-target-tampered-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["extensions"];
+      fs.mkdirSync(binDir, { recursive: true });
+      for (const d of existingDirs) fs.mkdirSync(path.join(openclawDir, d), { recursive: true });
+
+      const auditLines = [
+        "l\t/sandbox/.openclaw/extensions/openclaw-weixin/node_modules/openclaw\t/etc/passwd",
+      ].join("\n");
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.stdout.write(${JSON.stringify(auditLines)} + "\\n");
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(false);
+      expect(backup.error).toMatch(/openclaw-weixin/);
+      expect(backup.error).toMatch(/\/etc\/passwd/);
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("marks non-attributed directories failed when they are missing from partial extraction", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-missing-partial-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const openclawDir = path.join(fixture, "sandbox-root", ".openclaw");
+      const existingDirs = ["agents", "workspace", "extensions"];
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "agents"), { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "workspace"), { recursive: true });
+      fs.mkdirSync(path.join(openclawDir, "extensions"), { recursive: true });
+
+      const openshell = writeFakeOpenshell(binDir);
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const cmd = process.argv[process.argv.length - 1] || "";
+const existingDirs = ${JSON.stringify(existingDirs)};
+if (cmd.includes("[ -d ")) {
+  process.stdout.write(existingDirs.join("\\n") + "\\n");
+  process.exit(0);
+}
+if (cmd.includes("find ")) {
+  process.exit(0);
+}
+if (cmd.includes("tar -cf -")) {
+  const r = spawnSync("tar", ["-cf", "-", "-C", ${JSON.stringify(openclawDir)}, "extensions"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.stdout) fs.writeSync(1, r.stdout);
+  process.stderr.write("tar: agents/sessions.json: Cannot open: Permission denied\\n");
+  process.stderr.write("tar: Exiting with failure status due to previous errors\\n");
+  process.exit(2);
+}
+process.exit(0);
+`,
+      );
+
+      writeOpenClawRegistry("alpha");
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("alpha");
+      expect(backup.success).toBe(false);
+      expect(backup.backedUpDirs).toEqual(["extensions"]);
+      expect(backup.failedDirs).toEqual(["agents", "workspace"]);
+      expect(backup.manifest?.backedUpDirs).toEqual(["extensions"]);
+      expect(fs.existsSync(path.join(backup.manifest!.backupPath, "workspace"))).toBe(false);
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Hermes durable state files", () => {
+  it("backs up and restores SOUL.md plus the SQLite state database without credential files", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-snapshot-"));
+    const oldPath = process.env.PATH;
+    const oldOpenshell = process.env.NEMOCLAW_OPENSHELL_BIN;
+    try {
+      const binDir = path.join(fixture, "bin");
+      const fakeRoot = path.join(fixture, "sandbox-root");
+      const hermesDir = path.join(fakeRoot, ".hermes");
+      const runtimeDir = path.join(hermesDir, "runtime");
+      const sshLog = path.join(fixture, "ssh-log.jsonl");
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.mkdirSync(runtimeDir, { recursive: true });
+      fs.writeFileSync(path.join(hermesDir, "SOUL.md"), "original soul\n");
+      fs.writeFileSync(path.join(runtimeDir, "state.db"), "original sqlite backup\n");
+      fs.writeFileSync(path.join(hermesDir, "config.yaml"), "token: should-not-copy\n");
+      fs.writeFileSync(path.join(hermesDir, ".env"), "API_TOKEN=should-not-copy\n");
+      fs.writeFileSync(path.join(hermesDir, "auth.json"), '{"token":"should-not-copy"}\n');
+
+      const openshell = path.join(binDir, "openshell");
+      writeExecutable(
+        openshell,
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "sandbox" && args[1] === "ssh-config") {
+  process.stdout.write("Host openshell-hermes\\n  HostName 127.0.0.1\\n  User sandbox\\n");
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      writeExecutable(
+        path.join(binDir, "ssh"),
+        `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const root = ${JSON.stringify(fakeRoot)};
+const log = ${JSON.stringify(sshLog)};
+const cmd = process.argv[process.argv.length - 1] || "";
+fs.appendFileSync(log, JSON.stringify({ cmd }) + "\\n");
+const hermesDir = path.join(root, ".hermes");
+function readStdin() {
+  const chunks = [];
+  for (;;) {
+    const buf = Buffer.alloc(65536);
+    const n = fs.readSync(0, buf, 0, buf.length, null);
+    if (n === 0) break;
+    chunks.push(buf.subarray(0, n));
+  }
+  return Buffer.concat(chunks);
+}
+if (cmd.includes("[ -d ")) {
+  process.exit(0);
+}
+if (cmd.includes("nemoclaw-sqlite-backup")) {
+  process.stdout.write(fs.readFileSync(path.join(hermesDir, "runtime", "state.db")));
+  process.exit(0);
+}
+if (cmd.includes("SOUL.md") && cmd.includes("cat --")) {
+  process.stdout.write(fs.readFileSync(path.join(hermesDir, "SOUL.md")));
+  process.exit(0);
+}
+if (cmd.includes("nemoclaw-sqlite-restore")) {
+  fs.mkdirSync(path.join(hermesDir, "runtime"), { recursive: true });
+  fs.writeFileSync(path.join(hermesDir, "runtime", "state.db"), readStdin());
+  process.exit(0);
+}
+if (cmd.includes(".nemoclaw-restore") && cmd.includes("SOUL.md")) {
+  fs.writeFileSync(path.join(hermesDir, "SOUL.md"), readStdin());
+  process.exit(0);
+}
+process.exit(0);
+`,
+      );
+
+      fs.mkdirSync(path.join(TMP_HOME, ".nemoclaw"), { recursive: true });
+      fs.writeFileSync(
+        path.join(TMP_HOME, ".nemoclaw", "sandboxes.json"),
+        JSON.stringify({
+          defaultSandbox: "hermes",
+          sandboxes: {
+            hermes: {
+              name: "hermes",
+              model: "m",
+              provider: "p",
+              gpuEnabled: false,
+              policies: [],
+              agent: "hermes",
+            },
+          },
+        }),
+      );
+
+      process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+      process.env.PATH = `${binDir}:${oldPath || ""}`;
+
+      const backup = sandboxState.backupSandboxState("hermes", { name: "hermes-state" });
+      expect(backup.success).toBe(true);
+      expect(backup.backedUpFiles).toEqual(["SOUL.md", "runtime/state.db"]);
+      expect(backup.failedFiles).toEqual([]);
+      expect(backup.manifest?.stateFiles).toEqual([
+        { path: "SOUL.md", strategy: "copy" },
+        { path: "runtime/state.db", strategy: "sqlite_backup" },
+      ]);
+      expect(fs.readFileSync(path.join(backup.manifest!.backupPath, "SOUL.md"), "utf-8")).toBe(
+        "original soul\n",
+      );
+      expect(
+        fs.readFileSync(path.join(backup.manifest!.backupPath, "runtime", "state.db"), "utf-8"),
+      ).toBe("original sqlite backup\n");
+      expect(fs.existsSync(path.join(backup.manifest!.backupPath, "config.yaml"))).toBe(false);
+      expect(fs.existsSync(path.join(backup.manifest!.backupPath, ".env"))).toBe(false);
+      expect(fs.existsSync(path.join(backup.manifest!.backupPath, "auth.json"))).toBe(false);
+
+      fs.writeFileSync(path.join(hermesDir, "SOUL.md"), "changed soul\n");
+      fs.writeFileSync(path.join(runtimeDir, "state.db"), "changed db\n");
+      const restore = sandboxState.restoreSandboxState("hermes", backup.manifest!.backupPath);
+      expect(restore.success).toBe(true);
+      expect(restore.restoredFiles).toEqual(["SOUL.md", "runtime/state.db"]);
+      expect(fs.readFileSync(path.join(hermesDir, "SOUL.md"), "utf-8")).toBe("original soul\n");
+      expect(fs.readFileSync(path.join(runtimeDir, "state.db"), "utf-8")).toBe(
+        "original sqlite backup\n",
+      );
+
+      const loggedCommands = fs.readFileSync(sshLog, "utf-8");
+      expect(loggedCommands).toContain("sqlite3.connect");
+      expect(loggedCommands).toContain("src_conn.backup(dst_conn)");
+      expect(loggedCommands).toContain("PRAGMA quick_check");
+    } finally {
+      if (oldOpenshell === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = oldOpenshell;
+      }
+      process.env.PATH = oldPath;
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
   });
 });
