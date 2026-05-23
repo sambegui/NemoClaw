@@ -14,8 +14,9 @@ const LIVE_SCRIPT_NAME = "openclaw-issue2603-chat-correlation.cjs";
 
 const ISSUE_2603_FIX_EXPECTATIONS = [
   "no empty final event for a submitted chat.send run",
+  "each submitted prompt receives exactly one visible reply",
   "each visible reply remains correlated to the chat.send run that accepted the prompt",
-  "chat.history contains one user turn per submitted prompt",
+  "chat.history contains exactly one user turn per submitted prompt",
 ];
 
 type ChatMessage = {
@@ -72,7 +73,10 @@ type DuplicateUserTurn = {
 type Issue2603Analysis = {
   chatEvents: CompactChatEvent[];
   emptyFinalsForSubmittedRuns: CompactChatEvent[];
+  missingReplies: string[];
+  duplicateReplies: { replyToken: string; count: number }[];
   uncorrelatedReplies: UncorrelatedReply[];
+  missingUserTurns: DuplicateUserTurn[];
   duplicateUserTurns: DuplicateUserTurn[];
 };
 
@@ -132,9 +136,11 @@ function analyzeIssue2603Trace({ sentRuns, events, historyMessages }: Issue2603T
   );
 
   const uncorrelatedReplies: UncorrelatedReply[] = [];
+  const replyCounts = new Map<string, number>();
   for (const [replyToken, expectedRunId] of expectedRunByReplyToken) {
     for (const event of chatEvents) {
       if (!event.text.includes(replyToken)) continue;
+      replyCounts.set(replyToken, (replyCounts.get(replyToken) ?? 0) + 1);
       if (event.runId !== expectedRunId) {
         uncorrelatedReplies.push({
           replyToken,
@@ -145,6 +151,15 @@ function analyzeIssue2603Trace({ sentRuns, events, historyMessages }: Issue2603T
       }
     }
   }
+  const missingReplies = sentRuns
+    .map((entry) => entry.replyToken)
+    .filter((replyToken) => !replyCounts.has(replyToken));
+  const duplicateReplies = sentRuns
+    .map((entry) => ({
+      replyToken: entry.replyToken,
+      count: replyCounts.get(entry.replyToken) ?? 0,
+    }))
+    .filter((entry) => entry.count > 1);
 
   const userPromptCounts = countBy(
     historyMessages
@@ -152,17 +167,21 @@ function analyzeIssue2603Trace({ sentRuns, events, historyMessages }: Issue2603T
       .map((message) => textFromMessage(message).trim())
       .filter(Boolean),
   );
-  const duplicateUserTurns = sentRuns
+  const userTurnCounts = sentRuns
     .map((entry) => ({
       promptToken: entry.promptToken,
       count: userPromptCounts.get(entry.message) ?? 0,
-    }))
-    .filter((entry) => entry.count > 1);
+    }));
+  const missingUserTurns = userTurnCounts.filter((entry) => entry.count < 1);
+  const duplicateUserTurns = userTurnCounts.filter((entry) => entry.count > 1);
 
   return {
     chatEvents,
     emptyFinalsForSubmittedRuns,
+    missingReplies,
+    duplicateReplies,
     uncorrelatedReplies,
+    missingUserTurns,
     duplicateUserTurns,
   };
 }
@@ -172,7 +191,10 @@ function buildFailureSummary(analysis: Issue2603Analysis): string {
     {
       expectations: ISSUE_2603_FIX_EXPECTATIONS,
       emptyFinalsForSubmittedRuns: analysis.emptyFinalsForSubmittedRuns,
+      missingReplies: analysis.missingReplies,
+      duplicateReplies: analysis.duplicateReplies,
       uncorrelatedReplies: analysis.uncorrelatedReplies,
+      missingUserTurns: analysis.missingUserTurns,
       duplicateUserTurns: analysis.duplicateUserTurns,
       chatEvents: analysis.chatEvents,
     },
@@ -506,7 +528,10 @@ describe("OpenClaw TUI chat correlation regression (#2603)", () => {
       const analysis = analyzeIssue2603Trace(repro);
       const failureSummary = buildFailureSummary(analysis);
       expect(analysis.emptyFinalsForSubmittedRuns, failureSummary).toEqual([]);
+      expect(analysis.missingReplies, failureSummary).toEqual([]);
+      expect(analysis.duplicateReplies, failureSummary).toEqual([]);
       expect(analysis.uncorrelatedReplies, failureSummary).toEqual([]);
+      expect(analysis.missingUserTurns, failureSummary).toEqual([]);
       expect(analysis.duplicateUserTurns, failureSummary).toEqual([]);
     },
     190_000,
