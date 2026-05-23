@@ -60,7 +60,7 @@ export function waitForSandboxReadyWithTrace(options: {
         addTraceEvent("ready", { attempt: i + 1, source: "pod_phase" });
         return true;
       }
-      sleep(delaySeconds);
+      if (i < attempts - 1) sleep(delaySeconds);
     }
     addTraceEvent("not_ready", { attempts });
     return false;

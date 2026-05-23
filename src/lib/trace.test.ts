@@ -170,7 +170,9 @@ describe("onboard trace artifacts", () => {
   });
 
   it("does not mark traces flushed when artifact writes fail", () => {
-    const blocker = path.join(os.tmpdir(), `nemoclaw-trace-blocker-${Date.now()}`);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-trace-blocker-"));
+    fs.chmodSync(tmpDir, 0o700);
+    const blocker = path.join(tmpDir, "not-a-directory");
     fs.writeFileSync(blocker, "not a directory");
     process.env[TRACE_FILE_ENV] = path.join(blocker, "trace.json");
     resetTraceForTests();

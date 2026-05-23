@@ -8949,7 +8949,6 @@ function skippedStepMessage(
 
 async function onboard(opts: OnboardOptions = {}): Promise<void> {
   setOnboardBrandingAgent(opts.agent || process.env.NEMOCLAW_AGENT || null);
-  const onboardTrace = onboardTracing.startOnboardTrace(opts, process.env);
   NON_INTERACTIVE = opts.nonInteractive || process.env.NEMOCLAW_NON_INTERACTIVE === "1";
   RECREATE_SANDBOX = opts.recreateSandbox || process.env.NEMOCLAW_RECREATE_SANDBOX === "1";
   AUTO_YES = opts.autoYes === true || process.env.NEMOCLAW_YES === "1";
@@ -9101,8 +9100,10 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
   };
   process.once("exit", releaseOnboardLock);
 
+  let onboardTrace: ReturnType<typeof onboardTracing.startOnboardTrace> = { collector: null, span: null };
   let traceCompleted = false;
   try {
+    onboardTrace = onboardTracing.startOnboardTrace(opts, process.env);
     let session: Session | null;
     let selectedMessagingChannels: string[] = [];
     // Merged, absolute fromDockerfile: explicit flag/env takes precedence; on
