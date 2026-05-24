@@ -1,95 +1,105 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Regression test for #3437 — `nemoclaw <sandbox> channels add <channel>`
-// must apply the channel's matching network policy preset BEFORE triggering
-// the rebuild, so the rebuild's backup manifest captures the preset and
-// the bridge has egress to its upstream API after the new sandbox boots.
+// Tests for two related invariants on `nemoclaw <sandbox> channels add/remove`:
+//
+//   1. Issue #3437 (ordering): `channels add` MUST apply the channel's
+//      matching network policy preset BEFORE triggering the rebuild, so
+//      the rebuild's backup manifest captures the preset and the bridge
+//      has egress to its upstream API after the new sandbox boots.
+//
+//   2. #3437 follow-up (session sync): `channels add`/`channels remove`
+//      MUST mirror the registry-side preset mutation into
+//      `session.policyPresets` via `syncSessionPolicyPresetsWithRegistry`.
+//      Otherwise a later `rebuild` re-enters onboard resume, reads the
+//      stale session, and narrows the channel preset back away — the
+//      original bug that motivated the helper.
+//
+// Both invariants share the same subprocess-stub scaffolding from
+// test/helpers/preset-sync-mocks.ts. The channels-specific module stubs
+// (resolver, gateway runtime, credentials, onboard providers, registry)
+// stay inline here since they are not needed by the parallel test file
+// test/policy-add-remove-session-sync.test.ts.
 
 import assert from "node:assert/strict";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import type { SpawnSyncReturns } from "node:child_process";
 import { describe, it } from "vitest";
 
-const repoRoot = path.join(import.meta.dirname, "..");
+import {
+  distPath,
+  parseScriptResult,
+  policiesStubSource,
+  runPresetSyncScript,
+  sessionStubSource,
+} from "./helpers/preset-sync-mocks";
 
-function runScript(scriptBody: string, extraEnv: Record<string, string> = {}): SpawnSyncReturns<string> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-3437-"));
-  const scriptPath = path.join(tmpDir, "script.js");
-  fs.writeFileSync(scriptPath, scriptBody);
-  const result = spawnSync(process.execPath, [scriptPath], {
-    cwd: repoRoot,
-    encoding: "utf-8",
-    env: {
-      ...process.env,
-      HOME: tmpDir,
-      NEMOCLAW_NON_INTERACTIVE: "1",
-      TELEGRAM_BOT_TOKEN: "test-telegram-token",
-      SLACK_BOT_TOKEN: "xoxb-test-1234-5678",
-      SLACK_APP_TOKEN: "xapp-1-test-1234-5678",
-      DISCORD_BOT_TOKEN: "test-discord-token",
-      ...extraEnv,
-    },
-    timeout: 15000,
+/**
+ * `runPresetSyncScript` with channels-specific default tokens injected.
+ * Every channel covered by these tests reads at least one of these tokens
+ * during `acquirePasteTokens`; defaulting them avoids polluting every
+ * `it()` block with token boilerplate.
+ */
+function runChannelsScript(
+  scriptBody: string,
+  extraEnv: Record<string, string> = {},
+): SpawnSyncReturns<string> {
+  return runPresetSyncScript(scriptBody, {
+    TELEGRAM_BOT_TOKEN: "test-telegram-token",
+    SLACK_BOT_TOKEN: "xoxb-test-1234-5678",
+    SLACK_APP_TOKEN: "xapp-1-test-1234-5678",
+    DISCORD_BOT_TOKEN: "test-discord-token",
+    ...extraEnv,
   });
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  return result;
 }
 
-// Build a preamble that:
-//   - stubs every module touched by addSandboxChannel so no real openshell,
-//     gateway, or filesystem credential write happens
-//   - records every policies.applyPreset call in `appliedCalls`
-//   - records the relative order of applyPreset vs promptAndRebuild via
-//     a console.log marker, so the test can assert the ordering invariant
-//     (apply MUST precede rebuild)
-function buildPreamble({
-  presetNamesAvailable = ["telegram", "slack", "discord", "npm", "github"],
-  applyPresetResult = true,
-  sandboxAgent = "openclaw",
-  sessionSandboxName = "test-sb",
-  sessionPolicyPresets = ["npm", "pypi", "huggingface", "brew"] as string[] | null,
-  sessionLoadThrows = false,
-  sessionUpdateThrows = false,
-  sessionMissing = false,
-}: {
-  presetNamesAvailable?: string[];
-  applyPresetResult?: boolean;
+/**
+ * Build a preamble that:
+ *   - stubs every module touched by `addSandboxChannel` so no real
+ *     openshell / gateway / credential write happens
+ *   - composes the shared `policiesStubSource` (records `calls.apply` /
+ *     `calls.applyContent` / `calls.remove` and a sequential `callOrder`)
+ *   - composes the shared `sessionStubSource` (records `sessionUpdates`
+ *     and exposes `getSessionState()`)
+ *   - extends `callOrder` with a `"promptAndRebuild"` marker via a
+ *     console.log hook so #3437 ordering assertions can compare the
+ *     preset apply against the rebuild prompt relative position
+ */
+function buildPreamble(opts: {
+  presetNames?: string[];
+  applyResult?: boolean;
   sandboxAgent?: string;
   sessionSandboxName?: string | null;
   sessionPolicyPresets?: string[] | null;
+  sessionMissing?: boolean;
   sessionLoadThrows?: boolean;
   sessionUpdateThrows?: boolean;
-  sessionMissing?: boolean;
 } = {}): string {
-  const j = (p: string) => JSON.stringify(path.join(repoRoot, "dist", "lib", p));
+  const sandboxAgent = opts.sandboxAgent ?? "openclaw";
   return String.raw`
-const resolver = require(${j("adapters/openshell/resolve.js")});
+const resolver = require(${distPath("adapters/openshell/resolve.js")});
 resolver.resolveOpenshell = () => "/fake/openshell";
 
-const runner = require(${j("runner.js")});
+const runner = require(${distPath("runner.js")});
 runner.run = () => ({ status: 0, stdout: "", stderr: "" });
 runner.runCapture = () => "";
 
-const gatewayRuntime = require(${j("gateway-runtime-action.js")});
+const gatewayRuntime = require(${distPath("gateway-runtime-action.js")});
 gatewayRuntime.recoverNamedGatewayRuntime = async () => ({ recovered: true });
 
-const credentials = require(${j("credentials/store.js")});
+const credentials = require(${distPath("credentials/store.js")});
 credentials.getCredential = (key) => process.env[key] || null;
 credentials.saveCredential = () => true;
 credentials.deleteCredential = () => true;
 credentials.prompt = async (msg) => { throw new Error("unexpected prompt: " + msg); };
 
-const onboard = require(${j("onboard.js")});
+const onboard = require(${distPath("onboard.js")});
 onboard.isNonInteractive = () => true;
 
-const onboardProviders = require(${j("onboard/providers.js")});
+const onboardProviders = require(${distPath("onboard/providers.js")});
 const providerCalls = [];
 onboardProviders.upsertMessagingProviders = (defs) => { providerCalls.push(...defs); };
 
-const registry = require(${j("state/registry.js")});
+const registry = require(${distPath("state/registry.js")});
 const registryUpdates = [];
 registry.getSandbox = () => ({
   name: "test-sb",
@@ -103,59 +113,22 @@ registry.updateSandbox = (name, updates) => {
   return true;
 };
 
-const policies = require(${j("policy/index.js")});
-const appliedCalls = [];
-const callOrder = [];
-policies.listPresets = () => ${JSON.stringify(presetNamesAvailable.map((name) => ({ name })))};
-policies.applyPreset = (sandboxName, presetName) => {
-  appliedCalls.push({ sandboxName, presetName });
-  callOrder.push("applyPreset:" + presetName);
-  return ${JSON.stringify(applyPresetResult)};
-};
-policies.removePreset = (sandboxName, presetName) => {
-  callOrder.push("removePreset:" + presetName);
-  return true;
-};
-policies.getAppliedPresets = () => [];
+${policiesStubSource({
+  presetNames: opts.presetNames ?? ["telegram", "slack", "discord", "npm", "github"],
+  applyResult: opts.applyResult,
+})}
 
-// Stub onboardSession so the new policyPresets-sync helper has something
-// to read/write. The test asserts on sessionUpdates to verify the
-// helper kept session.policyPresets aligned with the registry.
-const onboardSession = require(${j("state/onboard-session.js")});
-const sessionUpdates = [];
-const sessionLoadConfig = ${JSON.stringify({
-      sessionSandboxName,
-      sessionPolicyPresets,
-      sessionLoadThrows,
-      sessionMissing,
-    })};
-const sessionUpdateThrows = ${JSON.stringify(sessionUpdateThrows)};
-let sessionState = sessionLoadConfig.sessionMissing
-  ? null
-  : {
-      sandboxName: sessionLoadConfig.sessionSandboxName,
-      policyPresets: Array.isArray(sessionLoadConfig.sessionPolicyPresets)
-        ? [...sessionLoadConfig.sessionPolicyPresets]
-        : sessionLoadConfig.sessionPolicyPresets,
-    };
-onboardSession.loadSession = () => {
-  if (sessionLoadConfig.sessionLoadThrows) throw new Error("simulated load failure");
-  return sessionState;
-};
-onboardSession.updateSession = (mutator) => {
-  if (sessionUpdateThrows) throw new Error("simulated save failure");
-  // Mirror the real updateSession contract: load → mutate → save.
-  if (!sessionState) sessionState = { sandboxName: null, policyPresets: null };
-  const next = mutator(sessionState) || sessionState;
-  sessionState = next;
-  sessionUpdates.push({
-    policyPresets: Array.isArray(next.policyPresets) ? [...next.policyPresets] : next.policyPresets,
-  });
-  return next;
-};
+${sessionStubSource({
+  sandboxName: opts.sessionSandboxName,
+  policyPresets: opts.sessionPolicyPresets,
+  missing: opts.sessionMissing,
+  loadThrows: opts.sessionLoadThrows,
+  updateThrows: opts.sessionUpdateThrows,
+})}
 
-// Tag the rebuild-prompt branch via stdout so we can compare ordering.
-// In NEMOCLAW_NON_INTERACTIVE mode, promptAndRebuild logs "Change queued."
+// Channels-specific: tag the rebuild-prompt branch via stdout so #3437
+// ordering tests can assert applyPreset PRECEDES promptAndRebuild. In
+// NEMOCLAW_NON_INTERACTIVE mode promptAndRebuild logs "Change queued."
 // and returns immediately without invoking rebuildSandbox.
 const origLog = console.log;
 console.log = (...args) => {
@@ -164,9 +137,17 @@ console.log = (...args) => {
   origLog.call(console, ...args);
 };
 
-const channelModule = require(${j("actions/sandbox/policy-channel.js")});
+const channelModule = require(${distPath("actions/sandbox/policy-channel.js")});
 
-module.exports = { channelModule, appliedCalls, callOrder, providerCalls, registryUpdates, sessionUpdates, getSessionState: () => sessionState };
+module.exports = {
+  channelModule,
+  calls,
+  callOrder,
+  providerCalls,
+  registryUpdates,
+  sessionUpdates,
+  getSessionState,
+};
 `;
 }
 
@@ -179,7 +160,7 @@ const ctx = module.exports;
   try {
     await ctx.channelModule.addSandboxChannel("test-sb", { channel: ${JSON.stringify(channel)} });
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
       callOrder: ctx.callOrder,
     }) + "\\n");
   } catch (err) {
@@ -187,18 +168,21 @@ const ctx = module.exports;
   }
 })();
 `;
-      const result = runScript(script);
+      const result = runChannelsScript(script);
       assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-      const marker = result.stdout.lastIndexOf("__RESULT__");
-      assert.ok(marker >= 0, `no __RESULT__ marker in stdout:\n${result.stdout}`);
-      const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+      const payload = parseScriptResult<{
+        calls: { apply: { sandboxName: string; presetName: string }[] };
+        callOrder: string[];
+        error?: string;
+        stack?: string;
+      }>(result.stdout);
       assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
       // Contract 1: applyPreset is called exactly once with the channel's name.
       assert.deepEqual(
-        payload.appliedCalls,
+        payload.calls.apply,
         [{ sandboxName: "test-sb", presetName: channel }],
-        `expected applyPreset("test-sb", "${channel}") exactly once; got ${JSON.stringify(payload.appliedCalls)}`,
+        `expected applyPreset("test-sb", "${channel}") exactly once; got ${JSON.stringify(payload.calls.apply)}`,
       );
 
       // Contract 2: ordering invariant — preset apply must precede rebuild,
@@ -217,7 +201,7 @@ const ctx = module.exports;
 
   it("applies the tokenless WhatsApp preset for Hermes before triggering rebuild", () => {
     const script = `${buildPreamble({
-      presetNamesAvailable: ["telegram", "slack", "discord", "whatsapp", "npm", "github"],
+      presetNames: ["telegram", "slack", "discord", "whatsapp", "npm", "github"],
       sandboxAgent: "hermes",
     })}
 const ctx = module.exports;
@@ -225,7 +209,7 @@ const ctx = module.exports;
   try {
     await ctx.channelModule.addSandboxChannel("test-sb", { channel: "whatsapp" });
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
       callOrder: ctx.callOrder,
       providerCalls: ctx.providerCalls,
       registryUpdates: ctx.registryUpdates,
@@ -235,15 +219,20 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script, {
+    const result = runChannelsScript(script, {
       WHATSAPP_BOT_TOKEN: "must-not-be-used",
       WHATSAPP_TOKEN: "must-not-be-used",
       WHATSAPP_SESSION_SECRET: "must-not-be-used",
     });
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    assert.ok(marker >= 0, `no __RESULT__ marker in stdout:\n${result.stdout}`);
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      callOrder: string[];
+      providerCalls: unknown[];
+      registryUpdates: { name: string; updates: Record<string, unknown> }[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     assert.deepEqual(payload.providerCalls, [], "WhatsApp must not create host-side providers");
@@ -254,9 +243,9 @@ const ctx = module.exports;
       },
     ]);
     assert.deepEqual(
-      payload.appliedCalls,
+      payload.calls.apply,
       [{ sandboxName: "test-sb", presetName: "whatsapp" }],
-      `expected applyPreset("test-sb", "whatsapp") exactly once; got ${JSON.stringify(payload.appliedCalls)}`,
+      `expected applyPreset("test-sb", "whatsapp") exactly once; got ${JSON.stringify(payload.calls.apply)}`,
     );
     const applyIdx = payload.callOrder.indexOf("applyPreset:whatsapp");
     const rebuildIdx = payload.callOrder.indexOf("promptAndRebuild");
@@ -270,8 +259,8 @@ const ctx = module.exports;
 
   it("aborts tokenless WhatsApp before registry and rebuild when preset apply fails", () => {
     const script = `${buildPreamble({
-      presetNamesAvailable: ["telegram", "slack", "discord", "whatsapp", "npm", "github"],
-      applyPresetResult: false,
+      presetNames: ["telegram", "slack", "discord", "whatsapp", "npm", "github"],
+      applyResult: false,
       sandboxAgent: "hermes",
     })}
 const ctx = module.exports;
@@ -293,7 +282,7 @@ process.exit = (code) => {
     process.exit = originalExit;
   }
   process.stdout.write("\\n__RESULT__" + JSON.stringify({
-    appliedCalls: ctx.appliedCalls,
+    calls: ctx.calls,
     callOrder: ctx.callOrder,
     providerCalls: ctx.providerCalls,
     registryUpdates: ctx.registryUpdates,
@@ -301,11 +290,17 @@ process.exit = (code) => {
   }) + "\\n");
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    assert.ok(marker >= 0, `no __RESULT__ marker in stdout:\n${result.stdout}`);
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      callOrder: string[];
+      providerCalls: unknown[];
+      registryUpdates: unknown[];
+      exitCodes: number[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     assert.deepEqual(payload.exitCodes, [1]);
@@ -316,9 +311,9 @@ process.exit = (code) => {
       `preset failure must not register whatsapp locally; got ${JSON.stringify(payload.registryUpdates)}`,
     );
     assert.deepEqual(
-      payload.appliedCalls,
+      payload.calls.apply,
       [{ sandboxName: "test-sb", presetName: "whatsapp" }],
-      `expected one failed applyPreset call; got ${JSON.stringify(payload.appliedCalls)}`,
+      `expected one failed applyPreset call; got ${JSON.stringify(payload.calls.apply)}`,
     );
     assert.ok(
       !payload.callOrder.includes("promptAndRebuild"),
@@ -332,13 +327,13 @@ process.exit = (code) => {
   // to collide with no preset (or a typo) from spamming "Cannot load preset"
   // errors out of policies.applyPreset.
   it("skips applyPreset when no matching built-in preset exists", () => {
-    const script = `${buildPreamble({ presetNamesAvailable: ["npm", "github"] })}
+    const script = `${buildPreamble({ presetNames: ["npm", "github"] })}
 const ctx = module.exports;
 (async () => {
   try {
     await ctx.channelModule.addSandboxChannel("test-sb", { channel: "telegram" });
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
       callOrder: ctx.callOrder,
     }) + "\\n");
   } catch (err) {
@@ -346,17 +341,20 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    assert.ok(marker >= 0, `no __RESULT__ marker in stdout:\n${result.stdout}`);
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: unknown[] };
+      callOrder: string[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     assert.deepEqual(
-      payload.appliedCalls,
+      payload.calls.apply,
       [],
-      `expected applyPreset NOT to be called when no built-in preset matches; got ${JSON.stringify(payload.appliedCalls)}`,
+      `expected applyPreset NOT to be called when no built-in preset matches; got ${JSON.stringify(payload.calls.apply)}`,
     );
     // Rebuild should still be triggered — channel registration succeeded,
     // only the preset path was skipped.
@@ -400,10 +398,14 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      sessionUpdates: { policyPresets: string[] | null }[];
+      finalSession: { policyPresets: string[] | null };
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Exactly one update — the helper short-circuits when the desired
@@ -441,22 +443,27 @@ const ctx = module.exports;
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
       sessionUpdates: ctx.sessionUpdates,
       finalSession: ctx.getSessionState(),
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
     }) + "\\n");
   } catch (err) {
     process.stdout.write("\\n__RESULT__" + JSON.stringify({ error: err.message, stack: err.stack }) + "\\n");
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      sessionUpdates: { policyPresets: string[] | null }[];
+      finalSession: { policyPresets: string[] | null };
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // applyPreset still runs against the registry — the preset is the
     // channel's egress contract and lives in registry, not session.
-    assert.deepEqual(payload.appliedCalls, [{ sandboxName: "test-sb", presetName: "slack" }]);
+    assert.deepEqual(payload.calls.apply, [{ sandboxName: "test-sb", presetName: "slack" }]);
     // But the foreign session's policyPresets must be left untouched —
     // otherwise we corrupt the other sandbox's resume state.
     assert.deepEqual(
@@ -475,7 +482,7 @@ const ctx = module.exports;
     await ctx.channelModule.addSandboxChannel("test-sb", { channel: "slack" });
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
       sessionUpdates: ctx.sessionUpdates,
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
       callOrder: ctx.callOrder,
     }) + "\\n");
   } catch (err) {
@@ -483,15 +490,20 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      sessionUpdates: { policyPresets: string[] | null }[];
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      callOrder: string[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Registry mutation still happens; only the session-sync side-effect
     // is skipped (there is no intent record to keep aligned).
-    assert.deepEqual(payload.appliedCalls, [{ sandboxName: "test-sb", presetName: "slack" }]);
+    assert.deepEqual(payload.calls.apply, [{ sandboxName: "test-sb", presetName: "slack" }]);
     assert.deepEqual(payload.sessionUpdates, []);
     assert.ok(payload.callOrder.includes("promptAndRebuild"));
   });
@@ -507,7 +519,7 @@ const ctx = module.exports;
   try {
     await ctx.channelModule.addSandboxChannel("test-sb", { channel: "slack" });
     process.stdout.write("\\n__RESULT__" + JSON.stringify({
-      appliedCalls: ctx.appliedCalls,
+      calls: ctx.calls,
       callOrder: ctx.callOrder,
     }) + "\\n");
   } catch (err) {
@@ -515,16 +527,20 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runChannelsScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      callOrder: string[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Even though session.updateSession threw, the channel add flow
     // still completed: preset applied to registry, rebuild prompted.
     // Session-sync is best-effort.
-    assert.deepEqual(payload.appliedCalls, [{ sandboxName: "test-sb", presetName: "slack" }]);
+    assert.deepEqual(payload.calls.apply, [{ sandboxName: "test-sb", presetName: "slack" }]);
     assert.ok(payload.callOrder.includes("promptAndRebuild"));
   });
 });

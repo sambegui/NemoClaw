@@ -20,107 +20,61 @@
 // handling.
 
 import assert from "node:assert/strict";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
 
-const repoRoot = path.join(import.meta.dirname, "..");
+import {
+  distPath,
+  parseScriptResult,
+  policiesStubSource,
+  runPresetSyncScript,
+  sessionStubSource,
+} from "./helpers/preset-sync-mocks";
 
-function runScript(scriptBody: string, extraEnv: Record<string, string> = {}): SpawnSyncReturns<string> {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-policy-sync-"));
-  const scriptPath = path.join(tmpDir, "script.js");
-  fs.writeFileSync(scriptPath, scriptBody);
-  const result = spawnSync(process.execPath, [scriptPath], {
-    cwd: repoRoot,
-    encoding: "utf-8",
-    env: {
-      ...process.env,
-      HOME: tmpDir,
-      NEMOCLAW_NON_INTERACTIVE: "1",
-      ...extraEnv,
-    },
-    timeout: 15000,
-  });
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  return result;
-}
-
-// Stub every module that addSandboxPolicy / removeSandboxPolicy touches.
-// The only side effect we actually want to observe is on the onboardSession
-// stub, so everything else is faked to a no-op success.
-function buildPreamble({
-  presetNamesAvailable = ["github", "npm", "pypi"],
-  appliedPresets = [] as string[],
-  sessionSandboxName = "test-sb" as string | null,
-  sessionPolicyPresets = ["npm"] as string[] | null,
-  sessionMissing = false,
-}: {
-  presetNamesAvailable?: string[];
+/**
+ * Build a JS preamble that stubs every module touched by
+ * `addSandboxPolicy` / `removeSandboxPolicy` so no real openshell,
+ * gateway, or filesystem credential write happens. Composes the
+ * shared `policiesStubSource` + `sessionStubSource` with the small
+ * policy-specific module stubs (`onboard.isNonInteractive`,
+ * `credentials.prompt`).
+ */
+function buildPreamble(opts: {
+  presetNames?: string[];
   appliedPresets?: string[];
+  applyResult?: boolean;
   sessionSandboxName?: string | null;
   sessionPolicyPresets?: string[] | null;
   sessionMissing?: boolean;
+  sessionLoadThrows?: boolean;
+  sessionUpdateThrows?: boolean;
 } = {}): string {
-  const j = (p: string) => JSON.stringify(path.join(repoRoot, "dist", "lib", p));
   return String.raw`
-const onboard = require(${j("onboard.js")});
+const onboard = require(${distPath("onboard.js")});
 onboard.isNonInteractive = () => true;
 
-const credentials = require(${j("credentials/store.js")});
+const credentials = require(${distPath("credentials/store.js")});
 credentials.prompt = async () => "y";
 
-const policies = require(${j("policy/index.js")});
-const calls = { apply: [], applyContent: [], remove: [] };
-policies.listPresets = () => ${JSON.stringify(presetNamesAvailable.map((name) => ({ name })))};
-policies.getAppliedPresets = () => ${JSON.stringify(appliedPresets)};
-policies.loadPreset = (name) => ({ name, network_policies: {} });
-policies.getPresetEndpoints = () => [];
-policies.getMessagingPresetWarning = () => null;
-policies.selectFromList = async (items) => items[0]?.name || null;
-policies.applyPreset = (sandboxName, presetName) => {
-  calls.apply.push({ sandboxName, presetName });
-  return true;
-};
-policies.applyPresetContent = (sandboxName, presetName) => {
-  calls.applyContent.push({ sandboxName, presetName });
-  return true;
-};
-policies.removePreset = (sandboxName, presetName) => {
-  calls.remove.push({ sandboxName, presetName });
-  return true;
-};
-// loadPresetFromFile is used by --from-file path.
-policies.loadPresetFromFile = (filePath) => ({
-  presetName: "custom-preset-from-file",
-  content: { network_policies: {} },
-});
+${policiesStubSource({
+  presetNames: opts.presetNames ?? ["github", "npm", "pypi"],
+  appliedPresets: opts.appliedPresets,
+  applyResult: opts.applyResult,
+})}
 
-const onboardSession = require(${j("state/onboard-session.js")});
-const sessionUpdates = [];
-let sessionState = ${
-    sessionMissing
-      ? "null"
-      : `{
-  sandboxName: ${JSON.stringify(sessionSandboxName)},
-  policyPresets: ${JSON.stringify(sessionPolicyPresets)},
-}`
-  };
-onboardSession.loadSession = () => sessionState;
-onboardSession.updateSession = (mutator) => {
-  if (!sessionState) sessionState = { sandboxName: null, policyPresets: null };
-  const next = mutator(sessionState) || sessionState;
-  sessionState = next;
-  sessionUpdates.push({
-    policyPresets: Array.isArray(next.policyPresets) ? [...next.policyPresets] : next.policyPresets,
-  });
-  return next;
-};
+${sessionStubSource({
+  sandboxName: opts.sessionSandboxName,
+  policyPresets: opts.sessionPolicyPresets ?? ["npm"],
+  missing: opts.sessionMissing,
+  loadThrows: opts.sessionLoadThrows,
+  updateThrows: opts.sessionUpdateThrows,
+})}
 
-const channelModule = require(${j("actions/sandbox/policy-channel.js")});
+const channelModule = require(${distPath("actions/sandbox/policy-channel.js")});
 
-module.exports = { channelModule, calls, sessionUpdates, getSessionState: () => sessionState };
+module.exports = { channelModule, calls, callOrder, sessionUpdates, getSessionState };
 `;
 }
 
@@ -144,10 +98,15 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runPresetSyncScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      sessionUpdates: { policyPresets: string[] | null }[];
+      finalSession: { policyPresets: string[] | null };
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Contract 1: applyPreset called exactly once with the chosen preset.
@@ -160,8 +119,8 @@ const ctx = module.exports;
 
   it("appends the custom preset (--from-file) to session.policyPresets", () => {
     // Write a tiny YAML file the stubbed loadPresetFromFile will pretend to parse.
-    const presetFile = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-preset-"));
-    const yamlPath = path.join(presetFile, "custom.yaml");
+    const presetDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-preset-"));
+    const yamlPath = path.join(presetDir, "custom.yaml");
     fs.writeFileSync(yamlPath, "name: custom-preset-from-file\nnetwork_policies: {}\n");
 
     const script = `${buildPreamble({
@@ -182,11 +141,15 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
-    fs.rmSync(presetFile, { recursive: true, force: true });
+    const result = runPresetSyncScript(script);
+    fs.rmSync(presetDir, { recursive: true, force: true });
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { applyContent: { sandboxName: string; presetName: string }[] };
+      sessionUpdates: { policyPresets: string[] | null }[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // The custom-preset path goes through applyPresetContent (NOT applyPreset).
@@ -217,10 +180,14 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runPresetSyncScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { remove: { sandboxName: string; presetName: string }[] };
+      sessionUpdates: { policyPresets: string[] | null }[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     assert.deepEqual(payload.calls.remove, [{ sandboxName: "test-sb", presetName: "github" }]);
@@ -247,10 +214,15 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runPresetSyncScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      sessionUpdates: { policyPresets: string[] | null }[];
+      finalSession: { policyPresets: string[] | null };
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Registry mutation still happens — that lives per-sandbox in the
@@ -276,10 +248,14 @@ const ctx = module.exports;
   }
 })();
 `;
-    const result = runScript(script);
+    const result = runPresetSyncScript(script);
     assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
-    const marker = result.stdout.lastIndexOf("__RESULT__");
-    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    const payload = parseScriptResult<{
+      calls: { apply: { sandboxName: string; presetName: string }[] };
+      sessionUpdates: { policyPresets: string[] | null }[];
+      error?: string;
+      stack?: string;
+    }>(result.stdout);
     assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
 
     // Registry mutation succeeded; session-sync was a no-op (no session
