@@ -62,7 +62,7 @@ function windowsPathToWslViaDistro(winPath: string): string {
   return result.stdout.trim();
 }
 
-function withWslEnv<T>(names: readonly string[], callback: () => T): T {
+export function withWslEnv<T>(names: readonly string[], callback: () => T): T {
   if (names.length === 0) {
     return callback();
   }
@@ -286,10 +286,8 @@ function dockerAvailable(): void {
   console.log(available ? "Docker is available in WSL" : "Docker is not available in WSL");
 }
 
-function runFullE2E(): void {
-  const workdir = requireEnv("WSL_WORKDIR");
-  runBashInWsl(
-    `
+export function buildFullE2EScript(workdir: string): string {
+  return `
 set -euo pipefail
 cd ${shellQuote(workdir)}
 export NVIDIA_API_KEY="\${NVIDIA_API_KEY:-}"
@@ -299,16 +297,19 @@ export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="\${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFT
 export NEMOCLAW_RECREATE_SANDBOX="\${NEMOCLAW_RECREATE_SANDBOX:-1}"
 export NEMOCLAW_SANDBOX_NAME="\${NEMOCLAW_SANDBOX_NAME:-e2e-wsl}"
 bash test/e2e/test-full-e2e.sh
-`,
-    [
-      "NVIDIA_API_KEY",
-      "GITHUB_TOKEN",
-      "NEMOCLAW_NON_INTERACTIVE",
-      "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE",
-      "NEMOCLAW_RECREATE_SANDBOX",
-      "NEMOCLAW_SANDBOX_NAME",
-    ],
-  );
+`;
+}
+
+function runFullE2E(): void {
+  const workdir = requireEnv("WSL_WORKDIR");
+  runBashInWsl(buildFullE2EScript(workdir), [
+    "NVIDIA_API_KEY",
+    "GITHUB_TOKEN",
+    "NEMOCLAW_NON_INTERACTIVE",
+    "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE",
+    "NEMOCLAW_RECREATE_SANDBOX",
+    "NEMOCLAW_SANDBOX_NAME",
+  ]);
 }
 
 function runVitest(): void {
@@ -322,20 +323,25 @@ npx vitest run --testTimeout 60000
 `);
 }
 
-function runScenario(): void {
-  const workdir = requireEnv("WSL_WORKDIR");
-  const scenario = requireEnv("SCENARIO");
-  runBashInWsl(
-    `
+export function buildRunScenarioScript(workdir: string, scenario: string): string {
+  return `
 set -euo pipefail
 cd ${shellQuote(workdir)}
 export NVIDIA_API_KEY="\${NVIDIA_API_KEY:-}"
 export E2E_SUITE_FILTER="\${E2E_SUITE_FILTER:-}"
 export NEMOCLAW_RECREATE_SANDBOX="\${NEMOCLAW_RECREATE_SANDBOX:-1}"
 bash test/e2e/runtime/run-scenario.sh ${shellQuote(scenario)}
-`,
-    ["NVIDIA_API_KEY", "E2E_SUITE_FILTER", "NEMOCLAW_RECREATE_SANDBOX"],
-  );
+`;
+}
+
+function runScenario(): void {
+  const workdir = requireEnv("WSL_WORKDIR");
+  const scenario = requireEnv("SCENARIO");
+  runBashInWsl(buildRunScenarioScript(workdir, scenario), [
+    "NVIDIA_API_KEY",
+    "E2E_SUITE_FILTER",
+    "NEMOCLAW_RECREATE_SANDBOX",
+  ]);
 }
 
 function copyArtifactsToCheckout(): void {
