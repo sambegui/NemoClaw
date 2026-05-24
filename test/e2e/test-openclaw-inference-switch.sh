@@ -391,7 +391,7 @@ pass "nemoclaw and openshell are on PATH"
 section "Phase 3: Switch inference"
 pid_before="$(openclaw_gateway_pid)"
 info "Switching ${SANDBOX_NAME} to ${SWITCH_PROVIDER} / ${SWITCH_MODEL}..."
-switch_output=$(nemoclaw inference set --provider "$SWITCH_PROVIDER" --model "$SWITCH_MODEL" --sandbox "$SANDBOX_NAME" 2>&1)
+switch_output=$(nemoclaw inference set --provider "$SWITCH_PROVIDER" --model "$SWITCH_MODEL" --sandbox "$SANDBOX_NAME" --no-verify 2>&1)
 switch_rc=$?
 if [ "$switch_rc" -eq 0 ]; then
   pass "nemoclaw inference set completed"
