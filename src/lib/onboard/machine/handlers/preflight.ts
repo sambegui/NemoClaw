@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { withSpan } from "../../../profiling";
 import type { Session } from "../../../state/onboard-session";
 
 export type PreflightSandboxGpuFlag = "enable" | "disable" | null;
@@ -128,7 +129,9 @@ export async function handlePreflightState<
     );
   } else {
     await deps.startRecordedStep("preflight");
-    gpu = await deps.runPreflight({ optedOutGpuPassthrough: noGpu });
+    gpu = await withSpan("onboard.preflight", () =>
+      deps.runPreflight({ optedOutGpuPassthrough: noGpu }),
+    );
     session = await deps.recordStepComplete("preflight");
   }
 

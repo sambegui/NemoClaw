@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { WebSearchConfig } from "../../../inference/web-search";
+import { withSpan } from "../../../profiling";
 import type { Session, SessionUpdates } from "../../../state/onboard-session";
 
 export type ProviderInferenceRetry = { retry: "selection" } | { ok: true; retry?: undefined };
@@ -211,7 +212,9 @@ export async function handleProviderInferenceState<Gpu, Agent, Host>({
       }
     } else {
       await deps.startRecordedStep("provider_selection");
-      const selection = await deps.setupNim(gpu, sandboxName, agent);
+      const selection = await withSpan("onboard.provider_selection", () =>
+        deps.setupNim(gpu, sandboxName, agent),
+      );
       model = selection.model;
       provider = selection.provider;
       endpointUrl = selection.endpointUrl;
@@ -254,15 +257,20 @@ export async function handleProviderInferenceState<Gpu, Agent, Host>({
         let inferenceResult: ProviderInferenceRetry;
         try {
           if (!sandboxName) sandboxName = await deps.promptValidatedSandboxName(agent);
+          const inferenceSandboxName = sandboxName;
+          const inferenceModel = model;
+          const inferenceProvider = provider;
           await deps.startRecordedStep("inference", { provider, model });
-          inferenceResult = await deps.setupInference(
-            sandboxName,
-            model,
-            provider,
-            endpointUrl,
-            credentialEnv,
-            hermesAuthMethod,
-            hermesToolGateways,
+          inferenceResult = await withSpan("onboard.inference.validation", () =>
+            deps.setupInference(
+              inferenceSandboxName,
+              inferenceModel,
+              inferenceProvider,
+              endpointUrl,
+              credentialEnv,
+              hermesAuthMethod,
+              hermesToolGateways,
+            ),
           );
         } finally {
           clearStagedCredentialEnv(deps, credentialEnv);
@@ -329,15 +337,20 @@ export async function handleProviderInferenceState<Gpu, Agent, Host>({
         }
       }
 
+      const inferenceSandboxName = sandboxName;
+      const inferenceModel = model;
+      const inferenceProvider = provider;
       await deps.startRecordedStep("inference", { provider, model });
-      inferenceResult = await deps.setupInference(
-        sandboxName,
-        model,
-        provider,
-        endpointUrl,
-        credentialEnv,
-        hermesAuthMethod,
-        hermesToolGateways,
+      inferenceResult = await withSpan("onboard.inference.validation", () =>
+        deps.setupInference(
+          inferenceSandboxName,
+          inferenceModel,
+          inferenceProvider,
+          endpointUrl,
+          credentialEnv,
+          hermesAuthMethod,
+          hermesToolGateways,
+        ),
       );
     } finally {
       clearStagedCredentialEnv(deps, credentialEnv);

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { withSpan } from "../../../profiling";
 import type { Session, SessionUpdates } from "../../../state/onboard-session";
 
 export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChannelConfig, SandboxGpuConfig, ResourceProfile> {
@@ -275,22 +276,28 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
     });
 
     if (!sandboxName) sandboxName = await deps.promptValidatedSandboxName(agent);
+    const requestedSandboxName = sandboxName;
     const resourceProfile = await deps.selectResourceProfileForSandbox();
-    if (fresh) deps.stopStaleDashboardListenersForSandbox(deps.listRegistrySandboxes().sandboxes, sandboxName);
-    sandboxName = await deps.createSandbox(
-      gpu,
-      model,
-      provider,
-      preferredInferenceApi,
-      sandboxName,
-      nextWebSearchConfig,
-      selectedMessagingChannels,
-      fromDockerfile,
-      agent,
-      controlUiPort,
-      sandboxGpuConfig,
-      resourceProfile,
-      hermesToolGateways,
+    if (fresh) deps.stopStaleDashboardListenersForSandbox(deps.listRegistrySandboxes().sandboxes, requestedSandboxName);
+    sandboxName = await withSpan(
+      "onboard.sandbox.create",
+      () =>
+        deps.createSandbox(
+          gpu,
+          model,
+          provider,
+          preferredInferenceApi,
+          requestedSandboxName,
+          nextWebSearchConfig,
+          selectedMessagingChannels,
+          fromDockerfile,
+          agent,
+          controlUiPort,
+          sandboxGpuConfig,
+          resourceProfile,
+          hermesToolGateways,
+        ),
+      { sandboxName: requestedSandboxName },
     );
     webSearchConfig = nextWebSearchConfig;
     deps.updateSandboxRegistry(sandboxName, {

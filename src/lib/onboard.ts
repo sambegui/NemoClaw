@@ -465,8 +465,6 @@ const providerModels: typeof import("./inference/provider-models") = require("./
 const sandboxCreateStream: typeof import("./sandbox/create-stream") = require("./sandbox/create-stream");
 const validationRecovery: typeof import("./validation-recovery") = require("./validation-recovery");
 const webSearch: typeof import("./inference/web-search") = require("./inference/web-search");
-const profiling: typeof import("./profiling") = require("./profiling");
-const { flushTrace, startSpan, withSpan } = profiling;
 const openshellInstallFlow: typeof import("./onboard/openshell-install") =
   require("./onboard/openshell-install");
 const openshellPinFlow: typeof import("./onboard/openshell-pin") =
@@ -1061,10 +1059,6 @@ function runQuietOpenshell(args: string[]) {
     stdio: ["ignore", "pipe", "pipe"],
     suppressOutput: true,
   });
-}
-
-function sleep(seconds: number): void {
-  withSpan("wait.sleep", () => sleepSeconds(seconds), { seconds });
 }
 
 function removeDockerDriverGatewayRegistration(): boolean {
@@ -2451,11 +2445,12 @@ async function startGatewayWithOptions(
   try {
     await pRetry(
       async () => {
-        const startResult = await withSpan("onboard.gateway.start", () =>
-          streamGatewayStart(openshellShellCommand(["gateway", "start", ...gwArgs]), {
+        const startResult = await streamGatewayStart(
+          openshellShellCommand(["gateway", "start", ...gwArgs]),
+          {
             ...process.env,
             ...gatewayEnv,
-          }),
+          },
         );
         if (startResult.status !== 0) {
           const lines = String(redact(startResult.output || ""))
@@ -2482,42 +2477,29 @@ async function startGatewayWithOptions(
 
         const healthPollCount = healthWait.count;
         const healthPollInterval = healthWait.interval;
-        const healthSpan = startSpan("onboard.gateway.health_wait", {
-          pollCount: healthPollCount,
-          pollIntervalSeconds: healthPollInterval,
-          extended: healthWait.extended,
-          containerState: healthWait.containerState,
-        });
-        try {
-          for (let i = 0; i < healthPollCount; i++) {
-            const repairResult = repairGatewayBootstrapSecrets();
-            if (repairResult.repaired) {
-              attachGatewayMetadataIfNeeded({ forceRefresh: true });
-            } else if (gatewayClusterHealthcheckPassed()) {
-              attachGatewayMetadataIfNeeded();
-            }
-            // Ensure the gateway remains selected before each probe.
-            runCaptureOpenshell(["gateway", "select", GATEWAY_NAME], { ignoreError: true });
-            const status = runCaptureOpenshell(["status"], { ignoreError: true });
-            const namedInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
-              ignoreError: true,
-            });
-            const currentInfo = runCaptureOpenshell(["gateway", "info"], { ignoreError: true });
-            // Require BOTH the openshell CLI metadata to report healthy AND the
-            // host HTTP endpoint to be serving — the CLI metadata can report
-            // healthy from the previous run while the upstream is still warming
-            // up after a Docker daemon restart, leading to "Connection refused"
-            // in step 4. See #3258.
-            if (isGatewayHealthy(status, namedInfo, currentInfo) && (await isGatewayHttpReady())) {
-              healthSpan.end({ ok: true, attempts: i + 1 });
-              return; // success
-            }
-            if (i < healthPollCount - 1) sleep(healthPollInterval);
+        for (let i = 0; i < healthPollCount; i++) {
+          const repairResult = repairGatewayBootstrapSecrets();
+          if (repairResult.repaired) {
+            attachGatewayMetadataIfNeeded({ forceRefresh: true });
+          } else if (gatewayClusterHealthcheckPassed()) {
+            attachGatewayMetadataIfNeeded();
           }
-          healthSpan.end({ ok: false, attempts: healthPollCount });
-        } catch (error) {
-          healthSpan.end({ ok: false, error: error instanceof Error ? error.message : String(error) });
-          throw error;
+          // Ensure the gateway remains selected before each probe.
+          runCaptureOpenshell(["gateway", "select", GATEWAY_NAME], { ignoreError: true });
+          const status = runCaptureOpenshell(["status"], { ignoreError: true });
+          const namedInfo = runCaptureOpenshell(["gateway", "info", "-g", GATEWAY_NAME], {
+            ignoreError: true,
+          });
+          const currentInfo = runCaptureOpenshell(["gateway", "info"], { ignoreError: true });
+          // Require BOTH the openshell CLI metadata to report healthy AND the
+          // host HTTP endpoint to be serving — the CLI metadata can report
+          // healthy from the previous run while the upstream is still warming
+          // up after a Docker daemon restart, leading to "Connection refused"
+          // in step 4. See #3258.
+          if (isGatewayHealthy(status, namedInfo, currentInfo) && (await isGatewayHttpReady())) {
+            return; // success
+          }
+          if (i < healthPollCount - 1) sleepSeconds(healthPollInterval);
         }
 
         throw new Error("Gateway failed to start");
@@ -2862,12 +2844,13 @@ async function recoverGatewayRuntime() {
     return true;
   }
 
-  const startResult = withSpan("onboard.gateway.start", () =>
-    runOpenshell(["gateway", "start", "--name", GATEWAY_NAME, "--port", getGatewayPortArg()], {
+  const startResult = runOpenshell(
+    ["gateway", "start", "--name", GATEWAY_NAME, "--port", getGatewayPortArg()],
+    {
       ignoreError: true,
       env: getGatewayStartEnv(),
       suppressOutput: true,
-    }),
+    },
   );
   if (startResult.status !== 0) {
     const diagnostic = compactText(
@@ -2890,43 +2873,29 @@ async function recoverGatewayRuntime() {
   const recoveryPollInterval = recoveryWait.extended
     ? recoveryWait.interval
     : envInt("NEMOCLAW_HEALTH_POLL_INTERVAL", 2);
-  const recoverySpan = startSpan("onboard.gateway.health_wait", {
-    recovery: true,
-    pollCount: recoveryPollCount,
-    pollIntervalSeconds: recoveryPollInterval,
-    extended: recoveryWait.extended,
-    containerState: recoveryWait.containerState,
-  });
-  try {
-    for (let i = 0; i < recoveryPollCount; i++) {
-      const repairResult = repairGatewayBootstrapSecrets();
-      if (repairResult.repaired) {
-        attachGatewayMetadataIfNeeded({ forceRefresh: true });
-      } else if (gatewayClusterHealthcheckPassed()) {
-        attachGatewayMetadataIfNeeded();
-      }
-      status = runCaptureOpenshell(["status"], { ignoreError: true });
-      if (
-        status.includes("Connected") &&
-        isSelectedGateway(status) &&
-        (await isGatewayHttpReady())
-      ) {
-        process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
-        const runtime = getContainerRuntime();
-        if (shouldPatchCoredns(runtime)) {
-          run(["bash", path.join(SCRIPTS, "fix-coredns.sh"), GATEWAY_NAME], {
-            ignoreError: true,
-          });
-        }
-        recoverySpan.end({ ok: true, attempts: i + 1 });
-        return true;
-      }
-      if (i < recoveryPollCount - 1) sleep(recoveryPollInterval);
+  for (let i = 0; i < recoveryPollCount; i++) {
+    const repairResult = repairGatewayBootstrapSecrets();
+    if (repairResult.repaired) {
+      attachGatewayMetadataIfNeeded({ forceRefresh: true });
+    } else if (gatewayClusterHealthcheckPassed()) {
+      attachGatewayMetadataIfNeeded();
     }
-    recoverySpan.end({ ok: false, attempts: recoveryPollCount });
-  } catch (error) {
-    recoverySpan.end({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    throw error;
+    status = runCaptureOpenshell(["status"], { ignoreError: true });
+    if (
+      status.includes("Connected") &&
+      isSelectedGateway(status) &&
+      (await isGatewayHttpReady())
+    ) {
+      process.env.OPENSHELL_GATEWAY = GATEWAY_NAME;
+      const runtime = getContainerRuntime();
+      if (shouldPatchCoredns(runtime)) {
+        run(["bash", path.join(SCRIPTS, "fix-coredns.sh"), GATEWAY_NAME], {
+          ignoreError: true,
+        });
+      }
+      return true;
+    }
+    if (i < recoveryPollCount - 1) sleepSeconds(recoveryPollInterval);
   }
 
   return false;
@@ -3851,20 +3820,15 @@ async function createSandbox(
     backend: effectiveSandboxGpuConfig.hostGpuPlatform === "jetson" ? "jetson" : "generic",
     deps: { runOpenshell, runCaptureOpenshell, sleep: sleepSeconds },
   });
-  const createResult = await withSpan(
-    "onboard.sandbox.create",
-    () =>
-      streamSandboxCreate(createCommand, sandboxEnv, {
-        readyCheck: () => {
-          const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
-          if (isSandboxReady(list, sandboxName)) return true;
-          dockerGpuCreatePatch.maybeApplyDuringCreate();
-          return false;
-        },
-        failureCheck: dockerGpuCreatePatch.createFailureMessage,
-      }),
-    { sandboxName },
-  );
+  const createResult = await streamSandboxCreate(createCommand, sandboxEnv, {
+    readyCheck: () => {
+      const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+      if (isSandboxReady(list, sandboxName)) return true;
+      dockerGpuCreatePatch.maybeApplyDuringCreate();
+      return false;
+    },
+    failureCheck: dockerGpuCreatePatch.createFailureMessage,
+  });
 
   if (initialSandboxPolicy.cleanup && initialSandboxPolicy.cleanup()) {
     process.removeListener("exit", initialSandboxPolicy.cleanup);
@@ -3915,26 +3879,13 @@ async function createSandbox(
   console.log("  Waiting for sandbox to become ready...");
   let ready = false;
   const readyAttempts = Math.max(1, Math.ceil(sandboxReadyTimeoutSecs / 2));
-  const sandboxReadySpan = startSpan("onboard.sandbox.ready_wait", {
-    sandboxName,
-    timeoutSeconds: sandboxReadyTimeoutSecs,
-    pollCount: readyAttempts,
-    pollIntervalSeconds: 2,
-  });
-  try {
-    for (let i = 0; i < readyAttempts; i++) {
-      const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
-      if (isSandboxReady(list, sandboxName)) {
-        ready = true;
-        sandboxReadySpan.end({ ok: true, attempts: i + 1 });
-        break;
-      }
-      if (i < readyAttempts - 1) sleep(2);
+  for (let i = 0; i < readyAttempts; i++) {
+    const list = runCaptureOpenshell(["sandbox", "list"], { ignoreError: true });
+    if (isSandboxReady(list, sandboxName)) {
+      ready = true;
+      break;
     }
-    if (!ready) sandboxReadySpan.end({ ok: false, attempts: readyAttempts });
-  } catch (error) {
-    sandboxReadySpan.end({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    throw error;
+    if (i < readyAttempts - 1) sleepSeconds(2);
   }
 
   const restoreBackupPath =
@@ -3987,52 +3938,23 @@ async function createSandbox(
   // or seeing 502/503 errors during initial load.
   // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
   // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
-  console.log(`  Waiting for ${cliDisplayName()} dashboard to become ready...`);
-  const dashboardReadySpan = startSpan("onboard.dashboard.ready_wait", {
-    sandboxName,
-    port: effectiveDashboardPort,
-    pollCount: 15,
-    pollIntervalSeconds: 2,
-  });
-  let dashboardReady = false;
-  try {
-    for (let i = 0; i < 15; i++) {
-      const readyOutput = runCaptureOpenshell(
-        [
-          "sandbox",
-          "exec",
-          "-n",
-          sandboxName,
-          "--",
-          "curl",
-          "-so",
-          "/dev/null",
-          "-w",
-          "%{http_code}",
-          "--max-time",
-          "3",
-          `http://localhost:${effectiveDashboardPort}/health`,
-        ],
-        { ignoreError: true },
-      );
-      const readyCode = parseInt((readyOutput || "").trim(), 10) || 0;
-      if (readyCode === 200 || readyCode === 401) {
-        dashboardReady = true;
-        dashboardReadySpan.end({ ok: true, attempts: i + 1 });
-        console.log("  ✓ Dashboard is live");
-        break;
-      }
-      if (i === 14) {
-        dashboardReadySpan.end({ ok: false, attempts: 15 });
-        console.warn("  Dashboard taking longer than expected to start. Continuing...");
-      } else {
-        sleep(2);
-      }
+  console.log("  Waiting for NemoClaw dashboard to become ready...");
+  for (let i = 0; i < 15; i++) {
+    const readyOutput = runCaptureOpenshell(
+      ["sandbox", "exec", "-n", sandboxName, "--", "curl", "-so", "/dev/null", "-w", "%{http_code}",
+        "--max-time", "3", `http://localhost:${effectiveDashboardPort}/health`],
+      { ignoreError: true },
+    );
+    const readyCode = parseInt((readyOutput || "").trim(), 10) || 0;
+    if (readyCode === 200 || readyCode === 401) {
+      console.log("  ✓ Dashboard is live");
+      break;
     }
-    if (!dashboardReady) dashboardReadySpan.end({ ok: false });
-  } catch (error) {
-    dashboardReadySpan.end({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    throw error;
+    if (i === 14) {
+      console.warn("  Dashboard taking longer than expected to start. Continuing...");
+    } else {
+      sleepSeconds(2);
+    }
   }
 
   if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
@@ -5559,31 +5481,6 @@ async function setupInference(
   hermesToolGateways: string[] = [],
 ): Promise<{ ok: true; retry?: undefined } | { retry: "selection" }> {
   step(4, 8, "Setting up inference provider");
-  return withSpan(
-    "onboard.inference.validation",
-    () =>
-      setupInferenceInner(
-        sandboxName,
-        model,
-        provider,
-        endpointUrl,
-        credentialEnv,
-        hermesAuthMethod,
-        hermesToolGateways,
-      ),
-    { provider, hasSandboxName: typeof sandboxName === "string" },
-  );
-}
-
-async function setupInferenceInner(
-  sandboxName: string | null,
-  model: string,
-  provider: string,
-  endpointUrl: string | null = null,
-  credentialEnv: string | null = null,
-  hermesAuthMethod: HermesAuthMethod | string | null = null,
-  hermesToolGateways: string[] = [],
-): Promise<{ ok: true; retry?: undefined } | { retry: "selection" }> {
   runOpenshell(["gateway", "select", GATEWAY_NAME], { ignoreError: true });
 
   if (provider === hermesProviderAuth.HERMES_PROVIDER_NAME) {
@@ -6824,10 +6721,6 @@ function skippedStepMessage(
 // ── Main ─────────────────────────────────────────────────────────
 
 async function onboard(opts: OnboardOptions = {}): Promise<void> {
-  return withSpan("onboard.total", () => onboardInner(opts));
-}
-
-async function onboardInner(opts: OnboardOptions = {}): Promise<void> {
   setOnboardBrandingAgent(opts.agent || process.env.NEMOCLAW_AGENT || null);
   NON_INTERACTIVE = opts.nonInteractive || process.env.NEMOCLAW_NON_INTERACTIVE === "1";
   RECREATE_SANDBOX = opts.recreateSandbox || process.env.NEMOCLAW_RECREATE_SANDBOX === "1";
@@ -7552,7 +7445,6 @@ async function onboardInner(opts: OnboardOptions = {}): Promise<void> {
   } finally {
     releaseOnboardLock();
     onboardRuntimeBoundary.clear();
-    flushTrace();
   }
 }
 

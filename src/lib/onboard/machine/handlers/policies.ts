@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { withSpan } from "../../../profiling";
 import type { Session, SessionUpdates } from "../../../state/onboard-session";
 
 export interface PolicyPresetEntry {
@@ -169,23 +170,28 @@ export async function handlePoliciesState<Agent, WebSearchConfig>({
       model,
       policyPresets: recordedPolicyPresetsForSupport,
     });
-    appliedPolicyPresets = await deps.setupPoliciesWithSelection(sandboxName, {
-      selectedPresets: Array.isArray(recordedPolicyPresets)
-        ? recordedPolicyPresetsForSupport
-        : null,
-      enabledChannels: policyMessagingChannels,
-      disabledChannels: activeSandbox?.disabledChannels,
-      webSearchConfig,
-      provider,
-      webSearchSupported,
-      hermesToolGateways,
-      onSelection: (policyPresets) => {
-        deps.updateSession((current) => {
-          current.policyPresets = policyPresets;
-          return current;
-        });
-      },
-    });
+    appliedPolicyPresets = await withSpan(
+      "onboard.policy.apply",
+      () =>
+        deps.setupPoliciesWithSelection(sandboxName, {
+          selectedPresets: Array.isArray(recordedPolicyPresets)
+            ? recordedPolicyPresetsForSupport
+            : null,
+          enabledChannels: policyMessagingChannels,
+          disabledChannels: activeSandbox?.disabledChannels,
+          webSearchConfig,
+          provider,
+          webSearchSupported,
+          hermesToolGateways,
+          onSelection: (policyPresets) => {
+            deps.updateSession((current) => {
+              current.policyPresets = policyPresets;
+              return current;
+            });
+          },
+        }),
+      { sandboxName, provider },
+    );
     session = await deps.recordStepComplete(
       "policies",
       deps.toSessionUpdates({ sandboxName, provider, model, policyPresets: appliedPolicyPresets }),

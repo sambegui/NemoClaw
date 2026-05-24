@@ -3,6 +3,7 @@
 
 import { listAgents } from "../agent/defs";
 import { runDeprecatedOnboardAliasCommand, runOnboardCommand } from "../onboard/legacy-command";
+import { flushTrace, withSpan } from "../profiling";
 import { NOTICE_ACCEPT_ENV, NOTICE_ACCEPT_FLAG } from "../onboard/usage-notice";
 
 const { onboard: runOnboard } = require("../onboard") as {
@@ -24,7 +25,11 @@ function buildOnboardCommandDeps(args: string[]) {
 }
 
 export async function runOnboardAction(args: string[]): Promise<void> {
-  await runOnboardCommand(buildOnboardCommandDeps(args));
+  try {
+    await withSpan("onboard.total", () => runOnboardCommand(buildOnboardCommandDeps(args)));
+  } finally {
+    flushTrace();
+  }
 }
 
 export async function runSetupAction(args: string[] = []): Promise<void> {
