@@ -100,7 +100,7 @@ class RecordingSpan implements Span {
       dur: Math.max(0, endMicroseconds - this.startMicroseconds),
       pid: this.tracer.pid,
       tid: this.tracer.tid,
-      args: mergeArgs(this.args, args),
+      args: sanitizeTraceArgs(mergeArgs(this.args, args)),
     });
   }
 }
@@ -137,7 +137,16 @@ class RecordingTracer implements Tracer {
     try {
       const result = fn();
       if (isPromiseLike(result)) {
-        return result.finally(() => span.end()) as T;
+        return result.then(
+          (value) => {
+            span.end();
+            return value;
+          },
+          (error) => {
+            span.end({ error: error instanceof Error ? error.message : String(error) });
+            throw error;
+          },
+        ) as T;
       }
       span.end();
       return result;
@@ -205,6 +214,48 @@ function registerExitFlush(tracer: Tracer): void {
 function mergeArgs(startArgs?: TraceArgs, endArgs?: TraceArgs): TraceArgs | undefined {
   if (!startArgs && !endArgs) return undefined;
   return { ...(startArgs ?? {}), ...(endArgs ?? {}) };
+}
+
+const SENSITIVE_KEY_RE = /(authorization|bearer|cookie|credential|key|password|secret|token)/i;
+const SECRET_VALUE_PATTERNS: Array<[RegExp, string]> = [
+  [/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [REDACTED]"],
+  [/\b(?:nvapi|sk)-[A-Za-z0-9._-]{8,}\b/gi, "[REDACTED]"],
+  [/\bgh[pousr]_[A-Za-z0-9_]{16,}\b/g, "[REDACTED]"],
+  [/\bxox(?:b|p|a|r|s)-[A-Za-z0-9-]{8,}\b/g, "[REDACTED]"],
+  [/\bxapp-[A-Za-z0-9-]{8,}\b/g, "[REDACTED]"],
+  [/(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret|token|key)=)[^\s&]+/gi, "$1[REDACTED]"],
+];
+
+function sanitizeTraceArgs(args?: TraceArgs): TraceArgs | undefined {
+  if (!args) return undefined;
+  return sanitizeTraceValue(args) as TraceArgs;
+}
+
+function sanitizeTraceValue(value: unknown, key = "", depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (SENSITIVE_KEY_RE.test(key)) return "[REDACTED]";
+  if (typeof value === "string") return redactTraceText(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (depth >= 6) return "[REDACTED]";
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeTraceValue(entry, key, depth + 1));
+  }
+  if (typeof value === "object") {
+    const sanitized: TraceArgs = {};
+    for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[entryKey] = sanitizeTraceValue(entryValue, entryKey, depth + 1);
+    }
+    return sanitized;
+  }
+  return String(value);
+}
+
+function redactTraceText(value: string): string {
+  let redacted = value;
+  for (const [pattern, replacement] of SECRET_VALUE_PATTERNS) {
+    redacted = redacted.replace(pattern, replacement);
+  }
+  return redacted;
 }
 
 function isPromiseLike<T>(value: T | PromiseLike<T>): value is Promise<T> {

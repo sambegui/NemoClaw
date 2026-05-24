@@ -262,9 +262,9 @@ jobs:
         run: |
           $script = @"
           set -euo pipefail
-          mkdir -p '$env:WSL_WORKDIR/_nemoclaw-traces'
+          mkdir -p '$env:WSL_CHECKOUT_DIR/_nemoclaw-traces'
           if [ -d '/tmp/nemoclaw-traces/wsl-e2e' ]; then
-            cp -a '/tmp/nemoclaw-traces/wsl-e2e'/.' '$env:WSL_WORKDIR/_nemoclaw-traces/'
+            cp -a '/tmp/nemoclaw-traces/wsl-e2e'/.' '$env:WSL_CHECKOUT_DIR/_nemoclaw-traces/'
           fi
           "@
           $tmp = "$env:RUNNER_TEMP\wsl-step.sh"
@@ -277,7 +277,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-wsl-e2e
-          path: ${{ env.WSL_WORKDIR }}/_nemoclaw-traces
+          path: ${{ github.workspace }}\_nemoclaw-traces
           if-no-files-found: ignore
           retention-days: 14
 

@@ -265,6 +265,7 @@ jobs:
           BREV_CREATE_TIMEOUT_SECONDS: ${{ inputs.brev_create_timeout_seconds || vars.BREV_CREATE_TIMEOUT_SECONDS || '' }}
           NEMOCLAW_GPU_E2E_MODEL: ${{ vars.NEMOCLAW_GPU_E2E_MODEL || 'qwen2.5:7b' }}
           KEEP_ALIVE: ${{ inputs.keep_alive }}
+          NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/e2e-branch-validation
         run: npx vitest run --project e2e-branch-validation --silent=false --reporter=default
 
       - name: Update check run (completed)
@@ -341,11 +342,23 @@ jobs:
           brev refresh >/dev/null 2>&1 || true
           ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
               -o ConnectTimeout=10 "${INSTANCE}" \
-              'test -d /tmp/nemoclaw-traces && tar -C /tmp -czf /tmp/nemoclaw-traces.tar.gz nemoclaw-traces || true' || true
+              'cd /tmp && test -d nemoclaw-traces && find nemoclaw-traces -type f -name "*.json" -print0 | tar --null -czf /tmp/nemoclaw-traces.tar.gz --files-from - || true' || true
           scp -o StrictHostKeyChecking=no -o LogLevel=ERROR \
               "${INSTANCE}:/tmp/nemoclaw-traces.tar.gz" brev-traces/ 2>/dev/null || true
           if [ -f brev-traces/nemoclaw-traces.tar.gz ]; then
-            tar -C brev-traces -xzf brev-traces/nemoclaw-traces.tar.gz
+            tar -tvzf brev-traces/nemoclaw-traces.tar.gz > brev-traces/nemoclaw-traces.members
+            awk '
+              $1 !~ /^-/ { bad = 1; print "unsupported tar entry type: " $0 > "/dev/stderr" }
+              {
+                name = $0
+                sub(/^[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+[^ ]+[ ]+/, "", name)
+                if (name !~ /^nemoclaw-traces\// || name ~ /(^|\/)\.\.($|\//) || name !~ /\.json$/) {
+                  bad = 1; print "unsafe trace archive member: " name > "/dev/stderr"
+                }
+              }
+              END { exit bad }
+            ' brev-traces/nemoclaw-traces.members
+            tar --no-same-owner --no-same-permissions -C brev-traces -xzf brev-traces/nemoclaw-traces.tar.gz
           fi
 
       - name: Upload NemoClaw profiling traces

@@ -21,10 +21,16 @@ class FakeClock {
 }
 
 describe("profiling tracer", () => {
+  let tempDirs: string[] = [];
+
   afterEach(() => {
     delete process.env[TRACE_FILE_ENV];
     delete process.env[TRACE_DIR_ENV];
     resetTracerForTesting();
+    for (const dir of tempDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tempDirs = [];
   });
 
   it("is a no-op unless tracing is enabled", () => {
@@ -60,6 +66,28 @@ describe("profiling tracer", () => {
           args: { sandbox: "demo", ok: true },
         },
       ],
+    });
+  });
+
+  it("redacts likely secrets from trace args", () => {
+    const tracer = createTracer({ enabled: true, clock: new FakeClock([1000, 6000]) });
+
+    tracer
+      .startSpan("onboard.secret", {
+        token: "nvapi-1234567890abcdef",
+        url: "https://example.test/v1?api_key=sk-1234567890abcdef&model=ok",
+        stderr: "Authorization: Bearer ghp_1234567890abcdefghijklmnop",
+      })
+      .end();
+
+    const serialized = JSON.stringify(tracer.toChromeTrace());
+    expect(serialized).not.toContain("nvapi-1234567890abcdef");
+    expect(serialized).not.toContain("sk-1234567890abcdef");
+    expect(serialized).not.toContain("ghp_1234567890abcdefghijklmnop");
+    expect(tracer.toChromeTrace().traceEvents[0].args).toMatchObject({
+      token: "[REDACTED]",
+      url: "https://example.test/v1?api_key=[REDACTED]&model=ok",
+      stderr: "Authorization: Bearer [REDACTED]",
     });
   });
 
@@ -111,6 +139,25 @@ describe("profiling tracer", () => {
     ]);
   });
 
+  it("withSpan records async rejection details before rethrowing", async () => {
+    const tracer = createTracer({ enabled: true, clock: new FakeClock([10, 15]) });
+
+    await expect(
+      tracer.withSpan("onboard.async.failure", async () => {
+        throw new Error("async boom");
+      }),
+    ).rejects.toThrow("async boom");
+
+    expect(tracer.toChromeTrace().traceEvents).toEqual([
+      expect.objectContaining({
+        name: "onboard.async.failure",
+        ts: 10,
+        dur: 5,
+        args: { error: "async boom" },
+      }),
+    ]);
+  });
+
   it("ignores duplicate span end calls", () => {
     const tracer = createTracer({ enabled: true, clock: new FakeClock([10, 15, 100]) });
     const span = tracer.startSpan("onboard.once");
@@ -124,6 +171,7 @@ describe("profiling tracer", () => {
 
   it("writes trace data to the configured file", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-trace-"));
+    tempDirs.push(tempDir);
     const traceFile = path.join(tempDir, "trace.json");
     const tracer = createTracer({ enabled: true, traceFile, clock: new FakeClock([100, 250]) });
 
@@ -137,6 +185,7 @@ describe("profiling tracer", () => {
 
   it("uses NEMOCLAW_TRACE_DIR to allocate a per-process trace file", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-trace-dir-"));
+    tempDirs.push(tempDir);
     process.env[TRACE_DIR_ENV] = tempDir;
     const tracer = createTracer({ clock: new FakeClock([100, 250]) });
 

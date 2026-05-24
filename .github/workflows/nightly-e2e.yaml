@@ -171,10 +171,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -219,10 +221,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -262,10 +266,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -305,10 +311,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -390,10 +398,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -581,10 +591,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -892,10 +904,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -933,10 +947,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -977,10 +993,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1023,10 +1041,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1191,10 +1211,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1480,10 +1502,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload sandbox gateway logs on failure
         if: failure()
@@ -1531,10 +1555,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -1610,10 +1636,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -1650,10 +1678,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -1724,10 +1754,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -1771,10 +1803,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1814,10 +1848,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1857,10 +1893,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1900,10 +1938,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -1944,10 +1984,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install logs on failure
         if: failure()
@@ -2034,10 +2076,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -2119,10 +2163,12 @@ jobs:
           bash test/e2e/test-double-onboard.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2168,10 +2214,12 @@ jobs:
           bash test/e2e/test-onboard-repair.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2217,10 +2265,12 @@ jobs:
           bash test/e2e/test-onboard-resume.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2307,10 +2357,12 @@ jobs:
           bash test/e2e/test-runtime-overrides.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2359,10 +2411,12 @@ jobs:
           bash test/e2e/test-credential-sanitization.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2411,10 +2465,12 @@ jobs:
           bash test/e2e/test-telegram-injection.sh
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test log on failure
         if: failure()
@@ -2456,10 +2512,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload onboard logs on failure
         if: failure()
@@ -2545,10 +2603,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -2615,10 +2675,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
@@ -2678,10 +2740,12 @@ jobs:
 
       - name: Upload NemoClaw profiling traces
         if: always()
-        uses: ./.github/actions/upload-nemoclaw-traces
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
           path: /tmp/nemoclaw-traces/${{ github.job }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload install log on failure
         if: failure()
