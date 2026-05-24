@@ -70,7 +70,7 @@ jobs:
 
       - name: Install project dependencies and build plugin
         env:
-          WSL_NPM_INSTALL_COMMAND: npm install --ignore-scripts
+          WSL_NPM_INSTALL_MODE: install
         run: node --no-warnings --experimental-strip-types scripts/github/wsl.ts install-project
 
       - name: Detect Docker availability in WSL

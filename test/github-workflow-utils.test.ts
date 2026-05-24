@@ -1,12 +1,25 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
-import { shellQuote, selectCsvJobs } from "../scripts/github/lib/actions.ts";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { exportEnv, shellQuote, selectCsvJobs } from "../scripts/github/lib/actions.ts";
 import { shellcheckJsonToSarif } from "../scripts/github/lib/shellcheck-sarif.ts";
-import { extractPreviewUrl } from "../scripts/github/fern-preview.ts";
+import { extractPreviewUrl, flattenPaginatedComments } from "../scripts/github/fern-preview.ts";
 import { parseOutputMappings } from "../scripts/github/select-jobs.ts";
-import { windowsPathToWsl } from "../scripts/github/wsl.ts";
+import { npmInstallCommandForMode, windowsPathToWsl } from "../scripts/github/wsl.ts";
+
+let envFileToRemove: string | undefined;
+
+afterEach(() => {
+  delete process.env.GITHUB_ENV;
+  if (envFileToRemove) {
+    rmSync(path.dirname(envFileToRemove), { force: true, recursive: true });
+    envFileToRemove = undefined;
+  }
+});
 
 describe("GitHub workflow utility helpers", () => {
   it("converts Windows checkout paths to WSL mount paths", () => {
@@ -66,5 +79,37 @@ describe("GitHub workflow utility helpers", () => {
       "https://preview.example.test/foo",
     );
     expect(extractPreviewUrl("no url here")).toBeUndefined();
+  });
+
+  it("flattens paginated GitHub comment responses", () => {
+    expect(
+      flattenPaginatedComments([
+        [{ id: 1, body: "first page" }],
+        [{ id: 2, body: "second page" }],
+      ]),
+    ).toEqual([
+      { id: 1, body: "first page" },
+      { id: 2, body: "second page" },
+    ]);
+  });
+
+  it("writes multiline GitHub environment values using delimiter syntax", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gh-env-"));
+    envFileToRemove = path.join(dir, "env");
+    process.env.GITHUB_ENV = envFileToRemove;
+
+    exportEnv("MULTILINE", "one\ntwo");
+    const written = readFileSync(envFileToRemove, "utf-8");
+
+    expect(written).toMatch(/^MULTILINE<<EOF_MULTILINE_/);
+    expect(written).toContain("\none\ntwo\n");
+  });
+
+  it("allowlists WSL npm install modes", () => {
+    expect(npmInstallCommandForMode("ci")).toBe("npm ci --ignore-scripts");
+    expect(npmInstallCommandForMode("install")).toBe("npm install --ignore-scripts");
+    expect(() => npmInstallCommandForMode("npm install && curl example.test")).toThrow(
+      /Unsupported WSL_NPM_INSTALL_MODE/,
+    );
   });
 });

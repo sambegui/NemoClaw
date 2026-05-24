@@ -40,7 +40,7 @@ export function selectCsvJobs(
   );
 }
 
-function appendLineFromEnv(envName: string, line: string): void {
+export function appendLineFromEnv(envName: string, line: string): void {
   const filePath = process.env[envName];
   if (!filePath) {
     console.log(`${envName} not set; ${line}`);
@@ -66,8 +66,24 @@ export function setOutput(name: string, value: string | boolean | number): void 
   appendFileSync(outputFile, `${name}=${rendered}\n`, { encoding: "utf-8" });
 }
 
+function uniqueDelimiter(name: string, value: string): string {
+  let delimiter = `EOF_${name}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  while (value.includes(delimiter)) {
+    delimiter = `EOF_${name}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+  return delimiter;
+}
+
 export function exportEnv(name: string, value: string): void {
-  appendLineFromEnv("GITHUB_ENV", `${name}=${value}`);
+  if (!value.includes("\n")) {
+    appendLineFromEnv("GITHUB_ENV", `${name}=${value}`);
+    return;
+  }
+
+  const delimiter = uniqueDelimiter(name, value);
+  appendLineFromEnv("GITHUB_ENV", `${name}<<${delimiter}`);
+  appendLineFromEnv("GITHUB_ENV", value);
+  appendLineFromEnv("GITHUB_ENV", delimiter);
 }
 
 export function appendStepSummary(markdown: string): void {

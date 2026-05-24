@@ -31,12 +31,19 @@ export function runChecked(command: string, args: readonly string[], cwd?: strin
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf-8",
-    stdio: "inherit",
+    stdio: ["inherit", "inherit", "pipe"],
   });
   if (result.error) {
     throw result.error;
   }
   if ((result.status ?? 1) !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status ?? 1}`);
+    const details = [
+      `${command} ${args.join(" ")} failed`,
+      `exit code: ${result.status ?? 1}`,
+      ...(result.signal ? [`signal: ${result.signal}`] : []),
+      ...(cwd ? [`cwd: ${cwd}`] : []),
+      ...(result.stderr ? [`stderr:\n${result.stderr}`] : []),
+    ];
+    throw new Error(details.join("\n"));
   }
 }

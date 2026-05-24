@@ -3,7 +3,7 @@
 
 /** Reusable WSL orchestration for Windows-hosted GitHub Actions jobs. */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { exportEnv, optionalEnv, requireEnv, setOutput, shellQuote } from "./lib/actions.ts";
@@ -62,10 +62,36 @@ function windowsPathToWslViaDistro(winPath: string): string {
   return result.stdout.trim();
 }
 
-function runBashInWsl(script: string): void {
+function withWslEnv<T>(names: readonly string[], callback: () => T): T {
+  if (names.length === 0) {
+    return callback();
+  }
+
+  const previous = process.env.WSLENV;
+  const existing = new Set((previous ?? "").split(":").filter(Boolean));
+  for (const name of names) {
+    existing.add(name);
+  }
+  process.env.WSLENV = [...existing].join(":");
+  try {
+    return callback();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.WSLENV;
+    } else {
+      process.env.WSLENV = previous;
+    }
+  }
+}
+
+function runBashInWsl(script: string, passEnv: readonly string[] = []): void {
   const scriptPath = writeBashScript(script);
-  const wslScriptPath = windowsPathToWslViaDistro(scriptPath);
-  wslChecked(["-d", distro(), "--", "bash", "-l", wslScriptPath]);
+  try {
+    const wslScriptPath = windowsPathToWslViaDistro(scriptPath);
+    withWslEnv(passEnv, () => wslChecked(["-d", distro(), "--", "bash", "-l", wslScriptPath]));
+  } finally {
+    rmSync(path.dirname(scriptPath), { force: true, recursive: true });
+  }
 }
 
 function resolvePaths(): void {
@@ -86,9 +112,30 @@ function distroAvailable(): boolean {
   return wsl(["-d", distro(), "--", "echo", "ok"]).status === 0;
 }
 
+function normalizeWslMessage(message: string): string {
+  return message.replaceAll("\u0000", "").toLowerCase();
+}
+
+function listDistributions(): void {
+  const result = wsl(["--list", "--verbose"]);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  if (result.status === 0) {
+    return;
+  }
+
+  const message = normalizeWslMessage(`${result.stdout}\n${result.stderr}`);
+  if (message.includes("no installed distributions")) {
+    console.log("No WSL distributions are installed yet; continuing with Ubuntu installation.");
+    return;
+  }
+
+  throw new Error(`wsl --list --verbose failed with exit code ${result.status}`);
+}
+
 function ensureUbuntu(): void {
   assertWindowsHost();
-  wslChecked(["--list", "--verbose"]);
+  listDistributions();
   if (!distroAvailable()) {
     const maxAttempts = 3;
     let installed = false;
@@ -197,9 +244,19 @@ echo 'WSL ext4 workspace ready at ${workdir}'
 `);
 }
 
+export function npmInstallCommandForMode(mode: string): string {
+  if (mode === "install") {
+    return "npm install --ignore-scripts";
+  }
+  if (mode === "ci") {
+    return "npm ci --ignore-scripts";
+  }
+  throw new Error(`Unsupported WSL_NPM_INSTALL_MODE: ${mode}`);
+}
+
 function installProject(): void {
   const workdir = requireEnv("WSL_WORKDIR");
-  const npmInstallCommand = optionalEnv("WSL_NPM_INSTALL_COMMAND", "npm ci --ignore-scripts");
+  const npmInstallCommand = npmInstallCommandForMode(optionalEnv("WSL_NPM_INSTALL_MODE", "ci"));
   runBashInWsl(`
 set -euo pipefail
 cd ${shellQuote(workdir)}
@@ -231,17 +288,27 @@ function dockerAvailable(): void {
 
 function runFullE2E(): void {
   const workdir = requireEnv("WSL_WORKDIR");
-  runBashInWsl(`
+  runBashInWsl(
+    `
 set -euo pipefail
 cd ${shellQuote(workdir)}
-export NVIDIA_API_KEY=${shellQuote(optionalEnv("NVIDIA_API_KEY"))}
-export GITHUB_TOKEN=${shellQuote(optionalEnv("GITHUB_TOKEN"))}
-export NEMOCLAW_NON_INTERACTIVE=${shellQuote(optionalEnv("NEMOCLAW_NON_INTERACTIVE", "1"))}
-export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=${shellQuote(optionalEnv("NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE", "1"))}
-export NEMOCLAW_RECREATE_SANDBOX=${shellQuote(optionalEnv("NEMOCLAW_RECREATE_SANDBOX", "1"))}
-export NEMOCLAW_SANDBOX_NAME=${shellQuote(optionalEnv("NEMOCLAW_SANDBOX_NAME", "e2e-wsl"))}
+export NVIDIA_API_KEY="\${NVIDIA_API_KEY:-}"
+export GITHUB_TOKEN="\${GITHUB_TOKEN:-}"
+export NEMOCLAW_NON_INTERACTIVE="\${NEMOCLAW_NON_INTERACTIVE:-1}"
+export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="\${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE:-1}"
+export NEMOCLAW_RECREATE_SANDBOX="\${NEMOCLAW_RECREATE_SANDBOX:-1}"
+export NEMOCLAW_SANDBOX_NAME="\${NEMOCLAW_SANDBOX_NAME:-e2e-wsl}"
 bash test/e2e/test-full-e2e.sh
-`);
+`,
+    [
+      "NVIDIA_API_KEY",
+      "GITHUB_TOKEN",
+      "NEMOCLAW_NON_INTERACTIVE",
+      "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE",
+      "NEMOCLAW_RECREATE_SANDBOX",
+      "NEMOCLAW_SANDBOX_NAME",
+    ],
+  );
 }
 
 function runVitest(): void {
@@ -258,14 +325,17 @@ npx vitest run --testTimeout 60000
 function runScenario(): void {
   const workdir = requireEnv("WSL_WORKDIR");
   const scenario = requireEnv("SCENARIO");
-  runBashInWsl(`
+  runBashInWsl(
+    `
 set -euo pipefail
 cd ${shellQuote(workdir)}
-export NVIDIA_API_KEY=${shellQuote(optionalEnv("NVIDIA_API_KEY"))}
-export E2E_SUITE_FILTER=${shellQuote(optionalEnv("E2E_SUITE_FILTER"))}
-export NEMOCLAW_RECREATE_SANDBOX=${shellQuote(optionalEnv("NEMOCLAW_RECREATE_SANDBOX", "1"))}
+export NVIDIA_API_KEY="\${NVIDIA_API_KEY:-}"
+export E2E_SUITE_FILTER="\${E2E_SUITE_FILTER:-}"
+export NEMOCLAW_RECREATE_SANDBOX="\${NEMOCLAW_RECREATE_SANDBOX:-1}"
 bash test/e2e/runtime/run-scenario.sh ${shellQuote(scenario)}
-`);
+`,
+    ["NVIDIA_API_KEY", "E2E_SUITE_FILTER", "NEMOCLAW_RECREATE_SANDBOX"],
+  );
 }
 
 function copyArtifactsToCheckout(): void {

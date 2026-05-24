@@ -10,6 +10,8 @@ import { isMainModule } from "./lib/module.ts";
 
 const PREVIEW_MARKER = "<!-- fern-preview-docs -->";
 
+type GitHubComment = { id?: number; body?: string };
+
 export function extractPreviewUrl(output: string): string | undefined {
   return output.match(/Published docs to (https?:\/\/[^\s]+)/)?.[1];
 }
@@ -31,17 +33,29 @@ function generatePreviewUrl(): void {
   setOutput("preview_url", previewUrl);
 }
 
+export function flattenPaginatedComments(parsed: unknown): GitHubComment[] {
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed.flatMap((entry) => (Array.isArray(entry) ? entry : [entry])) as GitHubComment[];
+}
+
 function postPreviewComment(): void {
   const repo = requireEnv("GITHUB_REPOSITORY");
   const prNumber = requireEnv("PR_NUMBER");
   const previewUrl = requireEnv("PREVIEW_URL");
   const body = `:herb: **Preview your docs:** <${previewUrl}>\n\n${PREVIEW_MARKER}`;
-  const comments = runCapture("gh", ["api", `repos/${repo}/issues/${prNumber}/comments`]);
+  const comments = runCapture("gh", [
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repo}/issues/${prNumber}/comments`,
+  ]);
   if (comments.status !== 0) {
     throw new Error(`Failed to list PR comments:\n${comments.stderr}`);
   }
-  const existing = (JSON.parse(comments.stdout) as Array<{ id?: number; body?: string }>).find(
-    (comment) => comment.body?.includes(PREVIEW_MARKER),
+  const existing = flattenPaginatedComments(JSON.parse(comments.stdout)).find((comment) =>
+    comment.body?.includes(PREVIEW_MARKER),
   );
   if (existing?.id !== undefined) {
     const update = runCapture("gh", [

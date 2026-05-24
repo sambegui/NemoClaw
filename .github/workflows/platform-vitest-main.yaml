@@ -97,7 +97,7 @@ jobs:
 
       - name: Install dependencies and build in WSL
         env:
-          WSL_NPM_INSTALL_COMMAND: npm ci --ignore-scripts
+          WSL_NPM_INSTALL_MODE: ci
         run: node --no-warnings --experimental-strip-types scripts/github/wsl.ts install-project
 
       - name: Run full Vitest suite in WSL
