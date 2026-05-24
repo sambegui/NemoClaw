@@ -26,35 +26,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
       - name: Determine changed documentation files
         id: changed
-        shell: bash
-        run: |
-          set -euo pipefail
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
-          mapfile -t doc_files < <(
-            git diff --name-only --diff-filter=ACMR "$base" "$head" -- \
-              '*.md' \
-              '*.mdx' \
-              ':(exclude)node_modules/**' \
-              ':(exclude)dist/**' \
-              ':(exclude)vendor/**' \
-              ':(exclude)build/**' \
-            | LC_ALL=C sort -u
-          )
-
-          if [[ "${#doc_files[@]}" -eq 0 ]]; then
-            echo "has_files=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "has_files=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "files<<EOF"
-            printf '%s\n' "${doc_files[@]}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node --no-warnings --experimental-strip-types scripts/github/changed-docs.ts
 
       - name: Run markdown link checker
         if: steps.changed.outputs.has_files == 'true'

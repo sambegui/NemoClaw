@@ -52,61 +52,26 @@ jobs:
       model_router_provider_routed_inference: ${{ steps.select.outputs.model_router_provider_routed_inference }}
       openclaw_plugin_runtime_exdev: ${{ steps.select.outputs.openclaw_plugin_runtime_exdev }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
       - id: select
         env:
           JOBS: ${{ inputs.jobs }}
-        run: |
-          set -euo pipefail
-          normalized="$(printf '%s' "$JOBS" | tr -d '[:space:]')"
-
-          includes_job() {
-            case ",${normalized}," in
-              *",$1,"*) return 0 ;;
-              *) return 1 ;;
-            esac
-          }
-
-          if [ -z "$normalized" ] || includes_job "dashboard-remote-bind-e2e"; then
-            echo "dashboard=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "dashboard=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "gateway-health-honest-e2e"; then
-            echo "gateway=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "gateway=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "gateway-drift-preflight-e2e"; then
-            echo "gateway_drift_preflight=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "gateway_drift_preflight=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "openshell-version-pin-e2e"; then
-            echo "openshell_version_pin=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "openshell_version_pin=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "onboard-inference-smoke-e2e"; then
-            echo "onboard_inference_smoke=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "onboard_inference_smoke=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "model-router-provider-routed-inference-e2e"; then
-            echo "model_router_provider_routed_inference=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "model_router_provider_routed_inference=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [ -z "$normalized" ] || includes_job "openclaw-plugin-runtime-exdev-e2e"; then
-            echo "openclaw_plugin_runtime_exdev=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "openclaw_plugin_runtime_exdev=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: >-
+          node --no-warnings --experimental-strip-types scripts/github/select-jobs.ts
+          dashboard=dashboard-remote-bind-e2e
+          gateway=gateway-health-honest-e2e
+          gateway_drift_preflight=gateway-drift-preflight-e2e
+          openshell_version_pin=openshell-version-pin-e2e
+          onboard_inference_smoke=onboard-inference-smoke-e2e
+          model_router_provider_routed_inference=model-router-provider-routed-inference-e2e
+          openclaw_plugin_runtime_exdev=openclaw-plugin-runtime-exdev-e2e
 
   dashboard-remote-bind-e2e:
     needs: select_regression_jobs

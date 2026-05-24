@@ -63,19 +63,7 @@ jobs:
         env:
           FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
           PREVIEW_ID: pr-${{ github.event.pull_request.number }}
-        working-directory: ./fern
-        run: |
-          set +e
-          OUTPUT=$(fern generate --docs --preview --id "$PREVIEW_ID" 2>&1)
-          STATUS=$?
-          set -e
-          echo "$OUTPUT"
-          URL=$(echo "$OUTPUT" | sed -nE 's/.*Published docs to (https?:\/\/[^[:space:]]+).*/\1/p' | head -n1)
-          if [ -z "$URL" ]; then
-            echo "::error::Failed to generate preview URL. See fern output above."
-            exit "$STATUS"
-          fi
-          echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
+        run: node --no-warnings --experimental-strip-types scripts/github/fern-preview.ts generate-url
 
       - name: Post or update PR comment
         if: ${{ steps.fern-preview.outputs.enabled == 'true' }}
@@ -83,20 +71,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
-        run: |
-          BODY=":herb: **Preview your docs:** <${PREVIEW_URL}>"
-          MARKER="<!-- fern-preview-docs -->"
-          BODY="${BODY}
-
-          ${MARKER}"
-
-          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -1)
-
-          if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-              -X PATCH -f body="$BODY"
-          else
-            gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-              -f body="$BODY"
-          fi
+        run: node --no-warnings --experimental-strip-types scripts/github/fern-preview.ts post-comment
