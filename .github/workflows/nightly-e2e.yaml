@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -170,7 +170,7 @@ jobs:
         run: bash test/e2e/test-full-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -220,7 +220,7 @@ jobs:
         run: bash test/e2e/test-cloud-onboard-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -248,7 +248,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -265,7 +265,7 @@ jobs:
         run: bash test/e2e/test-cloud-inference-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -293,7 +293,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -310,7 +310,7 @@ jobs:
         run: bash test/e2e/test-skill-agent-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -375,7 +375,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -397,7 +397,7 @@ jobs:
         run: bash test/e2e/test-messaging-providers.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -572,7 +572,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -590,7 +590,7 @@ jobs:
         run: bash test/e2e/test-messaging-compatible-endpoint.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -878,7 +878,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -903,7 +903,7 @@ jobs:
         run: bash test/e2e/test-token-rotation.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -929,7 +929,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -946,7 +946,7 @@ jobs:
         run: bash test/e2e/test-sandbox-survival.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -975,7 +975,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -992,7 +992,7 @@ jobs:
         run: bash test/e2e/test-issue-2478-crash-loop-recovery.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1021,7 +1021,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1040,7 +1040,7 @@ jobs:
         run: bash test/e2e/test-hermes-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1186,7 +1186,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1210,7 +1210,7 @@ jobs:
         run: bash test/e2e/test-hermes-discord-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1279,7 +1279,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1501,7 +1501,7 @@ jobs:
           du -sh docker-logs/ 2>&1 || true
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1538,7 +1538,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1554,7 +1554,7 @@ jobs:
         run: bash test/e2e/test-inference-routing.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1618,7 +1618,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1635,7 +1635,7 @@ jobs:
         run: bash test/e2e/test-network-policy.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1662,7 +1662,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1677,7 +1677,7 @@ jobs:
         run: bash test/e2e/test-state-backup-restore.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1737,7 +1737,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1753,7 +1753,7 @@ jobs:
         run: bash test/e2e/test-diagnostics.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1784,7 +1784,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1802,7 +1802,7 @@ jobs:
         run: bash test/e2e/test-credential-migration.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1830,7 +1830,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1847,7 +1847,7 @@ jobs:
         run: bash test/e2e/test-snapshot-commands.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1875,7 +1875,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1892,7 +1892,7 @@ jobs:
         run: bash test/e2e/test-shields-config.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1920,7 +1920,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1937,7 +1937,7 @@ jobs:
         run: bash test/e2e/test-rebuild-openclaw.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -1966,7 +1966,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1983,7 +1983,7 @@ jobs:
         run: bash test/e2e/test-upgrade-stale-sandbox.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2057,7 +2057,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2075,7 +2075,7 @@ jobs:
         run: bash test/e2e/test-rebuild-hermes.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2137,7 +2137,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2162,7 +2162,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-double-onboard.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2188,7 +2188,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2213,7 +2213,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-onboard-repair.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2239,7 +2239,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2264,7 +2264,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-onboard-resume.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2331,7 +2331,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2356,7 +2356,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-runtime-overrides.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2383,7 +2383,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2410,7 +2410,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-credential-sanitization.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2437,7 +2437,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2464,7 +2464,7 @@ jobs:
           [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && export PATH="$HOME/.local/bin:$PATH"
           bash test/e2e/test-telegram-injection.sh
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2494,7 +2494,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2511,7 +2511,7 @@ jobs:
         run: bash test/e2e/test-overlayfs-autofix.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2583,7 +2583,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2602,7 +2602,7 @@ jobs:
         run: bash test/e2e/test-launchable-smoke.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2647,7 +2647,7 @@ jobs:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-1
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
       NEMOCLAW_NON_INTERACTIVE: "1"
       NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
       NEMOCLAW_SANDBOX_NAME: "e2e-gpu-ollama"
@@ -2674,7 +2674,7 @@ jobs:
         run: bash test/e2e/test-gpu-e2e.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
@@ -2712,7 +2712,7 @@ jobs:
     runs-on: linux-amd64-gpu-rtxpro6000-latest-1
     timeout-minutes: 30
     env:
-      NEMOCLAW_TRACE_DIR: /tmp/nemoclaw-traces/${{ github.job }}
+      NEMOCLAW_TRACE_DIR: ${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && format('/tmp/nemoclaw-traces/{0}', github.job) || '' }}
       NEMOCLAW_NON_INTERACTIVE: "1"
       NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
       NEMOCLAW_SANDBOX_NAME: "e2e-gpu-double-onboard"
@@ -2739,7 +2739,7 @@ jobs:
         run: bash test/e2e/test-gpu-double-onboard.sh
 
       - name: Upload NemoClaw profiling traces
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.target_ref == '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nemoclaw-traces-${{ github.job }}
