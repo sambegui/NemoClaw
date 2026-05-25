@@ -80,10 +80,9 @@ export type RunCaptureFn = (cmd: string | string[], opts?: { ignoreError?: boole
 
 /**
  * Minimum Ollama version NemoClaw expects when reusing an existing host
- * Ollama. Older versions ship GGUF/runner internals that crash on newer
- * starter models (e.g. Ollama 0.6.2 cannot load `qwen3.6:35b` — runner
- * exits with INVALIDARGUMENT in `ggml.GraphSize`, see NVIDIA/NemoClaw#4178).
- * Bump this when starter-model recipes adopt a newer GGUF feature.
+ * Ollama. Older Ollama runners crash loading newer starter models because
+ * their GGUF parsers predate the model format. Bump this when starter-model
+ * recipes adopt a newer GGUF feature.
  */
 export const MIN_OLLAMA_VERSION = "0.7.0";
 
