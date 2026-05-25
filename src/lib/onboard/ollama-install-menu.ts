@@ -5,7 +5,7 @@ import {
   getInstalledOllamaVersion,
   isOllamaVersionAtLeast,
   MIN_OLLAMA_VERSION,
-} from "../inference/local";
+} from "../inference/ollama-version";
 
 export interface OllamaInstallMenuInput {
   hasOllama: boolean;

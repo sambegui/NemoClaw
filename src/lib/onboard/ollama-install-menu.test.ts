@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveOllamaInstallMenuEntry } from "../../../dist/lib/onboard/ollama-install-menu";
-import { MIN_OLLAMA_VERSION } from "../../../dist/lib/inference/local";
+import { MIN_OLLAMA_VERSION } from "../../../dist/lib/inference/ollama-version";
 
 const LINUX_NON_WSL = { platform: "linux" as const, isWsl: false };
 
@@ -96,6 +96,21 @@ describe("resolveOllamaInstallMenuEntry", () => {
       isWsl: false,
     });
     expect(result.entry?.label).toBe("Install Ollama (macOS)");
+  });
+
+  it("labels macOS upgrade case so the Homebrew branch can pick brew upgrade", () => {
+    const result = resolveOllamaInstallMenuEntry({
+      hasOllama: true,
+      ollamaRunning: true,
+      hasWindowsOllama: false,
+      installedOllamaVersion: "0.6.2",
+      platform: "darwin",
+      isWsl: false,
+    });
+    expect(result.hasUpgradableOllama).toBe(true);
+    expect(result.entry?.label).toBe(
+      `Upgrade Ollama (macOS) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+    );
   });
 
   it("does not return an entry on unsupported platforms", () => {

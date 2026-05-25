@@ -5265,8 +5265,9 @@ async function setupNim(
       } else if (selected.key === "install-ollama") {
         if (!checkOllamaPortsOrWarn()) continue selectionLoop;
         if (process.platform === "darwin") {
-          console.log("  Installing Ollama via Homebrew...");
-          run(["brew", "install", "ollama"], { ignoreError: true });
+          const brewAction = ollamaInstallMenu.hasUpgradableOllama ? "upgrade" : "install";
+          console.log(`  ${brewAction === "upgrade" ? "Upgrading" : "Installing"} Ollama via Homebrew...`);
+          run(["brew", brewAction, "ollama"], { ignoreError: true });
           // brew install doesn't auto-start a service; launch directly.
           // Shell required: backgrounding (&), env var prefix, output redirection.
           console.log("  Starting Ollama...");
