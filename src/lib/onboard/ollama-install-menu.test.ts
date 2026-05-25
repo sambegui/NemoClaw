@@ -59,11 +59,13 @@ describe("resolveOllamaInstallMenuEntry", () => {
       hasOllama: true,
       ollamaRunning: true,
       hasWindowsOllama: false,
+      ollamaHost: "127.0.0.1",
       installedOllamaVersion: "0.24.0",
       runningOllamaVersion: "0.6.2",
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(true);
+    // Stale source is the daemon; suffix reports the daemon's version.
     expect(result.entry?.label).toBe(
       `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
@@ -74,14 +76,35 @@ describe("resolveOllamaInstallMenuEntry", () => {
       hasOllama: true,
       ollamaRunning: true,
       hasWindowsOllama: false,
+      ollamaHost: "127.0.0.1",
       installedOllamaVersion: "0.6.2",
       runningOllamaVersion: "0.24.0",
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(true);
+    // Stale source is the binary; suffix reports the binary's version, not
+    // the daemon's fresh 0.24.0 (otherwise users would see a label saying
+    // "upgrade installed 0.24.0" which is the new target, not the stale).
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (Linux) — upgrade installed 0.24.0 to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
+  });
+
+  it("does not flag the daemon as upgradable when the running Ollama is the Windows host (WSL)", () => {
+    const result = resolveOllamaInstallMenuEntry({
+      hasOllama: false,
+      ollamaRunning: true,
+      hasWindowsOllama: true,
+      ollamaHost: "host.docker.internal",
+      // Pretend the local-loopback probe would have returned a stale version
+      // if it were applied. The Windows-host case must short-circuit and not
+      // surface an `install-ollama` (WSL Linux) entry.
+      runningOllamaVersion: "0.6.2",
+      platform: "linux",
+      isWsl: true,
+    });
+    expect(result.hasUpgradableOllama).toBe(false);
+    expect(result.entry).toBeNull();
   });
 
   it("omits the entry when only Windows-host Ollama is present", () => {

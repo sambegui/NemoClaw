@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { OLLAMA_HOST_DOCKER_INTERNAL } from "../inference/local";
+import { OLLAMA_PORT } from "../core/ports";
 import {
   getInstalledOllamaVersion,
   getRunningOllamaDaemonVersion,
@@ -15,11 +17,25 @@ export interface OllamaInstallMenuInput {
   hasWindowsOllama: boolean;
   platform: NodeJS.Platform;
   isWsl: boolean;
+  /** Resolved host for the running Ollama daemon. `host.docker.internal`
+   *  means the Windows host (NemoClaw routes the WSL sandbox there); the
+   *  Linux `install-ollama` entry does not apply in that case, so the
+   *  helper skips the daemon-version gate.
+   *  Null when no daemon is running locally. */
+  ollamaHost?: string | null;
   /** Override for tests. Defaults to a live `ollama --version` probe. */
   installedOllamaVersion?: string | null;
-  /** Override for tests. Defaults to a live `/api/version` probe on
-   *  `:11434` when an Ollama daemon is running. */
+  /** Override for tests. Defaults to a live `/api/version` probe on the
+   *  resolved `ollamaHost`. */
   runningOllamaVersion?: string | null;
+}
+
+function buildDaemonEndpoint(host: string): string {
+  return `http://${host}:${OLLAMA_PORT}/api/version`;
+}
+
+function isLocalOllamaHost(host: string | null | undefined): boolean {
+  return Boolean(host) && host !== OLLAMA_HOST_DOCKER_INTERNAL;
 }
 
 export interface OllamaInstallMenuEntry {
@@ -58,11 +74,17 @@ export function resolveOllamaInstallMenuEntry(
       : input.hasOllama
         ? getInstalledOllamaVersion()
         : null;
+  // Only consider the running daemon's version when it is the one NemoClaw
+  // would actually upgrade through this entry: a local daemon on
+  // 127.0.0.1/localhost. A Windows-host daemon reached via
+  // `host.docker.internal` is handled by separate menu entries
+  // (`install-windows-ollama` / `start-windows-ollama`).
+  const daemonProbeApplies = input.ollamaRunning && isLocalOllamaHost(input.ollamaHost);
   const runningOllamaVersion =
     input.runningOllamaVersion !== undefined
       ? input.runningOllamaVersion
-      : input.ollamaRunning
-        ? getRunningOllamaDaemonVersion()
+      : daemonProbeApplies && input.ollamaHost
+        ? getRunningOllamaDaemonVersion(undefined, buildDaemonEndpoint(input.ollamaHost))
         : null;
   // Catch both stale-binary and stale-daemon cases: a user-local install can
   // put a fresh `ollama` on `PATH` while the system daemon keeps `:11434`
@@ -71,7 +93,7 @@ export function resolveOllamaInstallMenuEntry(
   const binaryNeedsUpgrade =
     input.hasOllama && !isOllamaVersionAtLeast(installedOllamaVersion, MIN_OLLAMA_VERSION);
   const daemonNeedsUpgrade =
-    input.ollamaRunning && !isOllamaVersionAtLeast(runningOllamaVersion, MIN_OLLAMA_VERSION);
+    daemonProbeApplies && !isOllamaVersionAtLeast(runningOllamaVersion, MIN_OLLAMA_VERSION);
   const hasUpgradableOllama = binaryNeedsUpgrade || daemonNeedsUpgrade;
   const showEntry =
     (!input.hasOllama && !input.ollamaRunning && !input.hasWindowsOllama) || hasUpgradableOllama;
@@ -83,9 +105,15 @@ export function resolveOllamaInstallMenuEntry(
     return { entry: null, hasUpgradableOllama };
   }
   const labelPrefix = hasUpgradableOllama ? "Upgrade Ollama" : "Install Ollama";
-  // Report the daemon version when it's the live target NemoClaw will drive;
-  // fall back to the binary version when there's no daemon to probe.
-  const reportedVersion = runningOllamaVersion ?? installedOllamaVersion;
+  // Report the actually-stale source so the suffix matches what the user
+  // sees on the host: daemon version when the daemon is the stale one,
+  // binary version when the CLI is the stale one. Falls back to whichever
+  // side is known when one is null.
+  const reportedVersion = daemonNeedsUpgrade
+    ? (runningOllamaVersion ?? installedOllamaVersion)
+    : binaryNeedsUpgrade
+      ? (installedOllamaVersion ?? runningOllamaVersion)
+      : null;
   const upgradeSuffix = hasUpgradableOllama
     ? ` — upgrade installed ${reportedVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
     : "";

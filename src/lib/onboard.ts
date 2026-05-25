@@ -4388,6 +4388,7 @@ async function setupNim(
     hasOllama,
     ollamaRunning,
     hasWindowsOllama,
+    ollamaHost,
     platform: process.platform,
     isWsl: isWsl(),
   });
