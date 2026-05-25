@@ -9,12 +9,20 @@ import { OLLAMA_PORT } from "../core/ports";
 import { sleepSeconds, waitForHttp } from "../core/wait";
 import { cliName } from "./branding";
 import {
+  decideInstallOllamaLinuxMode,
+  hostCommandExists,
+  type InstallOllamaLinuxMode,
+  type InstallOllamaLinuxModeOptions,
+} from "./install-ollama-linux-mode";
+import {
   ensureManagedOllamaLoopbackSystemdOverride,
   type OllamaLoopbackSystemdOverrideState,
 } from "./ollama-systemd";
 
+export type { InstallOllamaLinuxMode } from "./install-ollama-linux-mode";
+export { decideInstallOllamaLinuxMode } from "./install-ollama-linux-mode";
+
 const {
-  runCapture,
   runCaptureEx,
   runShell,
   shellQuote,
@@ -36,35 +44,17 @@ const {
  *                 launched once via a backgrounded `ollama serve`; reboot
  *                 persistence is the user's responsibility.
  */
-export type InstallOllamaLinuxMode = "system" | "user-local";
-
 export type InstallOllamaLinuxResult = {
   ok: boolean;
   mode: InstallOllamaLinuxMode;
   binPath: string;
 };
 
-export type InstallOllamaLinuxOptions = {
-  /** Returns true when onboard is running headless (NEMOCLAW_NON_INTERACTIVE=1
-   *  or the `--non-interactive` flag was passed). Used to decide whether sudo
-   *  prompts are viable and whether the systemd override may prompt. */
-  isNonInteractive: () => boolean;
-  /** Test seam: override the auto-detected install mode. */
-  modeOverride?: InstallOllamaLinuxMode;
-  /** Test seam: override the `sudo -n true` probe result. */
-  canSudoNonInteractive?: () => boolean;
-  /** Test seam: override `process.getuid()`. */
-  getEuid?: () => number | undefined;
-  /** Test seam: override stdin TTY detection. */
-  isTty?: () => boolean;
+export type InstallOllamaLinuxOptions = InstallOllamaLinuxModeOptions & {
   /** Test seam: override `os.homedir()`. */
   homedir?: () => string;
   /** Test seam: override `process.arch`. */
   arch?: () => NodeJS.Architecture;
-  /** Test seam: override `runCapture`. */
-  runCaptureImpl?: typeof runCapture;
-  /** Test seam: override `runCaptureEx`. */
-  runCaptureExImpl?: typeof runCaptureEx;
   /** Test seam: override `runShell`. */
   runShellImpl?: typeof runShell;
   /** Test seam: override systemd loopback override. */
@@ -79,106 +69,7 @@ export type InstallOllamaLinuxOptions = {
   readFileImpl?: (path: string) => string;
   /** Test seam: redirect log output. */
   log?: (message: string) => void;
-  /** Test seam: redirect error output. */
-  errorLog?: (message: string) => void;
-  /** When true the running daemon is the upgrade target — refuse user-local
-   *  fallback because installing into `${HOME}/.local` would leave the
-   *  system daemon on `:11434` serving the stale version. */
-  isUpgrade?: boolean;
 };
-
-const INSTALL_MODE_ENV = "NEMOCLAW_OLLAMA_INSTALL_MODE";
-
-/**
- * Resolve the install mode.
- *
- * Order of precedence (highest first):
- *  1. The `NEMOCLAW_OLLAMA_INSTALL_MODE` env var when set to `user` or
- *     `system`. Any other value is rejected.
- *  2. Running as root (`euid === 0`) → `system` (no sudo required).
- *  3. Passwordless sudo available (`sudo -n true` returns 0) → `system`.
- *  4. Non-interactive context (either the `NEMOCLAW_NON_INTERACTIVE=1` flag
- *     or no TTY attached to stdin) → `user-local`. This is the path that
- *     fixes #4114: a headless run that cannot prompt for a sudo password
- *     falls back to a sudo-free user-local install instead of crashing
- *     mid-install.
- *  5. Interactive shell → `system` (sudo can prompt the user for a password).
- */
-export function decideInstallOllamaLinuxMode(
-  opts: InstallOllamaLinuxOptions,
-): InstallOllamaLinuxMode {
-  if (opts.modeOverride) return opts.modeOverride;
-  const explicit = String(process.env[INSTALL_MODE_ENV] || "").trim().toLowerCase();
-  if (opts.isUpgrade && explicit === "user") {
-    const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
-    errorLog(
-      `  ${INSTALL_MODE_ENV}=user is incompatible with the Ollama upgrade path:`,
-    );
-    errorLog(
-      "  user-local install cannot replace the system daemon that owns :11434.",
-    );
-    errorLog(
-      `  Unset ${INSTALL_MODE_ENV} (or set it to 'system') and rerun, or upgrade Ollama manually.`,
-    );
-    process.exit(1);
-  }
-  if (explicit === "user") return "user-local";
-  const getEuid = opts.getEuid ?? (() => process.getuid?.());
-  const isTty = opts.isTty ?? (() => Boolean(process.stdin.isTTY));
-  if (
-    opts.isUpgrade
-    && getEuid() !== 0
-    && !canRunSudoNonInteractive(opts)
-    && (opts.isNonInteractive() || !isTty())
-  ) {
-    // User-local install would leave the system Ollama daemon on `:11434`
-    // serving the stale binary, and a headless run can't prompt for the
-    // sudo password. Fail loudly here regardless of whether the system
-    // path was requested via env var or auto-selected — otherwise the
-    // installer hangs on a hidden sudo prompt.
-    const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
-    errorLog(
-      "  Upgrading the system Ollama requires sudo, which is not available in this non-interactive run.",
-    );
-    errorLog(
-      "  Run interactively, configure passwordless sudo, or upgrade manually: curl -fsSL https://ollama.com/install.sh | sh",
-    );
-    process.exit(1);
-  }
-  if (explicit === "system") return "system";
-  if (explicit) {
-    const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
-    errorLog(
-      `  Unsupported ${INSTALL_MODE_ENV} value: ${explicit}. Use 'system', 'user', or leave it unset.`,
-    );
-    process.exit(1);
-  }
-  if (getEuid() === 0) return "system";
-  if (canRunSudoNonInteractive(opts)) return "system";
-  if (opts.isUpgrade) {
-    // Interactive upgrade without passwordless sudo — let sudo prompt
-    // through the official installer. The non-interactive case already
-    // exited above with the sudo-required diagnostic.
-    return "system";
-  }
-  if (opts.isNonInteractive() || !isTty()) return "user-local";
-  return "system";
-}
-
-function canRunSudoNonInteractive(opts: InstallOllamaLinuxOptions): boolean {
-  if (opts.canSudoNonInteractive) return opts.canSudoNonInteractive();
-  const runCaptureExImpl = opts.runCaptureExImpl ?? runCaptureEx;
-  if (!hostCommandExists("sudo", opts)) return false;
-  const result = runCaptureExImpl(["sudo", "-n", "true"], { timeout: 2_000 });
-  return result.exitCode === 0;
-}
-
-function hostCommandExists(name: string, opts: InstallOllamaLinuxOptions): boolean {
-  const runCaptureImpl = opts.runCaptureImpl ?? runCapture;
-  return !!runCaptureImpl(["sh", "-c", 'command -v "$1"', "--", name], {
-    ignoreError: true,
-  });
-}
 
 /**
  * Map Node's `process.arch` to the architecture suffix Ollama publishes
