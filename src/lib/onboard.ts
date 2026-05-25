@@ -501,6 +501,10 @@ import type {
   OpenShellInstallResult,
 } from "./onboard/openshell-install";
 import { decidePolicyCarryForward } from "./onboard/policy-carryforward";
+import {
+  backupSandboxBeforeRecreate,
+  shouldSkipPreRecreateBackup,
+} from "./onboard/sandbox-backup-on-recreate";
 import { getSuggestedPolicyPresets } from "./onboard/policy-presets";
 import {
   computeSetupPresetSuggestions as computeSetupPresetSuggestionsImpl,
@@ -3309,48 +3313,12 @@ async function createSandbox(
       }
     }
 
-    // Back up workspace state before destroying the sandbox when triggered
-    // by credential rotation, so files can be restored after recreation.
     if (credentialRotation.changed && existingSandboxState === "ready") {
       const rotatedNames = credentialRotation.changedProviders.join(", ");
       console.log(`  Messaging credential(s) rotated: ${rotatedNames}`);
       console.log("  Rebuilding sandbox to propagate new credentials to the L7 proxy...");
-      try {
-        const backup = sandboxState.backupSandboxState(sandboxName);
-        if (backup.success) {
-          note(
-            `  ✓ State backed up (${backup.backedUpDirs.length} directories, ${backup.backedUpFiles.length} files)`,
-          );
-          pendingStateRestore = backup;
-        } else {
-          console.error("  State backup failed — aborting rebuild to prevent data loss.");
-          console.error("  Pass --recreate-sandbox to force recreation without backup.");
-          upsertMessagingProviders(messagingTokenDefs);
-          // Update stored hashes so the next onboard doesn't re-detect rotation.
-          const abortHashes: Record<string, string> = {};
-          for (const { envKey, token } of messagingTokenDefs) {
-            const hash = token ? hashCredential(token) : null;
-            if (hash) abortHashes[envKey] = hash;
-          }
-          if (Object.keys(abortHashes).length > 0) {
-            registry.updateSandbox(sandboxName, { providerCredentialHashes: abortHashes });
-          }
-          const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
-          process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
-          updateReusedSandboxMetadata(
-            sandboxName,
-            agent,
-            model,
-          provider,
-          reusedPort3,
-          !selectionDrift.unknown,
-          effectiveSandboxGpuConfig,
-        );
-        return sandboxName;
-        }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(`  State backup threw: ${errorMessage} — aborting rebuild.`);
+      const result = backupSandboxBeforeRecreate({ sandboxName });
+      if (!result.ok) {
         console.error("  Pass --recreate-sandbox to force recreation without backup.");
         upsertMessagingProviders(messagingTokenDefs);
         const abortHashes: Record<string, string> = {};
@@ -3361,19 +3329,20 @@ async function createSandbox(
         if (Object.keys(abortHashes).length > 0) {
           registry.updateSandbox(sandboxName, { providerCredentialHashes: abortHashes });
         }
-        const reusedPort4 = ensureDashboardForward(sandboxName, chatUiUrl);
-        process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort4}`;
+        const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
+        process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
         updateReusedSandboxMetadata(
           sandboxName,
           agent,
           model,
           provider,
-          reusedPort4,
+          reusedPort3,
           !selectionDrift.unknown,
           effectiveSandboxGpuConfig,
         );
         return sandboxName;
       }
+      pendingStateRestore = result.backup;
     }
 
     if (recreateForAgentDrift) {
@@ -3405,9 +3374,22 @@ async function createSandbox(
     });
     if (decision.overrideNote !== null) note(decision.overrideNote);
 
+    if (
+      pendingStateRestore === null &&
+      existingSandboxState === "ready" &&
+      !shouldSkipPreRecreateBackup(process.env)
+    ) {
+      note("  Backing up workspace state before recreating sandbox...");
+      const result = backupSandboxBeforeRecreate({ sandboxName });
+      if (!result.ok) {
+        console.error("  Set NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 to recreate without preserving state.");
+        process.exit(1);
+      }
+      pendingStateRestore = result.backup;
+    }
+
     note(`  Deleting and recreating sandbox '${sandboxName}'...`);
 
-    // Destroy old sandbox and clean up its host-side Docker image.
     runOpenshell(["sandbox", "delete", sandboxName], { ignoreError: true });
     if (previousEntry?.imageTag) {
       const rmiResult = dockerRmi(previousEntry.imageTag, {
@@ -4038,13 +4020,11 @@ async function createSandbox(
   });
   registry.setDefault(sandboxName);
 
-  // Restore workspace state if we backed it up during credential rotation or
-  // before a breaking OpenShell gateway upgrade.
   if (restoreBackupPath) {
     note(
       pendingStateRestoreBackupPath
         ? "  Restoring workspace state from pre-upgrade backup..."
-        : "  Restoring workspace state after credential rotation...",
+        : "  Restoring workspace state from pre-recreate backup...",
     );
     const restore = sandboxState.restoreSandboxState(sandboxName, restoreBackupPath);
     if (restore.success) {
