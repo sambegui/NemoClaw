@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getCredential, normalizeCredentialValue } from "../credentials/store";
-import type { ChannelDef } from "../sandbox/channels";
+import { getChannelTokenKeys, type ChannelDef } from "../sandbox/channels";
 
 export function getMessagingToken(envKey: string | undefined): string | null {
   if (!envKey) return null;
@@ -34,4 +34,12 @@ export function getValidatedMessagingToken(
 ): string | null {
   const token = getMessagingToken(envKey);
   return isMessagingTokenFormatValid(channel, envKey, token) ? token : null;
+}
+
+export function getValidatedMessagingTokenByEnvKey(
+  channels: readonly ChannelDef[],
+  envKey: string,
+): string | null {
+  const channel = channels.find((ch) => getChannelTokenKeys(ch).includes(envKey));
+  return channel ? getValidatedMessagingToken(channel, envKey) : null;
 }
