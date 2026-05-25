@@ -446,6 +446,16 @@ describe("policies", () => {
       expect(warning).toContain('dns.resolve("gateway.discord.gg")');
     });
 
+    it("adds Jira validation guidance that makes blocked versus redirected curl observable", () => {
+      const warning = policies.getMessagingPresetWarning("jira");
+
+      expect(warning).toContain("curl -s");
+      expect(warning).toContain("curl -sS -o /dev/null -w '%{http_code}'");
+      expect(warning).toContain("000");
+      expect(warning).toContain("Node HTTPS");
+      expect(warning).toContain("https://api.atlassian.com");
+    });
+
     it("returns null for non-messaging presets", () => {
       expect(policies.getMessagingPresetWarning("npm")).toBeNull();
       expect(policies.getMessagingPresetWarning("pypi")).toBeNull();
