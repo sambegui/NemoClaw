@@ -5940,6 +5940,7 @@ child_process.spawnSync = (cmd, args, opts) => {
 };
 
 let promptCalls = 0;
+let installerRan = false;
 const updates = [];
 const runCommands = [];
 
@@ -5950,9 +5951,19 @@ credentials.prompt = async () => {
 credentials.ensureApiKey = async () => {};
 runner.runCapture = (command) => {
   const cmd = Array.isArray(command) ? command.join(" ") : command;
-  // Outdated Ollama is installed on the host.
-  if (cmd.includes("command -v ollama")) return "/usr/local/bin/ollama";
-  if (cmd.includes("ollama --version")) return "ollama version is 0.6.2";
+  // hostCommandExists shells out as ["sh","-c",'command -v "$1"',"--",name].
+  // Match the trailing argv form rather than the original "command -v ollama" string.
+  if (cmd.startsWith("sh -c command -v") && cmd.endsWith(" ollama")) {
+    return "/usr/local/bin/ollama";
+  }
+  // Pre-upgrade host reports 0.6.2; once install.sh runs we flip both the
+  // CLI and the /api/version daemon probe to a fresh version.
+  if (cmd.includes("ollama --version")) {
+    return installerRan ? "ollama version is 0.24.0" : "ollama version is 0.6.2";
+  }
+  if (cmd.includes("/api/version")) {
+    return installerRan ? '{"version":"0.24.0"}' : '{"version":"0.6.2"}';
+  }
   if (cmd.includes("127.0.0.1:11434/api/tags")) return "";
   if (cmd.includes("127.0.0.1:8000/v1/models")) return "";
   if (cmd.includes("ollama list")) return "qwen3:8b  abc  5 GB  now";
@@ -5961,9 +5972,12 @@ runner.runCapture = (command) => {
   return "";
 };
 runner.run = (command) => {
-  runCommands.push(typeof command === "string" ? command : command.join(" "));
+  const rendered = typeof command === "string" ? command : command.join(" ");
+  if (rendered.includes("ollama.com/install.sh")) installerRan = true;
+  runCommands.push(rendered);
 };
 runner.runShell = (command) => {
+  if (command.includes("ollama.com/install.sh")) installerRan = true;
   runCommands.push(command);
 };
 registry.updateSandbox = (_name, update) => updates.push(update);

@@ -3,6 +3,7 @@
 
 import {
   getInstalledOllamaVersion,
+  getRunningOllamaDaemonVersion,
   isOllamaVersionAtLeast,
   MIN_OLLAMA_VERSION,
   type OllamaVersionRunCapture,
@@ -77,34 +78,41 @@ export function resolveOllamaInstallMenuEntry(
 
 export interface OllamaUpgradeApplied {
   ok: boolean;
-  detectedVersion: string | null;
+  detectedDaemonVersion: string | null;
+  detectedBinaryVersion: string | null;
   message?: string;
 }
 
 /**
- * After the install/upgrade command, confirm the host Ollama actually
- * advanced past `MIN_OLLAMA_VERSION`. Guards against silent failures from
- * `brew upgrade ollama` (ignored exit code), user-local Linux fallbacks that
- * never replaced the running daemon, and any other path where the binary
- * remains stale.
+ * After the install/upgrade command, confirm the running Ollama daemon
+ * actually advanced past `MIN_OLLAMA_VERSION`. The CLI binary on `PATH`
+ * is not sufficient: a user-local install can put a newer binary on
+ * `${HOME}/.local/bin` while the system daemon still owns `:11434`, and
+ * `brew upgrade ollama` can fail silently with no daemon restart. Probe
+ * `/api/version` on the daemon so the verdict matches what NemoClaw will
+ * actually use for inference. The binary version is captured alongside
+ * for diagnostics only.
  */
 export function assertOllamaUpgradeApplied(
   menu: { hasUpgradableOllama: boolean },
   runCaptureImpl?: OllamaVersionRunCapture,
 ): OllamaUpgradeApplied {
   if (!menu.hasUpgradableOllama) {
-    return { ok: true, detectedVersion: null };
+    return { ok: true, detectedDaemonVersion: null, detectedBinaryVersion: null };
   }
-  const detectedVersion = getInstalledOllamaVersion(runCaptureImpl);
-  if (isOllamaVersionAtLeast(detectedVersion, MIN_OLLAMA_VERSION)) {
-    return { ok: true, detectedVersion };
+  const detectedDaemonVersion = getRunningOllamaDaemonVersion(runCaptureImpl);
+  const detectedBinaryVersion = getInstalledOllamaVersion(runCaptureImpl);
+  if (isOllamaVersionAtLeast(detectedDaemonVersion, MIN_OLLAMA_VERSION)) {
+    return { ok: true, detectedDaemonVersion, detectedBinaryVersion };
   }
-  const versionLabel = detectedVersion ?? "unknown";
+  const daemonLabel = detectedDaemonVersion ?? "unreachable";
+  const binaryLabel = detectedBinaryVersion ?? "unknown";
   return {
     ok: false,
-    detectedVersion,
+    detectedDaemonVersion,
+    detectedBinaryVersion,
     message:
-      `Ollama upgrade did not take effect — ${versionLabel} reported after install, need ≥ ${MIN_OLLAMA_VERSION}. ` +
-      "Upgrade manually (https://ollama.com/download) and rerun onboard.",
+      `Ollama upgrade did not take effect — running daemon reports ${daemonLabel} (binary: ${binaryLabel}), need ≥ ${MIN_OLLAMA_VERSION}. ` +
+      "Restart the system daemon and rerun, or upgrade Ollama manually (https://ollama.com/download).",
   };
 }

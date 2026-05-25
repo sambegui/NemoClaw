@@ -8,6 +8,7 @@
  */
 
 const { runCapture } = require("../runner");
+import { OLLAMA_PORT } from "../core/ports";
 
 export type OllamaVersionRunCapture = (
   cmd: readonly string[],
@@ -29,6 +30,45 @@ export function getInstalledOllamaVersion(
   const out = capture(["ollama", "--version"], { ignoreError: true });
   if (!out) return null;
   const match = out.match(/(\d+)\.(\d+)\.(\d+)/);
+  return match ? match[0] : null;
+}
+
+/**
+ * Probe the running Ollama daemon's version via `/api/version`. This is
+ * the version NemoClaw will actually drive for inference — the CLI binary
+ * on `PATH` may be newer than the daemon that still owns `:11434` (for
+ * example after a user-local install while the original systemd unit is
+ * still running). Returns `null` when the daemon is unreachable or the
+ * response payload is not parseable.
+ */
+export function getRunningOllamaDaemonVersion(
+  runCaptureImpl?: OllamaVersionRunCapture,
+  endpoint: string = `http://127.0.0.1:${OLLAMA_PORT}/api/version`,
+): string | null {
+  const capture = runCaptureImpl ?? runCapture;
+  const out = capture(
+    [
+      "curl",
+      "-sf",
+      "--connect-timeout",
+      "2",
+      "--max-time",
+      "5",
+      endpoint,
+    ],
+    { ignoreError: true },
+  );
+  if (!out) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = (parsed as { version?: unknown }).version;
+  if (typeof raw !== "string") return null;
+  const match = raw.match(/(\d+)\.(\d+)\.(\d+)/);
   return match ? match[0] : null;
 }
 

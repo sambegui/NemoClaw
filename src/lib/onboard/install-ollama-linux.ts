@@ -111,6 +111,19 @@ export function decideInstallOllamaLinuxMode(
 ): InstallOllamaLinuxMode {
   if (opts.modeOverride) return opts.modeOverride;
   const explicit = String(process.env[INSTALL_MODE_ENV] || "").trim().toLowerCase();
+  if (opts.isUpgrade && explicit === "user") {
+    const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
+    errorLog(
+      `  ${INSTALL_MODE_ENV}=user is incompatible with the Ollama upgrade path:`,
+    );
+    errorLog(
+      "  user-local install cannot replace the system daemon that owns :11434.",
+    );
+    errorLog(
+      `  Unset ${INSTALL_MODE_ENV} (or set it to 'system') and rerun, or upgrade Ollama manually.`,
+    );
+    process.exit(1);
+  }
   if (explicit === "user") return "user-local";
   if (explicit === "system") return "system";
   if (explicit) {

@@ -121,28 +121,40 @@ describe("resolveOllamaInstallMenuEntry", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("accepts the upgrade when the post-install version meets the minimum", () => {
-    const capture = () => "ollama version is 0.24.0";
+  it("accepts the upgrade when the running daemon reports a fresh version", () => {
+    const capture = (cmd: readonly string[]) => {
+      const joined = cmd.join(" ");
+      if (joined.includes("/api/version")) return '{"version":"0.24.0"}';
+      if (joined.includes("ollama --version")) return "ollama version is 0.24.0";
+      return "";
+    };
     const result = assertOllamaUpgradeApplied({ hasUpgradableOllama: true }, capture);
     expect(result.ok).toBe(true);
-    expect(result.detectedVersion).toBe("0.24.0");
+    expect(result.detectedDaemonVersion).toBe("0.24.0");
+    expect(result.detectedBinaryVersion).toBe("0.24.0");
   });
 
-  it("rejects the upgrade when the binary still reports a stale version", () => {
-    const capture = () => "ollama version is 0.6.2";
+  it("rejects the upgrade when the daemon still serves the stale version even though the binary is fresh", () => {
+    const capture = (cmd: readonly string[]) => {
+      const joined = cmd.join(" ");
+      if (joined.includes("/api/version")) return '{"version":"0.6.2"}';
+      if (joined.includes("ollama --version")) return "ollama version is 0.24.0";
+      return "";
+    };
     const result = assertOllamaUpgradeApplied({ hasUpgradableOllama: true }, capture);
     expect(result.ok).toBe(false);
-    expect(result.detectedVersion).toBe("0.6.2");
+    expect(result.detectedDaemonVersion).toBe("0.6.2");
+    expect(result.detectedBinaryVersion).toBe("0.24.0");
     expect(result.message).toContain("0.6.2");
     expect(result.message).toContain(MIN_OLLAMA_VERSION);
   });
 
-  it("rejects the upgrade when ollama --version produces no parsable output", () => {
+  it("rejects the upgrade when the daemon is unreachable", () => {
     const capture = () => "";
     const result = assertOllamaUpgradeApplied({ hasUpgradableOllama: true }, capture);
     expect(result.ok).toBe(false);
-    expect(result.detectedVersion).toBeNull();
-    expect(result.message).toContain("unknown");
+    expect(result.detectedDaemonVersion).toBeNull();
+    expect(result.message).toContain("unreachable");
   });
 
   it("does not return an entry on unsupported platforms", () => {

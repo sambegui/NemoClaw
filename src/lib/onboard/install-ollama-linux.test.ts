@@ -137,6 +137,24 @@ describe("decideInstallOllamaLinuxMode", () => {
     expect(decideInstallOllamaLinuxMode(opts)).toBe("system");
   });
 
+  it("refuses NEMOCLAW_OLLAMA_INSTALL_MODE=user during an upgrade so the system daemon is not left stale", () => {
+    process.env.NEMOCLAW_OLLAMA_INSTALL_MODE = "user";
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
+      throw new Error("process.exit(1)");
+    }) as never);
+    const errorLog = vi.fn();
+    try {
+      const opts = makeOpts({ isUpgrade: true, errorLog });
+      expect(() => decideInstallOllamaLinuxMode(opts)).toThrow(/process\.exit\(1\)/);
+      expect(errorLog.mock.calls.flat().join("\n")).toContain(
+        "NEMOCLAW_OLLAMA_INSTALL_MODE=user is incompatible",
+      );
+    } finally {
+      exitSpy.mockRestore();
+      delete process.env.NEMOCLAW_OLLAMA_INSTALL_MODE;
+    }
+  });
+
   it("refuses to fall back to user-local for non-interactive upgrades without sudo", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
       throw new Error("process.exit(1)");
