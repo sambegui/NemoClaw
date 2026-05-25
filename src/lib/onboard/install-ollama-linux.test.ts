@@ -424,13 +424,14 @@ describe("installOllamaOnLinux (system)", () => {
 
   it("falls back to a manual loopback launch when systemd is not applicable and no daemon is reachable", () => {
     const runShellImpl = vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "", error: null });
+    // First probe: fresh loopback check (tries=1) — daemon not up. Second: post-launch wait (tries=10) — succeeds.
+    const waitForHttpImpl = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
     const opts = makeOpts({
       modeOverride: "system",
       runCaptureImpl: vi.fn().mockReturnValue("/usr/bin/zstd"),
       runShellImpl,
       ensureManagedOllamaLoopbackSystemdOverrideImpl: vi.fn().mockReturnValue("not-applicable"),
-      findReachableOllamaHostImpl: vi.fn().mockReturnValue(null),
-      waitForHttpImpl: vi.fn().mockReturnValue(true),
+      waitForHttpImpl,
     });
     const result = installOllamaOnLinux(opts);
     expect(result.ok).toBe(true);
@@ -439,43 +440,40 @@ describe("installOllamaOnLinux (system)", () => {
     expect(manualStart).toContain("OLLAMA_HOST=127.0.0.1:");
   });
 
-  it("skips the manual launch when systemd is not applicable but Ollama is already reachable", () => {
+  it("skips the manual launch when systemd is not applicable but the local loopback daemon already responds", () => {
     const runShellImpl = vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "", error: null });
+    // Fresh loopback probe sees a live daemon — no manual launch needed.
     const waitForHttpImpl = vi.fn().mockReturnValue(true);
     const opts = makeOpts({
       modeOverride: "system",
       runCaptureImpl: vi.fn().mockReturnValue("/usr/bin/zstd"),
       runShellImpl,
       ensureManagedOllamaLoopbackSystemdOverrideImpl: vi.fn().mockReturnValue("not-applicable"),
-      findReachableOllamaHostImpl: vi.fn().mockReturnValue("127.0.0.1"),
       waitForHttpImpl,
     });
     const result = installOllamaOnLinux(opts);
     expect(result.ok).toBe(true);
-    expect(waitForHttpImpl).not.toHaveBeenCalled();
+    expect(waitForHttpImpl).toHaveBeenCalledTimes(1);
+    expect(findRunShellCall(runShellImpl, "ollama serve")).toBeUndefined();
   });
 
-  it("launches a local daemon even when only the Windows-host Ollama is reachable (WSL)", () => {
-    // Pre-existing WSL run probed both 127.0.0.1 and host.docker.internal;
-    // the resolver cached host.docker.internal. On a fresh native install the
-    // local daemon is absent — treating the cached Windows-host result as
-    // "Ollama reachable" would leave the freshly installed binary unstarted
-    // and the post-install pin at 127.0.0.1 would point at nothing.
+  it("re-probes loopback fresh instead of trusting the cached findReachableOllamaHost result", () => {
+    // Resolver cache still says 127.0.0.1 from an earlier probe, but the
+    // upgrade just torn down the daemon — the fresh loopback probe returns
+    // false and triggers a manual launch instead of skipping it.
     const runShellImpl = vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "", error: null });
-    const waitForHttpImpl = vi.fn().mockReturnValue(true);
+    const waitForHttpImpl = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const findReachableOllamaHostImpl = vi.fn().mockReturnValue("127.0.0.1");
     const opts = makeOpts({
       modeOverride: "system",
       runCaptureImpl: vi.fn().mockReturnValue("/usr/bin/zstd"),
       runShellImpl,
       ensureManagedOllamaLoopbackSystemdOverrideImpl: vi.fn().mockReturnValue("not-applicable"),
-      findReachableOllamaHostImpl: vi.fn().mockReturnValue("host.docker.internal"),
+      findReachableOllamaHostImpl,
       waitForHttpImpl,
     });
     const result = installOllamaOnLinux(opts);
     expect(result.ok).toBe(true);
-    const manualStart = findRunShellCall(runShellImpl, "ollama serve");
-    expect(manualStart).toBeDefined();
-    expect(manualStart).toContain("OLLAMA_HOST=127.0.0.1:");
-    expect(waitForHttpImpl).toHaveBeenCalled();
+    expect(findRunShellCall(runShellImpl, "ollama serve")).toBeDefined();
   });
 });

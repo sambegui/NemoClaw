@@ -416,12 +416,11 @@ function installOllamaSystem(opts: InstallOllamaLinuxOptions): InstallOllamaLinu
   }
 
   if (overrideState === "not-applicable") {
-    // Only loopback counts as "daemon reachable" here. On WSL the resolver
-    // can return `host.docker.internal` from an earlier probe, which would
-    // skip the local start and leave validation pointing at a dead port
-    // once the helper pins the resolved host to 127.0.0.1.
-    const reachableHost = findReachableOllamaHostImpl();
-    const localDaemonReachable = reachableHost === "127.0.0.1" || reachableHost === "localhost";
+    // `findReachableOllamaHost()` is cached for the rest of the onboard run,
+    // so it can echo an earlier 127.0.0.1 success even when the upgrade has
+    // just torn down the daemon. Re-probe loopback fresh here so this
+    // decision reflects the post-install daemon state, not stale cache.
+    const localDaemonReachable = waitForHttpImpl(`http://127.0.0.1:${OLLAMA_PORT}/`, 1);
     if (!localDaemonReachable) {
       log("  Starting Ollama...");
       runShellImpl(`OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {
