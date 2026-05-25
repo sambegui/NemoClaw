@@ -182,6 +182,9 @@ const {
   validateOllamaPortConfiguration,
   validateOllamaModel,
   validateLocalProvider,
+  getInstalledOllamaVersion,
+  isOllamaVersionAtLeast,
+  MIN_OLLAMA_VERSION,
 } = localInference;
 const {
   ensureOllamaAuthProxy,
@@ -4219,7 +4222,14 @@ async function selectAndValidateOllamaModel(
       },
     );
     if (validation.retry === "selection") return { outcome: "back-to-selection" };
-    if (!validation.ok) continue;
+    if (!validation.ok) {
+      // Non-interactive callers (express setup, NEMOCLAW_NON_INTERACTIVE=1)
+      // cannot escape this loop by picking another model. Surface the
+      // diagnostic the validator already printed and exit so the runner
+      // doesn't spin forever on the same starter list (#4178).
+      if (isNonInteractive()) process.exit(1);
+      continue;
+    }
     // Ollama's /v1/responses endpoint does not produce correctly formatted
     // tool calls — force chat completions like vLLM/NIM.
     if (validation.api !== "openai-completions") {
@@ -4261,6 +4271,9 @@ async function setupNim(
   // (#2674).
   const localProbeCurlArgs = ["--connect-timeout", "2", "--max-time", "5"] as const;
   const hasOllama = hostCommandExists("ollama");
+  const installedOllamaVersion = hasOllama ? getInstalledOllamaVersion() : null;
+  const hasUpgradableOllama =
+    hasOllama && !isOllamaVersionAtLeast(installedOllamaVersion, MIN_OLLAMA_VERSION);
   // run and consumed by the Ollama lifecycle helpers in inference/local.ts.
   const ollamaHost = findReachableOllamaHost();
   const ollamaRunning = ollamaHost !== null;
@@ -4377,14 +4390,27 @@ async function setupNim(
   }
   // Without any Ollama, offer to install one locally as a fallback (e.g. when
   // the NVIDIA API server is down and cloud keys are unavailable).
-  if (!hasOllama && !ollamaRunning && !hasWindowsOllama) {
+  // Also offer when an existing Ollama is too old for the starter models
+  // NemoClaw ships, so the upgrade path runs the official `install.sh` and
+  // the user doesn't end up looping on a probe that the daemon can never
+  // pass (NVIDIA/NemoClaw#4178).
+  const showInstallOllama =
+    (!hasOllama && !ollamaRunning && !hasWindowsOllama) || hasUpgradableOllama;
+  if (showInstallOllama) {
+    const upgradeSuffix = hasUpgradableOllama
+      ? ` — upgrade installed ${installedOllamaVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
+      : "";
+    const labelPrefix = hasUpgradableOllama ? "Upgrade Ollama" : "Install Ollama";
     if (process.platform === "darwin") {
-      options.push({ key: "install-ollama", label: "Install Ollama (macOS)" });
+      options.push({ key: "install-ollama", label: `${labelPrefix} (macOS)${upgradeSuffix}` });
     } else if (process.platform === "linux") {
       if (isWsl()) {
-        options.push({ key: "install-ollama", label: "Install Ollama (WSL Linux)" });
+        options.push({
+          key: "install-ollama",
+          label: `${labelPrefix} (WSL Linux)${upgradeSuffix}`,
+        });
       } else {
-        options.push({ key: "install-ollama", label: "Install Ollama (Linux)" });
+        options.push({ key: "install-ollama", label: `${labelPrefix} (Linux)${upgradeSuffix}` });
       }
     }
   }
