@@ -5,6 +5,8 @@
  * Synchronous waiting primitives for CLI commands.
  */
 
+import { buildSubprocessEnv } from "../subprocess-env";
+
 /**
  * Synchronously sleep for the given number of milliseconds.
  * Uses Atomics.wait to block without pegging the CPU.
@@ -63,7 +65,7 @@ export function waitForHttp(url: string, timeoutSeconds = 5): boolean {
       const result = spawnSync(
         "curl",
         ["-sf", "--connect-timeout", "1", "--max-time", "1", url],
-        { stdio: "ignore" },
+        { env: buildSubprocessEnv(), stdio: "ignore" },
       );
       return result.status === 0;
     } catch {
