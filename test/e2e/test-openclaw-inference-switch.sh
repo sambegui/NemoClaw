@@ -270,8 +270,8 @@ check_openclaw_agent_turn() {
     -o ConnectTimeout=10 \
     -o LogLevel=ERROR \
     "openshell-${SANDBOX_NAME}" \
-    "openclaw agent --agent main --json --thinking off --session-id '${session_id}' -m 'What is 6 multiplied by 7? Reply with only the integer, no extra words.'" \
-    2>/dev/null) || rc=$?
+    "openclaw agent --agent main --json --session-id '${session_id}' -m 'What is 6 multiplied by 7? Reply with only the integer, no extra words.'" \
+    2>&1) || rc=$?
   rm -f "$ssh_config"
 
   reply=$(printf '%s' "$raw" | parse_openclaw_agent_text 2>/dev/null) || true
@@ -295,6 +295,8 @@ fi
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/e2e/lib/openclaw-json.sh
 . "${E2E_DIR}/lib/openclaw-json.sh"
+# shellcheck source=test/e2e/lib/inference-switch-retry.sh
+. "${E2E_DIR}/lib/inference-switch-retry.sh"
 SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-e2e-openclaw-inference-switch}"
 SWITCH_PROVIDER="${NEMOCLAW_SWITCH_PROVIDER:-nvidia-prod}"
 SWITCH_MODEL="${NEMOCLAW_SWITCH_MODEL:-z-ai/glm-5.1}"
@@ -391,7 +393,7 @@ pass "nemoclaw and openshell are on PATH"
 section "Phase 3: Switch inference"
 pid_before="$(openclaw_gateway_pid)"
 info "Switching ${SANDBOX_NAME} to ${SWITCH_PROVIDER} / ${SWITCH_MODEL}..."
-switch_output=$(nemoclaw inference set --provider "$SWITCH_PROVIDER" --model "$SWITCH_MODEL" --sandbox "$SANDBOX_NAME" 2>&1)
+switch_output=$(run_inference_set_with_retry nemoclaw inference set --provider "$SWITCH_PROVIDER" --model "$SWITCH_MODEL" --sandbox "$SANDBOX_NAME")
 switch_rc=$?
 if [ "$switch_rc" -eq 0 ]; then
   pass "nemoclaw inference set completed"

@@ -510,6 +510,9 @@ fi
 info "[LIVE] openclaw agent → openclaw HTTP client → inference.local..."
 ssh_config="$(mktemp)"
 agent_response=""
+agent_stderr=""
+agent_rc=0
+agent_stderr_file="$(mktemp)"
 
 if openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_config" 2>/dev/null; then
   agent_session_id="e2e-launchable-$(date +%s)-$$"
@@ -519,17 +522,21 @@ if openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_config" 2>/dev/null; then
     -o ConnectTimeout=10 \
     -o LogLevel=ERROR \
     "openshell-${SANDBOX_NAME}" \
-    "openclaw agent --agent main --json --session-id '${agent_session_id}' -m 'What is 6 multiplied by 7? Reply with only the integer, no extra words.'" \
-    2>/dev/null) || true
+    "openclaw agent --agent main --json --thinking off --session-id '${agent_session_id}' -m 'What is 6 multiplied by 7? Reply with only the integer, no extra words.'" \
+    2>"$agent_stderr_file") || agent_rc=$?
+  agent_stderr="$(<"$agent_stderr_file")"
+else
+  agent_rc=255
+  agent_stderr="failed to get SSH config for ${SANDBOX_NAME}"
 fi
-rm -f "$ssh_config"
+rm -f "$ssh_config" "$agent_stderr_file"
 
 agent_reply=$(printf '%s' "$agent_response" | parse_openclaw_agent_text 2>/dev/null) || true
 
 if grep -qE "(^|[^0-9])42([^0-9]|$)" <<<"$agent_reply"; then
   pass "[LIVE] openclaw agent: model answered 6×7=42 through openclaw → inference.local"
 else
-  fail "[LIVE] openclaw agent: expected '42' in agent reply, got: ${agent_reply:0:200}"
+  fail "[LIVE] openclaw agent: expected '42' in agent reply; rc=${agent_rc}; reply='${agent_reply:0:200}'; stdout='${agent_response:0:300}'; stderr='${agent_stderr:0:300}'"
 fi
 
 # ══════════════════════════════════════════════════════════════════
