@@ -210,7 +210,7 @@ const MESSAGING_PRESET_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
 };
 
-function getMessagingPresetWarning(presetName: string): string | null {
+function getPresetValidationWarning(presetName: string): string | null {
   if (presetName === "jira") {
     return [
       "Jira preset validation uses per-binary policy signals.",
@@ -1214,7 +1214,7 @@ export {
   listPresets,
   loadPreset,
   getPresetEndpoints,
-  getMessagingPresetWarning,
+  getPresetValidationWarning,
   setupPolicyPresetSupported,
   filterSetupPolicyPresets,
   listSetupPolicyPresets,

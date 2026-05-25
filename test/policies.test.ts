@@ -421,9 +421,9 @@ describe("policies", () => {
     });
   });
 
-  describe("getMessagingPresetWarning", () => {
+  describe("getPresetValidationWarning", () => {
     it("returns a warning for the telegram preset that mentions re-running onboard", () => {
-      const warning = policies.getMessagingPresetWarning("telegram");
+      const warning = policies.getPresetValidationWarning("telegram");
       expect(warning).toBeTruthy();
       expect(warning).toContain("telegram");
       expect(warning).toContain("Telegram");
@@ -431,13 +431,13 @@ describe("policies", () => {
     });
 
     it("returns a warning for discord, slack, and wechat", () => {
-      expect(policies.getMessagingPresetWarning("discord")).toContain("Discord");
-      expect(policies.getMessagingPresetWarning("slack")).toContain("Slack");
-      expect(policies.getMessagingPresetWarning("wechat")).toContain("WeChat");
+      expect(policies.getPresetValidationWarning("discord")).toContain("Discord");
+      expect(policies.getPresetValidationWarning("slack")).toContain("Slack");
+      expect(policies.getPresetValidationWarning("wechat")).toContain("WeChat");
     });
 
     it("adds Discord validation guidance for Node probes instead of curl or DNS-only checks", () => {
-      const warning = policies.getMessagingPresetWarning("discord");
+      const warning = policies.getPresetValidationWarning("discord");
 
       expect(warning).toContain("curl");
       expect(warning).toContain("preset binary allowlist");
@@ -447,7 +447,7 @@ describe("policies", () => {
     });
 
     it("adds Jira validation guidance that makes blocked versus redirected curl observable", () => {
-      const warning = policies.getMessagingPresetWarning("jira");
+      const warning = policies.getPresetValidationWarning("jira");
 
       expect(warning).toContain("curl -s");
       expect(warning).toContain("curl -sS -o /dev/null -w '%{http_code}'");
@@ -456,16 +456,16 @@ describe("policies", () => {
       expect(warning).toContain("https://api.atlassian.com");
     });
 
-    it("returns null for non-messaging presets", () => {
-      expect(policies.getMessagingPresetWarning("npm")).toBeNull();
-      expect(policies.getMessagingPresetWarning("pypi")).toBeNull();
-      expect(policies.getMessagingPresetWarning("github")).toBeNull();
-      expect(policies.getMessagingPresetWarning("brew")).toBeNull();
+    it("returns null for presets without extra validation guidance", () => {
+      expect(policies.getPresetValidationWarning("npm")).toBeNull();
+      expect(policies.getPresetValidationWarning("pypi")).toBeNull();
+      expect(policies.getPresetValidationWarning("github")).toBeNull();
+      expect(policies.getPresetValidationWarning("brew")).toBeNull();
     });
 
     it("returns null for unknown preset names", () => {
-      expect(policies.getMessagingPresetWarning("")).toBeNull();
-      expect(policies.getMessagingPresetWarning("nonexistent")).toBeNull();
+      expect(policies.getPresetValidationWarning("")).toBeNull();
+      expect(policies.getPresetValidationWarning("nonexistent")).toBeNull();
     });
   });
 
