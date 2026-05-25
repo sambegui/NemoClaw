@@ -31,6 +31,7 @@ describe("resolveOllamaInstallMenuEntry", () => {
       ollamaRunning: true,
       hasWindowsOllama: false,
       installedOllamaVersion: "0.6.2",
+      runningOllamaVersion: "0.6.2",
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(true);
@@ -46,10 +47,41 @@ describe("resolveOllamaInstallMenuEntry", () => {
       ollamaRunning: true,
       hasWindowsOllama: false,
       installedOllamaVersion: "0.24.0",
+      runningOllamaVersion: "0.24.0",
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(false);
     expect(result.entry).toBeNull();
+  });
+
+  it("offers an upgrade entry when the running daemon is stale even though the binary is fresh", () => {
+    const result = resolveOllamaInstallMenuEntry({
+      hasOllama: true,
+      ollamaRunning: true,
+      hasWindowsOllama: false,
+      installedOllamaVersion: "0.24.0",
+      runningOllamaVersion: "0.6.2",
+      ...LINUX_NON_WSL,
+    });
+    expect(result.hasUpgradableOllama).toBe(true);
+    expect(result.entry?.label).toBe(
+      `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+    );
+  });
+
+  it("offers an upgrade entry when the binary is stale even though the daemon is fresh", () => {
+    const result = resolveOllamaInstallMenuEntry({
+      hasOllama: true,
+      ollamaRunning: true,
+      hasWindowsOllama: false,
+      installedOllamaVersion: "0.6.2",
+      runningOllamaVersion: "0.24.0",
+      ...LINUX_NON_WSL,
+    });
+    expect(result.hasUpgradableOllama).toBe(true);
+    expect(result.entry?.label).toBe(
+      `Upgrade Ollama (Linux) — upgrade installed 0.24.0 to ≥ ${MIN_OLLAMA_VERSION}`,
+    );
   });
 
   it("omits the entry when only Windows-host Ollama is present", () => {
@@ -107,6 +139,7 @@ describe("resolveOllamaInstallMenuEntry", () => {
       ollamaRunning: true,
       hasWindowsOllama: false,
       installedOllamaVersion: "0.6.2",
+      runningOllamaVersion: "0.6.2",
       platform: "darwin",
       isWsl: false,
     });

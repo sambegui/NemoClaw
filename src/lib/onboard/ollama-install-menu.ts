@@ -17,6 +17,9 @@ export interface OllamaInstallMenuInput {
   isWsl: boolean;
   /** Override for tests. Defaults to a live `ollama --version` probe. */
   installedOllamaVersion?: string | null;
+  /** Override for tests. Defaults to a live `/api/version` probe on
+   *  `:11434` when an Ollama daemon is running. */
+  runningOllamaVersion?: string | null;
 }
 
 export interface OllamaInstallMenuEntry {
@@ -55,8 +58,21 @@ export function resolveOllamaInstallMenuEntry(
       : input.hasOllama
         ? getInstalledOllamaVersion()
         : null;
-  const hasUpgradableOllama =
+  const runningOllamaVersion =
+    input.runningOllamaVersion !== undefined
+      ? input.runningOllamaVersion
+      : input.ollamaRunning
+        ? getRunningOllamaDaemonVersion()
+        : null;
+  // Catch both stale-binary and stale-daemon cases: a user-local install can
+  // put a fresh `ollama` on `PATH` while the system daemon keeps `:11434`
+  // on the old version (and vice versa). Upgrade when either source is below
+  // the minimum.
+  const binaryNeedsUpgrade =
     input.hasOllama && !isOllamaVersionAtLeast(installedOllamaVersion, MIN_OLLAMA_VERSION);
+  const daemonNeedsUpgrade =
+    input.ollamaRunning && !isOllamaVersionAtLeast(runningOllamaVersion, MIN_OLLAMA_VERSION);
+  const hasUpgradableOllama = binaryNeedsUpgrade || daemonNeedsUpgrade;
   const showEntry =
     (!input.hasOllama && !input.ollamaRunning && !input.hasWindowsOllama) || hasUpgradableOllama;
   if (!showEntry) {
@@ -67,8 +83,11 @@ export function resolveOllamaInstallMenuEntry(
     return { entry: null, hasUpgradableOllama };
   }
   const labelPrefix = hasUpgradableOllama ? "Upgrade Ollama" : "Install Ollama";
+  // Report the daemon version when it's the live target NemoClaw will drive;
+  // fall back to the binary version when there's no daemon to probe.
+  const reportedVersion = runningOllamaVersion ?? installedOllamaVersion;
   const upgradeSuffix = hasUpgradableOllama
-    ? ` — upgrade installed ${installedOllamaVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
+    ? ` — upgrade installed ${reportedVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
     : "";
   return {
     entry: { key: "install-ollama", label: `${labelPrefix} (${osTag})${upgradeSuffix}` },

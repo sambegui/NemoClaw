@@ -20,7 +20,6 @@ export interface InstallOllamaMacOSOptions {
 
 export interface InstallOllamaMacOSResult {
   ok: boolean;
-  binPath: string;
 }
 
 /**
@@ -51,7 +50,7 @@ export function installOllamaOnMacOS(
   });
   if (!waitForHttpImpl(`http://127.0.0.1:${OLLAMA_PORT}/`, 10)) {
     errorLog(`  Ollama did not become ready on :${OLLAMA_PORT} within timeout.`);
-    return { ok: false, binPath: "/opt/homebrew/bin/ollama" };
+    return { ok: false };
   }
-  return { ok: true, binPath: "/opt/homebrew/bin/ollama" };
+  return { ok: true };
 }

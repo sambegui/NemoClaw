@@ -80,6 +80,7 @@ export type RunCaptureFn = (cmd: string | string[], opts?: { ignoreError?: boole
 
 export {
   getInstalledOllamaVersion,
+  getRunningOllamaDaemonVersion,
   isOllamaVersionAtLeast,
   MIN_OLLAMA_VERSION,
 } from "./ollama-version";
