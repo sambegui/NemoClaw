@@ -421,11 +421,21 @@ function installOllamaSystem(opts: InstallOllamaLinuxOptions): InstallOllamaLinu
   }
 
   if (overrideState === "not-applicable") {
+    if (opts.isUpgrade) {
+      // The stale daemon still owns `:11434` and would answer the readiness
+      // probe with the old binary's version. Stop it before launching so
+      // the freshly installed binary takes the port; brief sleep lets the
+      // kernel release the socket.
+      log("  Stopping stale Ollama daemon before relaunching...");
+      runShellImpl("pkill -x ollama || true", { ignoreError: true });
+      sleepSecondsImpl(1);
+    }
     // Re-probe loopback fresh here so this decision reflects the
-    // post-install daemon state. The earlier `findReachableOllamaHost`
-    // shortcut was cached for the rest of the onboard run and could echo
-    // a pre-upgrade success while the new daemon was still coming up.
-    const localDaemonReachable = waitForHttpImpl(`http://127.0.0.1:${OLLAMA_PORT}/`, 1);
+    // post-install daemon state, not the cached `findReachableOllamaHost`
+    // result that lingers for the rest of the onboard run. Skip the probe
+    // entirely on upgrade — we just killed the daemon and must relaunch.
+    const localDaemonReachable =
+      !opts.isUpgrade && waitForHttpImpl(`http://127.0.0.1:${OLLAMA_PORT}/`, 1);
     if (!localDaemonReachable) {
       log("  Starting Ollama...");
       runShellImpl(`OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {

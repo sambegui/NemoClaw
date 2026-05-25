@@ -480,6 +480,31 @@ describe("installOllamaOnLinux (system)", () => {
     expect(findRunShellCall(runShellImpl, "ollama serve")).toBeUndefined();
   });
 
+  it("stops the stale Ollama daemon before relaunching on the upgrade path", () => {
+    const runShellImpl = vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "", error: null });
+    // First waitForHttp: post-launch wait (tries=10). No loopback probe is
+    // performed on upgrade since the daemon is being torn down.
+    const waitForHttpImpl = vi.fn().mockReturnValue(true);
+    const sleepSecondsImpl = vi.fn();
+    const opts = makeOpts({
+      modeOverride: "system",
+      runCaptureImpl: vi.fn().mockReturnValue("/usr/bin/zstd"),
+      runShellImpl,
+      ensureManagedOllamaLoopbackSystemdOverrideImpl: vi.fn().mockReturnValue("not-applicable"),
+      waitForHttpImpl,
+      sleepSecondsImpl,
+      isUpgrade: true,
+    });
+    const result = installOllamaOnLinux(opts);
+    expect(result.ok).toBe(true);
+    const shellCommands = runShellImpl.mock.calls.map((call) => String(call[0] ?? ""));
+    const killIndex = shellCommands.findIndex((cmd) => cmd.includes("pkill -x ollama"));
+    const launchIndex = shellCommands.findIndex((cmd) => cmd.includes("ollama serve"));
+    expect(killIndex).toBeGreaterThanOrEqual(0);
+    expect(launchIndex).toBeGreaterThan(killIndex);
+    expect(sleepSecondsImpl).toHaveBeenCalled();
+  });
+
   it("re-probes loopback fresh instead of trusting the cached findReachableOllamaHost result", () => {
     // Resolver cache still says 127.0.0.1 from an earlier probe, but the
     // upgrade just torn down the daemon — the fresh loopback probe returns
