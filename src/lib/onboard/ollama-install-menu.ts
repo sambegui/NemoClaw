@@ -105,17 +105,24 @@ export function resolveOllamaInstallMenuEntry(
     return { entry: null, hasUpgradableOllama };
   }
   const labelPrefix = hasUpgradableOllama ? "Upgrade Ollama" : "Install Ollama";
-  // Report the actually-stale source so the suffix matches what the user
-  // sees on the host: daemon version when the daemon is the stale one,
-  // binary version when the CLI is the stale one. Falls back to whichever
-  // side is known when one is null.
-  const reportedVersion = daemonNeedsUpgrade
-    ? (runningOllamaVersion ?? installedOllamaVersion)
-    : binaryNeedsUpgrade
-      ? (installedOllamaVersion ?? runningOllamaVersion)
-      : null;
+  // Name the stale source explicitly: "running daemon" when the daemon is
+  // the stale side, "installed binary" when the CLI is the stale side. A
+  // generic "Ollama" fallback covers the case where we couldn't read either
+  // version (binary missing or daemon unreachable).
+  let staleSource: string;
+  let reportedVersion: string | null;
+  if (daemonNeedsUpgrade) {
+    staleSource = "running daemon";
+    reportedVersion = runningOllamaVersion ?? installedOllamaVersion;
+  } else if (binaryNeedsUpgrade) {
+    staleSource = "installed binary";
+    reportedVersion = installedOllamaVersion ?? runningOllamaVersion;
+  } else {
+    staleSource = "Ollama";
+    reportedVersion = null;
+  }
   const upgradeSuffix = hasUpgradableOllama
-    ? ` — upgrade installed ${reportedVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
+    ? ` — upgrade ${staleSource} ${reportedVersion ?? "unknown"} to ≥ ${MIN_OLLAMA_VERSION}`
     : "";
   return {
     entry: { key: "install-ollama", label: `${labelPrefix} (${osTag})${upgradeSuffix}` },

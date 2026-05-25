@@ -5,6 +5,9 @@ import { OLLAMA_PORT } from "../core/ports";
 import { waitForHttp } from "../core/wait";
 
 const { run, runShell }: typeof import("../runner") = require("../runner");
+const {
+  setResolvedOllamaHost,
+}: typeof import("../inference/local") = require("../inference/local");
 
 export interface InstallOllamaMacOSOptions {
   isNonInteractive: () => boolean;
@@ -52,5 +55,7 @@ export function installOllamaOnMacOS(
     errorLog(`  Ollama did not become ready on :${OLLAMA_PORT} within timeout.`);
     return { ok: false };
   }
+  // Pin to local loopback so any stale resolved host is overwritten.
+  setResolvedOllamaHost("127.0.0.1");
   return { ok: true };
 }

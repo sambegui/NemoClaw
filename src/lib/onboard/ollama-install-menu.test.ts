@@ -37,7 +37,7 @@ describe("resolveOllamaInstallMenuEntry", () => {
     expect(result.hasUpgradableOllama).toBe(true);
     expect(result.entry?.key).toBe("install-ollama");
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (Linux) — upgrade installed binary 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
   });
 
@@ -65,9 +65,9 @@ describe("resolveOllamaInstallMenuEntry", () => {
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(true);
-    // Stale source is the daemon; suffix reports the daemon's version.
+    // Stale source is the daemon; suffix names "running daemon" with that version.
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (Linux) — upgrade running daemon 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
   });
 
@@ -82,11 +82,9 @@ describe("resolveOllamaInstallMenuEntry", () => {
       ...LINUX_NON_WSL,
     });
     expect(result.hasUpgradableOllama).toBe(true);
-    // Stale source is the binary; suffix reports the binary's version, not
-    // the daemon's fresh 0.24.0 (otherwise users would see a label saying
-    // "upgrade installed 0.24.0" which is the new target, not the stale).
+    // Stale source is the binary; suffix names "installed binary" with that version.
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (Linux) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (Linux) — upgrade installed binary 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
   });
 
@@ -128,7 +126,7 @@ describe("resolveOllamaInstallMenuEntry", () => {
     });
     expect(result.hasUpgradableOllama).toBe(true);
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (Linux) — upgrade installed unknown to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (Linux) — upgrade installed binary unknown to ≥ ${MIN_OLLAMA_VERSION}`,
     );
   });
 
@@ -168,7 +166,7 @@ describe("resolveOllamaInstallMenuEntry", () => {
     });
     expect(result.hasUpgradableOllama).toBe(true);
     expect(result.entry?.label).toBe(
-      `Upgrade Ollama (macOS) — upgrade installed 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
+      `Upgrade Ollama (macOS) — upgrade installed binary 0.6.2 to ≥ ${MIN_OLLAMA_VERSION}`,
     );
   });
 

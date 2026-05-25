@@ -390,6 +390,25 @@ describe("installOllamaOnLinux (system)", () => {
     expect(ensureOverride).toHaveBeenCalled();
   });
 
+  it("pins the resolved Ollama host to local loopback after a successful install", () => {
+    // Resolve through the same CJS require cache the helper uses internally
+    // so the `_resolvedOllamaHost` mutation is observable from the test.
+    const localInference = require("../../../dist/lib/inference/local");
+    localInference.setResolvedOllamaHost("host.docker.internal");
+    try {
+      const opts = makeOpts({
+        modeOverride: "system",
+        runCaptureImpl: vi.fn().mockReturnValue("/usr/bin/zstd"),
+        ensureManagedOllamaLoopbackSystemdOverrideImpl: vi.fn().mockReturnValue("ready"),
+      });
+      const result = installOllamaOnLinux(opts);
+      expect(result.ok).toBe(true);
+      expect(localInference.getResolvedOllamaHost()).toBe("127.0.0.1");
+    } finally {
+      localInference.resetOllamaHostCache();
+    }
+  });
+
   it("returns ok:false when the systemd override fails to recover", () => {
     const errorLog = vi.fn();
     const opts = makeOpts({

@@ -21,6 +21,7 @@ const {
 }: typeof import("../runner") = require("../runner");
 const {
   findReachableOllamaHost,
+  setResolvedOllamaHost,
 }: typeof import("../inference/local") = require("../inference/local");
 
 /**
@@ -438,6 +439,9 @@ export function installOllamaOnLinux(
   opts: InstallOllamaLinuxOptions,
 ): InstallOllamaLinuxResult {
   const mode = decideInstallOllamaLinuxMode(opts);
-  if (mode === "user-local") return installOllamaUserLocal(opts);
-  return installOllamaSystem(opts);
+  const result = mode === "user-local" ? installOllamaUserLocal(opts) : installOllamaSystem(opts);
+  // Pin to local loopback so a cached `host.docker.internal` from an
+  // earlier WSL probe cannot route validation/pull at the Windows host.
+  if (result.ok) setResolvedOllamaHost("127.0.0.1");
+  return result;
 }
