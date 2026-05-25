@@ -5,6 +5,7 @@ import {
   getInstalledOllamaVersion,
   isOllamaVersionAtLeast,
   MIN_OLLAMA_VERSION,
+  type OllamaVersionRunCapture,
 } from "../inference/ollama-version";
 
 export interface OllamaInstallMenuInput {
@@ -71,5 +72,39 @@ export function resolveOllamaInstallMenuEntry(
   return {
     entry: { key: "install-ollama", label: `${labelPrefix} (${osTag})${upgradeSuffix}` },
     hasUpgradableOllama,
+  };
+}
+
+export interface OllamaUpgradeApplied {
+  ok: boolean;
+  detectedVersion: string | null;
+  message?: string;
+}
+
+/**
+ * After the install/upgrade command, confirm the host Ollama actually
+ * advanced past `MIN_OLLAMA_VERSION`. Guards against silent failures from
+ * `brew upgrade ollama` (ignored exit code), user-local Linux fallbacks that
+ * never replaced the running daemon, and any other path where the binary
+ * remains stale.
+ */
+export function assertOllamaUpgradeApplied(
+  menu: { hasUpgradableOllama: boolean },
+  runCaptureImpl?: OllamaVersionRunCapture,
+): OllamaUpgradeApplied {
+  if (!menu.hasUpgradableOllama) {
+    return { ok: true, detectedVersion: null };
+  }
+  const detectedVersion = getInstalledOllamaVersion(runCaptureImpl);
+  if (isOllamaVersionAtLeast(detectedVersion, MIN_OLLAMA_VERSION)) {
+    return { ok: true, detectedVersion };
+  }
+  const versionLabel = detectedVersion ?? "unknown";
+  return {
+    ok: false,
+    detectedVersion,
+    message:
+      `Ollama upgrade did not take effect — ${versionLabel} reported after install, need ≥ ${MIN_OLLAMA_VERSION}. ` +
+      "Upgrade manually (https://ollama.com/download) and rerun onboard.",
   };
 }

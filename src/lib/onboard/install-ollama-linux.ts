@@ -83,6 +83,10 @@ export type InstallOllamaLinuxOptions = {
   log?: (message: string) => void;
   /** Test seam: redirect error output. */
   errorLog?: (message: string) => void;
+  /** When true the running daemon is the upgrade target — refuse user-local
+   *  fallback because installing into `${HOME}/.local` would leave the
+   *  system daemon on `:11434` serving the stale version. */
+  isUpgrade?: boolean;
 };
 
 const INSTALL_MODE_ENV = "NEMOCLAW_OLLAMA_INSTALL_MODE";
@@ -120,6 +124,22 @@ export function decideInstallOllamaLinuxMode(
   if (getEuid() === 0) return "system";
   if (canRunSudoNonInteractive(opts)) return "system";
   const isTty = opts.isTty ?? (() => Boolean(process.stdin.isTTY));
+  if (opts.isUpgrade) {
+    // User-local install would leave the system Ollama daemon on `:11434`
+    // serving the stale binary. Force the sudo-driven system path; let
+    // interactive shells prompt for the password.
+    if (opts.isNonInteractive() || !isTty()) {
+      const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
+      errorLog(
+        "  Upgrading the system Ollama requires sudo, which is not available in this non-interactive run.",
+      );
+      errorLog(
+        "  Run interactively, configure passwordless sudo, or upgrade manually: curl -fsSL https://ollama.com/install.sh | sh",
+      );
+      process.exit(1);
+    }
+    return "system";
+  }
   if (opts.isNonInteractive() || !isTty()) return "user-local";
   return "system";
 }

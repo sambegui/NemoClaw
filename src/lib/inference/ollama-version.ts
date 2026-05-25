@@ -10,7 +10,7 @@
 const { runCapture } = require("../runner");
 
 export type OllamaVersionRunCapture = (
-  cmd: string | string[],
+  cmd: readonly string[],
   opts?: { ignoreError?: boolean },
 ) => string;
 

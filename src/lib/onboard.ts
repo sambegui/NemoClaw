@@ -105,6 +105,9 @@ const {
 const {
   installOllamaOnLinux,
 }: typeof import("./onboard/install-ollama-linux") = require("./onboard/install-ollama-linux");
+const {
+  installOllamaOnMacOS,
+}: typeof import("./onboard/install-ollama-macos") = require("./onboard/install-ollama-macos");
 const crypto = require("node:crypto");
 const fs = require("fs");
 const os = require("os");
@@ -183,7 +186,9 @@ const {
   validateOllamaModel,
   validateLocalProvider,
 } = localInference;
-const { resolveOllamaInstallMenuEntry } = require("./onboard/ollama-install-menu");
+const { resolveOllamaInstallMenuEntry, assertOllamaUpgradeApplied } = require(
+  "./onboard/ollama-install-menu",
+);
 const {
   ensureOllamaAuthProxy,
   getOllamaProxyToken,
@@ -5264,27 +5269,19 @@ async function setupNim(
         break;
       } else if (selected.key === "install-ollama") {
         if (!checkOllamaPortsOrWarn()) continue selectionLoop;
-        if (process.platform === "darwin") {
-          const brewAction = ollamaInstallMenu.hasUpgradableOllama ? "upgrade" : "install";
-          console.log(`  ${brewAction === "upgrade" ? "Upgrading" : "Installing"} Ollama via Homebrew...`);
-          run(["brew", brewAction, "ollama"], { ignoreError: true });
-          // brew install doesn't auto-start a service; launch directly.
-          // Shell required: backgrounding (&), env var prefix, output redirection.
-          console.log("  Starting Ollama...");
-          runShell(`OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {
-            ignoreError: true,
-          });
-          if (!waitForHttp(`http://127.0.0.1:${OLLAMA_PORT}/`, 10)) {
-            console.error(`  Ollama did not become ready on :${OLLAMA_PORT} within timeout.`);
-            if (isNonInteractive()) process.exit(1);
-            continue selectionLoop;
-          }
-        } else {
-          const installResult = installOllamaOnLinux({ isNonInteractive });
-          if (!installResult.ok) {
-            if (isNonInteractive()) process.exit(1);
-            continue selectionLoop;
-          }
+        const isUpgrade = ollamaInstallMenu.hasUpgradableOllama;
+        const installResult = process.platform === "darwin"
+          ? installOllamaOnMacOS({ isNonInteractive, isUpgrade })
+          : installOllamaOnLinux({ isNonInteractive, isUpgrade });
+        if (!installResult.ok) {
+          if (isNonInteractive()) process.exit(1);
+          continue selectionLoop;
+        }
+        const upgradeCheck = assertOllamaUpgradeApplied(ollamaInstallMenu);
+        if (!upgradeCheck.ok) {
+          console.error(`  ${upgradeCheck.message}`);
+          if (isNonInteractive()) process.exit(1);
+          continue selectionLoop;
         }
         if (shouldFrontOllamaWithProxy()) {
           if (!startOllamaAuthProxy()) process.exit(1);

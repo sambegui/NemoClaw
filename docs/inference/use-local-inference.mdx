@@ -31,7 +31,7 @@ The onboard wizard detects Ollama automatically when it is installed or running 
 
 If Ollama is installed but not running, NemoClaw starts it for you.
 On macOS and Linux, the wizard can also offer to install Ollama when it is not present.
-When the host Ollama is below the minimum version NemoClaw expects for its starter models (currently `0.7.0`), the wizard surfaces an explicit **Upgrade Ollama** entry in the provider menu instead of silently reusing the older daemon, and the express setup path resolves to that entry so it runs the platform's install/upgrade path: `brew upgrade ollama` on macOS, the official `https://ollama.com/install.sh` on Linux.
+When the host Ollama is below the minimum version NemoClaw expects for its starter models (currently `0.7.0`), the wizard surfaces an explicit **Upgrade Ollama** entry in the provider menu instead of silently reusing the older daemon, and the express setup path resolves to that entry. The wizard then runs the platform's install/upgrade path: `brew upgrade ollama` on macOS, the official `https://ollama.com/install.sh` on Linux. Upgrades on Linux always take the sudo-driven system path because the sudo-free user-local fallback would leave the existing system daemon on `:11434` serving the stale binary; if sudo is not available in a non-interactive run, NemoClaw refuses to silently downgrade the path and asks you to rerun interactively or upgrade Ollama manually. After the install or upgrade command finishes, NemoClaw re-probes `ollama --version` and fails the run if it still reports below the minimum.
 On WSL, the wizard can use, start, restart, or install Ollama on the Windows host through PowerShell interop.
 
 #### Linux Install Modes
