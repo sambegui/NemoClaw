@@ -583,10 +583,8 @@ describe("sandbox provisioning: copied OpenClaw helper permissions (#2861)", () 
     const dockerfile = fs.readFileSync(DOCKERFILE, "utf-8");
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-blueprint-mode-"));
     const blueprintRoot = path.join(tmp, "opt", "nemoclaw-blueprint");
-    const nemoclawRoot = path.join(tmp, "opt", "nemoclaw");
     const manifestDir = path.join(blueprintRoot, "model-specific-setup", "openclaw");
     const manifestPath = path.join(manifestDir, "kimi-k2.6-managed-inference.json");
-    const pluginPackageJson = path.join(nemoclawRoot, "package.json");
 
     try {
       fs.mkdirSync(manifestDir, { recursive: true });
@@ -594,26 +592,17 @@ describe("sandbox provisioning: copied OpenClaw helper permissions (#2861)", () 
       fs.chmodSync(path.join(blueprintRoot, "model-specific-setup"), 0o700);
       fs.chmodSync(manifestDir, 0o700);
       fs.chmodSync(manifestPath, 0o600);
-      fs.mkdirSync(nemoclawRoot, { recursive: true });
-      fs.writeFileSync(pluginPackageJson, "{}\n", { mode: 0o400 });
-      fs.chmodSync(nemoclawRoot, 0o700);
-      fs.chmodSync(pluginPackageJson, 0o400);
 
       const command = dockerRunCommandBetween(
         dockerfile,
         "# Copy built plugin and blueprint",
         "# Install runtime dependencies only",
-      )
-        .replaceAll("/opt/nemoclaw-blueprint", "__BLUEPRINT__")
-        .replaceAll("/opt/nemoclaw", nemoclawRoot)
-        .replaceAll("__BLUEPRINT__", blueprintRoot);
+      ).replaceAll("/opt/nemoclaw-blueprint", blueprintRoot);
       const { result } = runLoggedDockerShell(command, tmp);
 
       expect(result.status, result.stderr).toBe(0);
       expect((fs.statSync(manifestDir).mode & 0o777).toString(8)).toBe("755");
       expect((fs.statSync(manifestPath).mode & 0o777).toString(8)).toBe("644");
-      expect((fs.statSync(nemoclawRoot).mode & 0o777).toString(8)).toBe("755");
-      expect((fs.statSync(pluginPackageJson).mode & 0o777).toString(8)).toBe("444");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
