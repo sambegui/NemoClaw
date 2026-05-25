@@ -155,6 +155,30 @@ describe("decideInstallOllamaLinuxMode", () => {
     }
   });
 
+  it("refuses NEMOCLAW_OLLAMA_INSTALL_MODE=system for a non-interactive upgrade when sudo is unavailable", () => {
+    process.env.NEMOCLAW_OLLAMA_INSTALL_MODE = "system";
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
+      throw new Error("process.exit(1)");
+    }) as never);
+    const errorLog = vi.fn();
+    try {
+      const opts = makeOpts({
+        canSudoNonInteractive: () => false,
+        isNonInteractive: () => true,
+        isTty: () => false,
+        isUpgrade: true,
+        errorLog,
+      });
+      expect(() => decideInstallOllamaLinuxMode(opts)).toThrow(/process\.exit\(1\)/);
+      expect(errorLog.mock.calls.flat().join("\n")).toContain(
+        "Upgrading the system Ollama requires sudo",
+      );
+    } finally {
+      exitSpy.mockRestore();
+      delete process.env.NEMOCLAW_OLLAMA_INSTALL_MODE;
+    }
+  });
+
   it("refuses to fall back to user-local for non-interactive upgrades without sudo", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
       throw new Error("process.exit(1)");

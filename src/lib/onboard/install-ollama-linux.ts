@@ -126,6 +126,28 @@ export function decideInstallOllamaLinuxMode(
     process.exit(1);
   }
   if (explicit === "user") return "user-local";
+  const getEuid = opts.getEuid ?? (() => process.getuid?.());
+  const isTty = opts.isTty ?? (() => Boolean(process.stdin.isTTY));
+  if (
+    opts.isUpgrade
+    && getEuid() !== 0
+    && !canRunSudoNonInteractive(opts)
+    && (opts.isNonInteractive() || !isTty())
+  ) {
+    // User-local install would leave the system Ollama daemon on `:11434`
+    // serving the stale binary, and a headless run can't prompt for the
+    // sudo password. Fail loudly here regardless of whether the system
+    // path was requested via env var or auto-selected — otherwise the
+    // installer hangs on a hidden sudo prompt.
+    const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
+    errorLog(
+      "  Upgrading the system Ollama requires sudo, which is not available in this non-interactive run.",
+    );
+    errorLog(
+      "  Run interactively, configure passwordless sudo, or upgrade manually: curl -fsSL https://ollama.com/install.sh | sh",
+    );
+    process.exit(1);
+  }
   if (explicit === "system") return "system";
   if (explicit) {
     const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
@@ -134,24 +156,12 @@ export function decideInstallOllamaLinuxMode(
     );
     process.exit(1);
   }
-  const getEuid = opts.getEuid ?? (() => process.getuid?.());
   if (getEuid() === 0) return "system";
   if (canRunSudoNonInteractive(opts)) return "system";
-  const isTty = opts.isTty ?? (() => Boolean(process.stdin.isTTY));
   if (opts.isUpgrade) {
-    // User-local install would leave the system Ollama daemon on `:11434`
-    // serving the stale binary. Force the sudo-driven system path; let
-    // interactive shells prompt for the password.
-    if (opts.isNonInteractive() || !isTty()) {
-      const errorLog = opts.errorLog ?? ((m: string) => console.error(m));
-      errorLog(
-        "  Upgrading the system Ollama requires sudo, which is not available in this non-interactive run.",
-      );
-      errorLog(
-        "  Run interactively, configure passwordless sudo, or upgrade manually: curl -fsSL https://ollama.com/install.sh | sh",
-      );
-      process.exit(1);
-    }
+    // Interactive upgrade without passwordless sudo — let sudo prompt
+    // through the official installer. The non-interactive case already
+    // exited above with the sudo-required diagnostic.
     return "system";
   }
   if (opts.isNonInteractive() || !isTty()) return "user-local";

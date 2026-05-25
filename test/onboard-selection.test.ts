@@ -1465,6 +1465,11 @@ runner.runShell = (command) => {
 Object.defineProperty(process, "platform", { value: "linux" });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
@@ -2117,6 +2122,11 @@ runner.runShell = (command) => {
 Object.defineProperty(process, "platform", { value: "linux" });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
@@ -5302,6 +5312,11 @@ registry.updateSandbox = (_name, update) => updates.push(update);
 Object.defineProperty(process, 'platform', { value: 'linux' });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
@@ -5481,6 +5496,11 @@ runner.runShell = (command) => {
 Object.defineProperty(process, "platform", { value: "linux" });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
@@ -5607,6 +5627,11 @@ registry.updateSandbox = (_name, update) => updates.push(update);
 Object.defineProperty(process, "platform", { value: "linux" });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
@@ -5913,6 +5938,9 @@ fi
 `,
       { mode: 0o755 },
     );
+    // Fake passwordless sudo so the upgrade gate doesn't short-circuit
+    // before the official installer runs in this non-interactive scenario.
+    fs.writeFileSync(path.join(fakeBin, "sudo"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
 
     const script = String.raw`
 const credentials = require(${credentialsPath});
@@ -5956,6 +5984,12 @@ runner.runCapture = (command) => {
   if (cmd.startsWith("sh -c command -v") && cmd.endsWith(" ollama")) {
     return "/usr/local/bin/ollama";
   }
+  // canRunSudoNonInteractive looks up sudo the same way; report it as
+  // available so the upgrade gate doesn't short-circuit before the
+  // installer runs.
+  if (cmd.startsWith("sh -c command -v") && cmd.endsWith(" sudo")) {
+    return "/usr/bin/sudo";
+  }
   // Pre-upgrade host reports 0.6.2; once install.sh runs we flip both the
   // CLI and the /api/version daemon probe to a fresh version.
   if (cmd.includes("ollama --version")) {
@@ -5985,6 +6019,11 @@ registry.updateSandbox = (_name, update) => updates.push(update);
 Object.defineProperty(process, "platform", { value: "linux" });
 platform.isWsl = () => false;
 wait.sleepSeconds = () => {};
+// installOllamaSystem probes loopback at tries=1 before launching, then
+// waits at tries=10 after launch. The fake curl in these tests answers 200
+// to any URL, so real waitForHttp would short-circuit the manual launch.
+// Differentiate by tries count.
+wait.waitForHttp = (_url, tries) => (tries ?? 0) > 1;
 
 const { setupNim } = require(${onboardPath});
 
