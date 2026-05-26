@@ -222,4 +222,15 @@ describe("handlePoliciesState", () => {
       expect.objectContaining({ agent: "hermes" }),
     );
   });
+
+  it("treats whitespace-only agent.name as default OpenClaw", async () => {
+    const { deps, calls } = createDeps();
+
+    await handlePoliciesState({ ...baseOptions(deps), agent: { name: "   " } });
+
+    expect(calls.setupPolicies).toHaveBeenCalledWith(
+      "my-assistant",
+      expect.objectContaining({ agent: "openclaw" }),
+    );
+  });
 });
