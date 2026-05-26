@@ -61,6 +61,24 @@ function getJobIf(job: unknown): string | undefined {
   return undefined;
 }
 
+function getJobStep(job: unknown, stepName: string): Record<string, unknown> | undefined {
+  if (typeof job !== "object" || job === null) return undefined;
+  const steps = (job as Record<string, unknown>).steps;
+  if (!Array.isArray(steps)) return undefined;
+  return steps.find(
+    (step): step is Record<string, unknown> =>
+      typeof step === "object" &&
+      step !== null &&
+      (step as Record<string, unknown>).name === stepName,
+  );
+}
+
+function getStepEnv(job: unknown, stepName: string): Record<string, unknown> | undefined {
+  const step = getJobStep(job, stepName);
+  if (!step || typeof step.env !== "object" || step.env === null) return undefined;
+  return step.env as Record<string, unknown>;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("nightly E2E workflow validation", () => {
@@ -124,6 +142,39 @@ describe("nightly E2E workflow validation", () => {
       `Nightly E2E aggregate jobs missing real E2E jobs in needs: ` +
         `${missing.join(", ")}. Update notify-on-failure, report-to-pr, ` +
         `and scorecard so their needs lists include every nightly E2E job.`,
+    ).toEqual([]);
+  });
+
+  it("public installer E2Es install the workflow target ref", () => {
+    const jobs = workflow.jobs as Record<string, unknown>;
+    const expectedRef = "${{ inputs.target_ref || github.sha }}";
+    const publicInstallerJobs: Array<[string, string]> = [
+      ["cloud-onboard-e2e", "Run cloud onboard E2E test"],
+      ["openclaw-tui-chat-correlation-e2e", "Run OpenClaw TUI chat correlation E2E test"],
+    ];
+    const invalid: string[] = [];
+
+    for (const [jobName, stepName] of publicInstallerJobs) {
+      const env = getStepEnv(jobs[jobName], stepName);
+      if (!env) {
+        invalid.push(`${jobName} (${stepName} missing env)`);
+        continue;
+      }
+      if (env.NEMOCLAW_PUBLIC_INSTALL_REF !== expectedRef) {
+        invalid.push(
+          `${jobName} NEMOCLAW_PUBLIC_INSTALL_REF=${String(env.NEMOCLAW_PUBLIC_INSTALL_REF)}`,
+        );
+      }
+      if (env.NEMOCLAW_INSTALL_REF === "${{ github.ref_name }}") {
+        invalid.push(`${jobName} still pins public install to github.ref_name`);
+      }
+    }
+
+    expect(
+      invalid,
+      `Public installer E2Es must pass inputs.target_ref through to the curl-install path; ` +
+        `otherwise trusted main dispatch checks out the PR head but installs main. ` +
+        `Invalid jobs: ${invalid.join(", ")}`,
     ).toEqual([]);
   });
 });

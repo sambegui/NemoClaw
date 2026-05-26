@@ -203,7 +203,7 @@ jobs:
           NEMOCLAW_POLICY_MODE: "custom"
           NEMOCLAW_POLICY_PRESETS: "npm,pypi"
           NEMOCLAW_SANDBOX_NAME: "e2e-cloud-onboard"
-          NEMOCLAW_INSTALL_REF: ${{ github.ref_name }}
+          NEMOCLAW_PUBLIC_INSTALL_REF: ${{ inputs.target_ref || github.sha }}
         run: bash test/e2e/test-cloud-onboard-e2e.sh
 
       - name: Upload install log on failure
@@ -429,6 +429,7 @@ jobs:
           NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
           NEMOCLAW_RECREATE_SANDBOX: "1"
           NEMOCLAW_SANDBOX_NAME: "e2e-openclaw-tui-correlation"
+          NEMOCLAW_PUBLIC_INSTALL_REF: ${{ inputs.target_ref || github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bash test/e2e/test-openclaw-tui-chat-correlation.sh
 
