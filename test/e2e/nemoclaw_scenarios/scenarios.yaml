@@ -23,6 +23,10 @@ platforms:
     os: ubuntu
     execution_target: local
     hardware: dgx-spark
+  jetson-tegra:
+    os: ubuntu
+    execution_target: local
+    hardware: jetson-tegra
 installs:
   repo-current:
     method: repo-checkout
@@ -36,6 +40,9 @@ installs:
   release:
     method: release-tarball
     source: github-release
+  local-ollama:
+    method: local-ollama
+    source: host-ollama
   upgrade-from-version:
     method: upgrade-in-place
     source: prior-release
@@ -204,6 +211,55 @@ setup_scenarios:
       onboarding:
         gateway:
           bind_address: 0.0.0.0
+  dgx-spark-repo-install:
+    dimensions:
+      platform: dgx-spark
+      install: repo-current
+      runtime: docker-running
+      onboarding: local-ollama-openclaw
+    expected_state: local-ollama-openclaw-ready
+    suites:
+    - platform-remote-spark-install
+    runner_requirements:
+    - dgx-spark
+    - manual
+  dgx-spark-repo-local-ollama-openclaw:
+    dimensions:
+      platform: dgx-spark
+      install: local-ollama
+      runtime: docker-running
+      onboarding: local-ollama-openclaw
+    expected_state: local-ollama-openclaw-ready
+    suites:
+    - platform-remote-spark-runtime
+    runner_requirements:
+    - dgx-spark
+    - manual
+  jetson-repo-local-openclaw:
+    dimensions:
+      platform: jetson-tegra
+      install: repo-current
+      runtime: docker-running
+      onboarding: local-ollama-openclaw
+    expected_state: local-ollama-openclaw-ready
+    suites:
+    - platform-remote-jetson
+    runner_requirements:
+    - jetson-tegra
+    - manual
+  jetson-forced-gpu-negative:
+    dimensions:
+      platform: jetson-tegra
+      install: repo-current
+      runtime: docker-running
+      onboarding: local-ollama-openclaw
+    expected_state: local-ollama-openclaw-ready
+    suites:
+    - platform-remote-jetson
+    runner_requirements:
+    - jetson-tegra
+    - manual
+
   ubuntu-no-docker-preflight-negative:
     alias_for_plan: ubuntu-repo-no-docker__cloud-nvidia-openclaw
     dimensions:

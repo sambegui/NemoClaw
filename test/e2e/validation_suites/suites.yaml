@@ -309,3 +309,22 @@ suites:
     steps:
     - id: brev-branch-assertions
       script: platform_remote/brev-branch/00-brev-branch-assertions.sh
+
+  platform-remote-spark-install:
+    requires_state:
+      cli.installed: true
+    steps:
+    - id: spark-install-assertions
+      script: platform_remote/spark-install/00-spark-install-assertions.sh
+  platform-remote-spark-runtime:
+    requires_state:
+      cli.installed: true
+    steps:
+    - id: spark-runtime-assertions
+      script: platform_remote/spark-runtime/00-spark-runtime-assertions.sh
+  platform-remote-jetson:
+    requires_state:
+      cli.installed: true
+    steps:
+    - id: jetson-assertions
+      script: platform_remote/jetson/00-jetson-assertions.sh

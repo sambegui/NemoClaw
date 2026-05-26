@@ -94,6 +94,22 @@ describe("E2E scenario resolver", () => {
     expect(branch.runner_requirements).toEqual(expect.arrayContaining(["brev-api-token"]));
   });
 
+
+
+  it("should_resolve_spark_and_jetson_platform_remote_scenarios", () => {
+    const meta = realMetadata();
+    for (const [id, suite] of [
+      ["dgx-spark-repo-install", "platform-remote-spark-install"],
+      ["dgx-spark-repo-local-ollama-openclaw", "platform-remote-spark-runtime"],
+      ["jetson-repo-local-openclaw", "platform-remote-jetson"],
+      ["jetson-forced-gpu-negative", "platform-remote-jetson"],
+    ] as const) {
+      const plan = resolveScenario(id, meta);
+      expect(plan.suites.map((s) => s.id)).toContain(suite);
+      expect(plan.runner_requirements).toEqual(expect.arrayContaining(["manual"]));
+    }
+  });
+
   it("should_fail_for_unknown_scenario", () => {
     const meta = realMetadata();
     expect(() => resolveScenario("does-not-exist", meta)).toThrow(/does-not-exist/);

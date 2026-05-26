@@ -156,6 +156,25 @@ describe("Issue #3816 platform remote Brev suites", () => {
 });
 
 
+describe("Issue #3816 platform remote Spark and Jetson suites", () => {
+  it("test_should_emit_spark_and_jetson_assertion_ids_in_dry_run", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-platform-spark-"));
+    try {
+      seedContext(tmp, { ...fullContext(), E2E_SCENARIO: "dgx-spark-repo-install" });
+      const r = runSuites(["platform-remote-spark-install", "platform-remote-spark-runtime", "platform-remote-jetson"], { E2E_CONTEXT_DIR: tmp, E2E_DRY_RUN: "1" });
+      expect(r.status, `stderr:${r.stderr}\nstdout:${r.stdout}`).toBe(0);
+      for (const id of [
+        "expected.platform_remote.spark.prereq-linux-platform",
+        "expected.platform_remote.spark.delivery-chain-health-accepts-forward",
+        "expected.platform_remote.spark.gpu-recreate-preserves-start-command",
+        "expected.platform_remote.jetson.nvidia-runtime-path",
+        "expected.platform_remote.jetson.forced-gpu-fail-fast-guidance",
+      ]) expect(r.stdout).toContain(id);
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  });
+});
+
+
 describe("run-suites.sh", () => {
   it("security_credentials_suite_should_emit_stable_assertion_ids", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-security-credentials-"));
