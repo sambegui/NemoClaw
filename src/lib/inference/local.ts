@@ -791,6 +791,43 @@ export function resolveOllamaRuntimeContextWindow(
   return runtimeStatus.loaded ? (runtimeStatus.contextLength ?? null) : null;
 }
 
+let autoDetectedOllamaContextWindow: string | null = null;
+
+export function resetOllamaRuntimeContextWindowAutoState(): void {
+  autoDetectedOllamaContextWindow = null;
+}
+
+export function applyOllamaRuntimeContextWindow(selectedModel: string): void {
+  const currentContextWindow = process.env.NEMOCLAW_CONTEXT_WINDOW;
+  const currentIsPreviousAuto =
+    !!currentContextWindow &&
+    !!autoDetectedOllamaContextWindow &&
+    currentContextWindow === autoDetectedOllamaContextWindow;
+  const userContextWindow = currentIsPreviousAuto ? null : currentContextWindow;
+
+  if (parsePositiveInteger(userContextWindow)) {
+    console.log(`  ℹ Keeping configured context window: ${userContextWindow} tokens`);
+    return;
+  }
+
+  const runtimeStatus = probeOllamaRuntimeModelStatus(selectedModel);
+  if (runtimeStatus.contextLengthWarning) {
+    console.warn(`  ⚠ ${runtimeStatus.contextLengthWarning}`);
+  }
+  if (runtimeStatus.loaded && runtimeStatus.contextLength) {
+    const value = String(runtimeStatus.contextLength);
+    process.env.NEMOCLAW_CONTEXT_WINDOW = value;
+    autoDetectedOllamaContextWindow = value;
+    console.log(`  ✓ Using Ollama runtime context length: ${value} tokens`);
+    return;
+  }
+
+  if (currentIsPreviousAuto) {
+    delete process.env.NEMOCLAW_CONTEXT_WINDOW;
+    autoDetectedOllamaContextWindow = null;
+  }
+}
+
 function formatOllamaCpuOnlyDiagnostic(model: string, status: OllamaRuntimeModelStatus): string {
   const observed: string[] = [];
   if (status.processor) observed.push(`processor=${status.processor}`);

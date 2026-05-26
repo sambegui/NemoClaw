@@ -1571,7 +1571,7 @@ const { setupNim } = require(${onboardPath});
     const repoRoot = path.join(import.meta.dirname, "..");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-onboard-ollama-context-"));
     const scriptPath = path.join(tmpDir, "ollama-context-check.js");
-    const onboardPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "onboard.js"));
+    const localInferencePath = JSON.stringify(path.join(repoRoot, "dist", "lib", "inference", "local.js"));
     const runnerPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "runner.js"));
 
     const script = String.raw`
@@ -1589,7 +1589,7 @@ runner.runCapture = (command) => {
 const {
   applyOllamaRuntimeContextWindow,
   resetOllamaRuntimeContextWindowAutoState,
-} = require(${onboardPath});
+} = require(${localInferencePath});
 
 const result = {};
 const originalWarn = console.warn;
