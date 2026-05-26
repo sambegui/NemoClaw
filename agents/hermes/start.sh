@@ -217,10 +217,27 @@ remove_stale_gateway_file() {
   fi
 }
 
+hermes_config_root_is_locked() {
+  local owner mode
+
+  owner="$(stat -c '%U:%G' "$HERMES_DIR" 2>/dev/null || stat -f '%Su:%Sg' "$HERMES_DIR" 2>/dev/null || true)"
+  mode="$(stat -c '%a' "$HERMES_DIR" 2>/dev/null || stat -f '%Lp' "$HERMES_DIR" 2>/dev/null || true)"
+
+  case "${owner} ${mode}" in
+    "root:root 755" | "root:root 0755") return 0 ;;
+  esac
+  return 1
+}
+
 ensure_hermes_config_root_mode() {
   if [ -L "$HERMES_DIR" ] || [ ! -d "$HERMES_DIR" ]; then
     echo "[SECURITY] Refusing Hermes layout repair because ${HERMES_DIR} is not a safe directory" >&2
     return 1
+  fi
+
+  if hermes_config_root_is_locked; then
+    echo "[gateway] Hermes config root is locked; preserving shields-up permissions" >&2
+    return 0
   fi
 
   if [ "$(id -u)" -eq 0 ]; then
@@ -256,6 +273,11 @@ ensure_hermes_state_dir() {
 }
 
 repair_hermes_startup_layout() {
+  if hermes_config_root_is_locked; then
+    echo "[gateway] Hermes layout repair skipped because config root is locked" >&2
+    return 0
+  fi
+
   ensure_hermes_config_root_mode
   ensure_hermes_state_dir "${HERMES_DIR}/logs" 770
   ensure_hermes_state_dir "${HERMES_DIR}/logs/curator" 770

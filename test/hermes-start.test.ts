@@ -116,6 +116,7 @@ function runHermesGatewayRuntimeCleanup(opts: {
   orphanSocat?: boolean;
   staleLock?: boolean;
   stalePid?: boolean;
+  lockedConfigRoot?: boolean;
 }) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-runtime-cleanup-"));
   const hermesHome = path.join(tmpDir, ".hermes");
@@ -129,6 +130,9 @@ function runHermesGatewayRuntimeCleanup(opts: {
 
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.mkdirSync(procRoot, { recursive: true });
+  if (opts.lockedConfigRoot) {
+    fs.chmodSync(hermesHome, 0o755);
+  }
   fs.symlinkSync("runtime/gateway.pid", legacyPid);
   if (opts.stalePid !== false) fs.writeFileSync(runtimePid, "999999\n");
   if (opts.staleLock !== false) fs.writeFileSync(runtimeLock, "stale lock");
@@ -153,6 +157,7 @@ function runHermesGatewayRuntimeCleanup(opts: {
       extractShellFunctionFromSource(src, "has_live_hermes_gateway"),
       extractShellFunctionFromSource(src, "cleanup_orphan_socat_forwarders"),
       extractShellFunctionFromSource(src, "remove_stale_gateway_file"),
+      extractShellFunctionFromSource(src, "hermes_config_root_is_locked"),
       extractShellFunctionFromSource(src, "ensure_hermes_config_root_mode"),
       extractShellFunctionFromSource(src, "ensure_hermes_state_dir"),
       extractShellFunctionFromSource(src, "repair_hermes_startup_layout"),
@@ -161,6 +166,17 @@ function runHermesGatewayRuntimeCleanup(opts: {
       'kill() { printf "%s\\n" "$*" >>"$KILL_LOG"; return 0; }',
       `HERMES_DIR=${shellQuote(hermesHome)}`,
       `NEMOCLAW_PROC_ROOT=${shellQuote(procRoot)}`,
+      opts.lockedConfigRoot
+        ? [
+            'stat() {',
+            '  if [ "${1:-}" = "-c" ] && [ "${2:-}" = "%U:%G" ] && [ "${3:-}" = "$HERMES_DIR" ]; then printf "root:root\\n"; return 0; fi',
+            '  if [ "${1:-}" = "-c" ] && [ "${2:-}" = "%a" ] && [ "${3:-}" = "$HERMES_DIR" ]; then printf "755\\n"; return 0; fi',
+            '  if [ "${1:-}" = "-f" ] && [ "${2:-}" = "%Su:%Sg" ] && [ "${3:-}" = "$HERMES_DIR" ]; then printf "root:root\\n"; return 0; fi',
+            '  if [ "${1:-}" = "-f" ] && [ "${2:-}" = "%Lp" ] && [ "${3:-}" = "$HERMES_DIR" ]; then printf "755\\n"; return 0; fi',
+            '  command stat "$@"',
+            '}',
+          ].join("\n")
+        : "",
       "PUBLIC_PORT=8642",
       "INTERNAL_PORT=18642",
       "cleanup_stale_hermes_gateway_runtime",
@@ -311,6 +327,26 @@ describe("agents/hermes/start.sh gateway runtime cleanup", () => {
       image_cache: "770",
       audio_cache: "770",
     });
+  });
+
+  it("preserves a locked Hermes config root during stale gateway cleanup", () => {
+    const run = runHermesGatewayRuntimeCleanup({ lockedConfigRoot: true });
+
+    expect(run.result.status).toBe(0);
+    expect(run.hermesDirMode).toBe("755");
+    expect(run.requiredDirs).toEqual({
+      logs: "missing",
+      "logs/curator": "missing",
+      hooks: "missing",
+      image_cache: "missing",
+      audio_cache: "missing",
+    });
+    expect(run.runtimePidExists).toBe(false);
+    expect(run.runtimeLockExists).toBe(false);
+    expect(run.legacyPidExists).toBe(false);
+    expect(run.result.stderr).toContain(
+      "Hermes layout repair skipped because config root is locked",
+    );
   });
 
   it("kills orphaned socat forwarders when no Hermes gateway is alive", () => {
