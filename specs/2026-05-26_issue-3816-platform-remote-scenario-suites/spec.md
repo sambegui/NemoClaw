@@ -350,7 +350,7 @@ Classification vocabulary is exactly: `covered`, `new assertion`, `deferred`, `r
 - Preserve `NVIDIA_API_KEY`, Brev token/API, CPU/GPU branch, and launchable runner metadata.
 - Keep #3959/Brev GPU live assertions deferred until the environment is available and issue status supports live green validation.
 
-### Phase 5: DGX Spark, Jetson, and local-model platform suites
+### Phase 5: DGX Spark, Jetson, and local-model platform suites [COMPLETED: 69905c57d]
 
 - Add `platform-remote-spark-install`, `platform-remote-spark-runtime`, and `platform-remote-jetson` suites.
 - Represent DGX Spark and Jetson assertions with plan-only metadata even when live execution is manual/deferred.
