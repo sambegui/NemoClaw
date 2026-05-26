@@ -338,7 +338,7 @@ Classification vocabulary is exactly: `covered`, `new assertion`, `deferred`, `r
 - Implement context loading, assertion emission, skip/deferred handling, runner/secret metadata helpers, and secret redaction.
 - Add unit/source tests for source-safety, missing context failures, redaction, and dry-run assertion emission.
 
-### Phase 3: GPU/local Ollama and auth proxy suites
+### Phase 3: GPU/local Ollama and auth proxy suites [COMPLETED: 403722423]
 
 - Add `platform-remote-gpu-ollama`, `platform-remote-ollama-proxy`, `platform-remote-gpu-cleanup`, and `platform-remote-gpu-reonboard` suites.
 - Wire `gpu-repo-local-ollama-openclaw` and `gpu-repo-local-ollama-openclaw-reonboard` plans.
