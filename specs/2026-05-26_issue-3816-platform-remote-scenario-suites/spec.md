@@ -333,7 +333,7 @@ Classification vocabulary is exactly: `covered`, `new assertion`, `deferred`, `r
 - Ensure every `expected.platform_remote.*` emitted by suites has metadata.
 - Update the existing scenario coverage/reporting mechanism so all rows above are visible.
 
-### Phase 2: Add `platform_remote.sh` primitive library
+### Phase 2: Add `platform_remote.sh` primitive library [COMPLETED: dc86f837c]
 
 - Implement context loading, assertion emission, skip/deferred handling, runner/secret metadata helpers, and secret redaction.
 - Add unit/source tests for source-safety, missing context failures, redaction, and dry-run assertion emission.
