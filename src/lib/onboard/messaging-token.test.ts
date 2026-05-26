@@ -62,8 +62,11 @@ describe("getMessagingToken", () => {
     }));
 
     const { KNOWN_CHANNELS } = await import("../sandbox/channels");
-    const { getValidatedMessagingTokenByEnvKey } = await import("./messaging-token");
+    const { getValidatedMessagingToken, getValidatedMessagingTokenByEnvKey } = await import(
+      "./messaging-token"
+    );
 
+    expect(getValidatedMessagingToken(KNOWN_CHANNELS.slack, "UNKNOWN_TOKEN")).toBeNull();
     expect(getValidatedMessagingTokenByEnvKey([KNOWN_CHANNELS.slack], "UNKNOWN_TOKEN")).toBeNull();
   });
 });

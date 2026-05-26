@@ -23,7 +23,7 @@ export function isMessagingTokenFormatValid(
   envKey: string | undefined,
   token: string | null,
 ): boolean {
-  if (!token) return false;
+  if (!token || !envKey || !getChannelTokenKeys(channel).includes(envKey)) return false;
   const format = getTokenFormat(channel, envKey);
   return !format || format.test(token);
 }
