@@ -13,7 +13,7 @@ export interface PreRecreateBackupOptions {
   errorLog?: (msg: string) => void;
 }
 
-export type PreRecreateBackupFailureKind = "none" | "empty" | "threw";
+export type PreRecreateBackupFailureKind = "none" | "partial" | "empty" | "threw";
 
 export interface PreRecreateBackupResult {
   ok: boolean;
@@ -30,17 +30,18 @@ export function backupSandboxBeforeRecreate(
   const backupImpl = opts.backupImpl ?? sandboxState.backupSandboxState;
   try {
     const backup = backupImpl(opts.sandboxName);
-    if (backup.success) {
+    if (backup.success && backup.manifest?.backupPath) {
       log(
         `  ✓ State backed up (${backup.backedUpDirs.length} directories, ${backup.backedUpFiles.length} files)`,
       );
       return { ok: true, backup, failureKind: "none" };
     }
     if (backup.backedUpDirs.length > 0 || backup.backedUpFiles.length > 0) {
-      log(
-        `  ⚠ Partial backup: ${backup.backedUpDirs.length} dirs / ${backup.backedUpFiles.length} files saved; ${backup.failedDirs.length} dirs / ${backup.failedFiles.length} files failed.`,
+      errorLog(
+        `  Partial backup: ${backup.backedUpDirs.length} dirs / ${backup.backedUpFiles.length} files saved; ${backup.failedDirs.length} dirs / ${backup.failedFiles.length} files failed.`,
       );
-      return { ok: true, backup, failureKind: "none" };
+      errorLog("  Aborting recreate — failed entries would be lost on delete.");
+      return { ok: false, backup, failureKind: "partial" };
     }
     errorLog("  State backup failed — aborting recreate to prevent data loss.");
     return { ok: false, backup: null, failureKind: "empty" };

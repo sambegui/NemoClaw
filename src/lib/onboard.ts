@@ -3321,14 +3321,6 @@ async function createSandbox(
       if (!result.ok) {
         console.error("  Pass --recreate-sandbox to force recreation without backup.");
         upsertMessagingProviders(messagingTokenDefs);
-        const abortHashes: Record<string, string> = {};
-        for (const { envKey, token } of messagingTokenDefs) {
-          const hash = token ? hashCredential(token) : null;
-          if (hash) abortHashes[envKey] = hash;
-        }
-        if (Object.keys(abortHashes).length > 0) {
-          registry.updateSandbox(sandboxName, { providerCredentialHashes: abortHashes });
-        }
         const reusedPort3 = ensureDashboardForward(sandboxName, chatUiUrl);
         process.env.CHAT_UI_URL = `http://127.0.0.1:${reusedPort3}`;
         updateReusedSandboxMetadata(
@@ -3374,11 +3366,7 @@ async function createSandbox(
     });
     if (decision.overrideNote !== null) note(decision.overrideNote);
 
-    if (
-      pendingStateRestore === null &&
-      existingSandboxState === "ready" &&
-      !shouldSkipPreRecreateBackup(process.env)
-    ) {
+    if (pendingStateRestore === null && !shouldSkipPreRecreateBackup(process.env)) {
       note("  Backing up workspace state before recreating sandbox...");
       const result = backupSandboxBeforeRecreate({ sandboxName });
       if (!result.ok) {

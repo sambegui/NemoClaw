@@ -3,19 +3,23 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { BackupResult } from "../../../dist/lib/state/sandbox";
 import {
   backupSandboxBeforeRecreate,
   shouldSkipPreRecreateBackup,
 } from "../../../dist/lib/onboard/sandbox-backup-on-recreate";
 
-function makeBackup(overrides: Record<string, unknown> = {}): unknown {
+function makeBackup(overrides: Partial<BackupResult> = {}): BackupResult {
   return {
     success: true,
     backedUpDirs: ["workspace", "skills"],
     failedDirs: [],
     backedUpFiles: ["UPGRADE_MARKER.md"],
     failedFiles: [],
-    manifest: { backupPath: "/tmp/backups/x", timestamp: "2026-05-25T00:00:00Z" },
+    manifest: {
+      backupPath: "/tmp/backups/x",
+      timestamp: "2026-05-25T00:00:00Z",
+    } as BackupResult["manifest"],
     ...overrides,
   };
 }
@@ -38,7 +42,7 @@ describe("backupSandboxBeforeRecreate", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("State backed up"));
   });
 
-  it("treats partial backup as ok and warns", () => {
+  it("returns ok:false with failureKind=partial when some entries failed", () => {
     const backup = makeBackup({
       success: false,
       backedUpDirs: ["workspace"],
@@ -46,16 +50,30 @@ describe("backupSandboxBeforeRecreate", () => {
       backedUpFiles: [],
       failedFiles: ["bad.bin"],
     });
-    const log = vi.fn();
+    const errorLog = vi.fn();
     const result = backupSandboxBeforeRecreate({
       sandboxName: "my-assistant",
       backupImpl: () => backup,
-      log,
-      errorLog: vi.fn(),
+      log: vi.fn(),
+      errorLog,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.failureKind).toBe("partial");
     expect(result.backup).toBe(backup);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("Partial backup"));
+    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Partial backup"));
+    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Aborting recreate"));
+  });
+
+  it("rejects backup result missing manifest backupPath", () => {
+    const backup = makeBackup({ manifest: undefined });
+    const errorLog = vi.fn();
+    const result = backupSandboxBeforeRecreate({
+      sandboxName: "my-assistant",
+      backupImpl: () => backup,
+      log: vi.fn(),
+      errorLog,
+    });
+    expect(result.ok).toBe(false);
   });
 
   it("returns ok:false with failureKind=empty when nothing was backed up", () => {
