@@ -315,3 +315,38 @@ describe("run-scenario.sh --plan-only", () => {
     }
   });
 });
+
+
+describe("Issue #3816 platform remote plan-only coverage", () => {
+  it("test_should_plan_only_all_platform_remote_scenarios", () => {
+    const scenarios = [
+      "gpu-repo-local-ollama-openclaw",
+      "gpu-repo-local-ollama-openclaw-reonboard",
+      "brev-launchable-cloud-openclaw",
+      "brev-remote-branch-validation",
+      "dgx-spark-repo-install",
+      "dgx-spark-repo-local-ollama-openclaw",
+      "macos-repo-cloud-openclaw",
+      "wsl-repo-cloud-openclaw",
+      "wsl-no-distro-bootstrap-negative",
+      "wsl-fake-gpu-negative",
+      "ubuntu-public-cloud-openclaw-target-ref",
+      "jetson-repo-local-openclaw",
+      "jetson-forced-gpu-negative",
+    ];
+    for (const scenario of scenarios) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `e2e-plan-${scenario}-`));
+      try {
+        const result = spawnSync("bash", [path.join(E2E_DIR, "runtime", "run-scenario.sh"), scenario, "--plan-only"], {
+          env: { ...process.env, E2E_CONTEXT_DIR: tmp },
+          encoding: "utf8",
+          timeout: Number(process.env.E2E_SPAWN_TIMEOUT_MS ?? 60_000),
+          cwd: REPO_ROOT,
+        });
+        expect(result.status, `${scenario} stderr:${result.stderr} stdout:${result.stdout}`).toBe(0);
+        expect(fs.existsSync(path.join(tmp, "plan.json"))).toBe(true);
+        expect(result.stdout).toContain("platform-remote");
+      } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    }
+  });
+});
