@@ -572,13 +572,55 @@ describe("generate-openclaw-config.py: config generation", () => {
     });
   });
 
+  it("uses Slack allowed channels to scope channel @mentions", () => {
+    const allowedUsers = ["U01ABC2DEF3", "U04GHI5JKL6"];
+    const allowedChannels = ["C012AB3CD", "C987ZY6XW"];
+    const channels = Buffer.from(JSON.stringify(["slack"])).toString("base64");
+    const allowedIds = Buffer.from(JSON.stringify({ slack: allowedUsers })).toString("base64");
+    const slackConfig = Buffer.from(JSON.stringify({ allowedChannels })).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+      NEMOCLAW_MESSAGING_ALLOWED_IDS_B64: allowedIds,
+      NEMOCLAW_SLACK_CONFIG_B64: slackConfig,
+    });
+    const slack = config.channels.slack.accounts.default;
+
+    expect(slack.dmPolicy).toBe("allowlist");
+    expect(slack.allowFrom).toEqual(allowedUsers);
+    expect(slack.groupPolicy).toBe("allowlist");
+    expect(slack.channels).toEqual({
+      C012AB3CD: {
+        enabled: true,
+        requireMention: true,
+        users: allowedUsers,
+      },
+      C987ZY6XW: {
+        enabled: true,
+        requireMention: true,
+        users: allowedUsers,
+      },
+    });
+  });
+
+  it("enables native OpenClaw Tool Search by default", () => {
+    const config = runConfigScript();
+    expect(config.tools?.toolSearch).toBe(true);
+  });
+
   it("enables web search when env is '1'", () => {
     const config = runConfigScript({ NEMOCLAW_WEB_SEARCH_ENABLED: "1" });
-    expect(config.tools?.web?.search?.enabled).toBe(true);
+    expect(config.tools?.toolSearch).toBe(true);
+    expect(config.tools?.web?.search).toEqual({
+      enabled: true,
+      provider: "brave",
+      apiKey: "openshell:resolve:env:BRAVE_API_KEY",
+    });
+    expect(config.tools?.web?.fetch?.enabled).toBe(true);
   });
 
   it("omits web search when env is not set", () => {
     const config = runConfigScript();
+    expect(config.tools?.toolSearch).toBe(true);
     expect(config.tools?.web).toBeUndefined();
   });
 
@@ -678,6 +720,7 @@ describe("generate-openclaw-config.py: config generation", () => {
     expect(config.plugins.load.paths).toEqual([
       "/usr/local/share/nemoclaw/openclaw-plugins/kimi-inference-compat",
     ]);
+    expect(config.tools?.toolSearch).toBe(false);
   });
 
   it("adds registry compat when the incoming compat blob is null", () => {
@@ -786,8 +829,9 @@ describe("generate-openclaw-config.py: config generation", () => {
       expect(providerConfig.models[0].compat).toEqual({ supportsStore: false });
       expect(config.plugins.entries["nemoclaw-kimi-inference-compat"]).toBeUndefined();
       expect(config.plugins.load).toBeUndefined();
+      expect(config.tools?.toolSearch).toBe(true);
     }
-  });
+  }, 20_000);
 
   it("rejects model-specific setup manifests without a known agent", () => {
     const blueprintDir = path.join(tmpDir, "fixture-blueprint");
@@ -828,7 +872,7 @@ describe("generate-openclaw-config.py: config generation", () => {
 
     expect(unknownResult.status).not.toBe(0);
     expect(unknownResult.stderr).toContain("unknown agent 'sidecar'");
-  });
+  }, 20_000);
 
   it("rejects empty match objects and invalid explicit registry overrides", () => {
     const missingRegistry = path.join(tmpDir, "missing-registry");
@@ -912,6 +956,26 @@ describe("generate-openclaw-config.py: config generation", () => {
     expect(missingPluginResult.stderr).toContain("path does not exist");
 
     fs.rmSync(path.join(blueprintDir, "model-specific-setup", "openclaw", "missing-plugin.json"));
+    const badToolRegistryDir = writeRegistryManifest(
+      blueprintDir,
+      "openclaw/bad-tool-effect.json",
+      {
+        id: "bad-tool-effect",
+        agent: "openclaw",
+        description: "Invalid tool override",
+        match: { modelIds: ["test-model"] },
+        effects: { openclawTools: { toolSearch: "false" } },
+      },
+    );
+
+    const badToolResult = runConfigScriptRaw({
+      NEMOCLAW_MODEL_SPECIFIC_SETUP_DIR: badToolRegistryDir,
+    });
+
+    expect(badToolResult.status).not.toBe(0);
+    expect(badToolResult.stderr).toContain("effects.openclawTools.toolSearch must be a boolean");
+
+    fs.rmSync(path.join(blueprintDir, "model-specific-setup", "openclaw", "bad-tool-effect.json"));
     fs.mkdirSync(path.join(blueprintDir, "openclaw-plugins", "fixture"), { recursive: true });
     const badLoadPathRegistryDir = writeRegistryManifest(
       blueprintDir,

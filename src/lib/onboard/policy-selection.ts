@@ -6,6 +6,13 @@ import {
   HERMES_TOOL_GATEWAY_PRESET_NAMES,
   mergeRequiredHermesToolGatewayPolicyPresets,
 } from "./hermes-managed-tools";
+import {
+  hasDisabledMessagingPolicyPreset,
+  mergeAppliedPolicyPresetsForDisabledMessagingCleanup,
+  mergeRequiredMessagingChannelPolicyPresets,
+  pruneDisabledMessagingPolicyPresets,
+  requiredMessagingChannelPolicyPresets,
+} from "./messaging-policy-presets";
 import { withPolicyApplicationTrace } from "./tracing";
 
 type Preset = { name: string; access?: string };
@@ -45,6 +52,7 @@ export type SetupPolicySelectionOptions = {
   knownPresetNames?: string[];
   webSearchSupported?: boolean | null;
   hermesToolGateways?: string[] | null;
+  disabledChannels?: string[] | null;
 };
 
 export type SetupPolicySelectionDeps = {
@@ -71,6 +79,31 @@ export type SetupPolicySelectionDeps = {
   parsePolicyPresetEnv: (raw: string) => string[];
   env?: NodeJS.ProcessEnv;
 };
+
+export type PreparedPolicyResumeSelection = {
+  policyPresets: string[];
+  recordedPolicyPresetsNeedReconcile: boolean;
+  disabledMessagingPolicyPresetApplied: boolean;
+};
+
+export function mergeRequiredSetupPolicyPresets(
+  policyPresets: string[],
+  options: {
+    enabledChannels?: string[] | null;
+    hermesToolGateways?: string[] | null;
+    knownPresetNames?: string[] | Set<string> | null;
+  } = {},
+): string[] {
+  return mergeRequiredMessagingChannelPolicyPresets(
+    mergeRequiredHermesToolGatewayPolicyPresets(
+      policyPresets,
+      options.hermesToolGateways,
+      options.knownPresetNames,
+    ),
+    options.enabledChannels,
+    options.knownPresetNames,
+  );
+}
 
 export function isStaleBuiltinBravePolicyPreset(
   name: string,
@@ -114,6 +147,7 @@ export function computeSetupPresetSuggestions(
   if (provider && deps.localInferenceProviders.includes(provider)) add("local-inference");
   if (Array.isArray(enabledChannels)) {
     for (const channel of enabledChannels) add(channel);
+    for (const preset of requiredMessagingChannelPolicyPresets(enabledChannels)) add(preset);
   }
   if (Array.isArray(options.hermesToolGateways)) {
     for (const preset of options.hermesToolGateways) {
@@ -121,6 +155,77 @@ export function computeSetupPresetSuggestions(
     }
   }
   return suggestions;
+}
+
+export function preparePolicyPresetResumeSelection(
+  deps: { policies: PoliciesApi },
+  sandboxName: string,
+  options: {
+    recordedPolicyPresets: string[] | null;
+    disabledChannels?: string[] | null;
+    enabledChannels?: string[] | null;
+    hermesToolGateways?: string[] | null;
+    webSearchConfig?: WebSearchConfig | null;
+    webSearchSupported?: boolean | null;
+  },
+): PreparedPolicyResumeSelection {
+  const supportOptions = { webSearchSupported: options.webSearchSupported };
+  const appliedPolicyPresets = deps.policies.getAppliedPresets(sandboxName);
+  const selectablePolicyPresets = [
+    ...deps.policies.listSetupPolicyPresets(sandboxName, supportOptions),
+    ...appliedPolicyPresets.map((name) => ({ name })),
+  ];
+  const customPolicyPresetNames = new Set(
+    deps.policies.listCustomPresets(sandboxName).map((preset) => preset.name),
+  );
+  const clampedRecordedPolicyPresets = deps.policies.clampSetupPolicyPresetNames(
+    options.recordedPolicyPresets || [],
+    selectablePolicyPresets,
+    supportOptions,
+    customPolicyPresetNames,
+  );
+  const isStaleBuiltinBrave = (name: string) =>
+    isStaleBuiltinBravePolicyPreset(name, {
+      webSearchConfig: options.webSearchConfig,
+      customPresetNames: customPolicyPresetNames,
+    });
+  let policyPresets = pruneDisabledMessagingPolicyPresets(
+    clampedRecordedPolicyPresets.filter((name) => !isStaleBuiltinBrave(name)),
+    options.disabledChannels,
+  );
+  const recordedPolicyPresetsNeedReconcile =
+    Array.isArray(options.recordedPolicyPresets) &&
+    policyPresets.length !== options.recordedPolicyPresets.length;
+  const appliedPolicyPresetsForSupport = deps.policies
+    .clampSetupPolicyPresetNames(
+      appliedPolicyPresets,
+      selectablePolicyPresets,
+      supportOptions,
+      customPolicyPresetNames,
+    )
+    .filter((name) => !isStaleBuiltinBrave(name));
+  const disabledMessagingPolicyPresetApplied = hasDisabledMessagingPolicyPreset(
+    appliedPolicyPresetsForSupport,
+    options.disabledChannels,
+  );
+  policyPresets = mergeAppliedPolicyPresetsForDisabledMessagingCleanup(
+    policyPresets,
+    appliedPolicyPresetsForSupport,
+    options.disabledChannels,
+  );
+  if (Array.isArray(options.recordedPolicyPresets)) {
+    policyPresets = mergeRequiredSetupPolicyPresets(policyPresets, {
+      enabledChannels: options.enabledChannels,
+      hermesToolGateways: options.hermesToolGateways,
+      knownPresetNames: selectablePolicyPresets.map((preset) => preset.name),
+    });
+  }
+
+  return {
+    policyPresets,
+    recordedPolicyPresetsNeedReconcile,
+    disabledMessagingPolicyPresetApplied,
+  };
 }
 
 export async function setupPoliciesWithSelection(
@@ -146,6 +251,9 @@ async function setupPoliciesWithSelectionInner(
   const hermesToolGateways = Array.isArray(options.hermesToolGateways)
     ? options.hermesToolGateways
     : null;
+  const disabledChannels = Array.isArray(options.disabledChannels)
+    ? options.disabledChannels
+    : null;
 
   deps.step(8, 8, "Policy presets");
 
@@ -168,6 +276,12 @@ async function setupPoliciesWithSelectionInner(
   );
   const isStaleBuiltinBrave = (name: string) =>
     isStaleBuiltinBravePolicyPreset(name, { webSearchConfig, customPresetNames });
+  const appliedForPreservation = pruneDisabledMessagingPolicyPresets(
+    applied,
+    disabledChannels,
+  ).filter((name) => !isStaleBuiltinBrave(name));
+  const pruneDisabledPresets = (presetNames: string[]) =>
+    pruneDisabledMessagingPolicyPresets(presetNames, disabledChannels);
   const filterSupportedPresetNames = (presetNames: string[]) =>
     presetNames.filter(
       (name) =>
@@ -183,12 +297,14 @@ async function setupPoliciesWithSelectionInner(
           customPresetNames,
         )
       : null;
-  if (chosen) {
-    chosen = mergeRequiredHermesToolGatewayPolicyPresets(
-      chosen,
+  if (chosen !== null) {
+    const knownSelectablePresets = new Set(selectablePresets.map((preset) => preset.name));
+    chosen = mergeRequiredSetupPolicyPresets(chosen, {
+      enabledChannels,
       hermesToolGateways,
-      new Set(selectablePresets.map((preset) => preset.name)),
-    );
+      knownPresetNames: knownSelectablePresets,
+    });
+    chosen = pruneDisabledPresets(chosen);
   }
 
   if (selectedPresets !== null) {
@@ -205,14 +321,16 @@ async function setupPoliciesWithSelectionInner(
 
   const tierName = await deps.selectPolicyTier();
   deps.setPolicyTier?.(sandboxName, tierName);
-  const suggestions = computeSetupPresetSuggestions(deps, tierName, {
-    enabledChannels,
-    webSearchConfig,
-    provider,
-    knownPresetNames: allPresets.map((preset) => preset.name),
-    webSearchSupported: options.webSearchSupported,
-    hermesToolGateways,
-  });
+  const suggestions = pruneDisabledPresets(
+    computeSetupPresetSuggestions(deps, tierName, {
+      enabledChannels,
+      webSearchConfig,
+      provider,
+      knownPresetNames: allPresets.map((preset) => preset.name),
+      webSearchSupported: options.webSearchSupported,
+      hermesToolGateways,
+    }),
+  );
 
   if (deps.isNonInteractive()) {
     const policyMode = (deps.env?.NEMOCLAW_POLICY_MODE || "suggested").trim().toLowerCase();
@@ -248,7 +366,12 @@ async function setupPoliciesWithSelectionInner(
       console.warn(`  Falling back to suggested presets for tier '${tierName}'.`);
     }
 
-    chosen = mergeRequiredHermesToolGatewayPolicyPresets(chosen, hermesToolGateways, knownPresets);
+    chosen = mergeRequiredSetupPolicyPresets(chosen, {
+      enabledChannels,
+      hermesToolGateways,
+      knownPresetNames: knownPresets,
+    });
+    chosen = pruneDisabledPresets(chosen);
 
     const invalidPresets = chosen.filter((name) => !knownPresets.has(name));
     if (invalidPresets.length > 0) {
@@ -259,7 +382,7 @@ async function setupPoliciesWithSelectionInner(
     if (!isAuthoritative) {
       const chosenSet = new Set(chosen);
       const preserved: string[] = [];
-      for (const name of applied) {
+      for (const name of appliedForPreservation) {
         if (chosenSet.has(name)) continue;
         if (isStaleBuiltinBrave(name)) continue;
         chosen.push(name);
@@ -283,14 +406,15 @@ async function setupPoliciesWithSelectionInner(
 
   const knownNames = new Set(allPresets.map((preset) => preset.name));
   const extraSelected = [
-    ...applied.filter((name) => knownNames.has(name) && !isStaleBuiltinBrave(name)),
+    ...appliedForPreservation.filter((name) => knownNames.has(name)),
     ...suggestions.filter((name) => knownNames.has(name) && !applied.includes(name)),
   ];
   const resolvedPresets = await deps.selectTierPresetsAndAccess(tierName, allPresets, extraSelected);
-  const interactiveChoice = mergeRequiredHermesToolGatewayPolicyPresets(
-    resolvedPresets.map((preset) => preset.name),
-    hermesToolGateways,
-    knownNames,
+  const interactiveChoice = pruneDisabledPresets(
+    mergeRequiredSetupPolicyPresets(
+      resolvedPresets.map((preset) => preset.name),
+      { enabledChannels, hermesToolGateways, knownPresetNames: knownNames },
+    ),
   );
 
   if (onSelection) onSelection(interactiveChoice);

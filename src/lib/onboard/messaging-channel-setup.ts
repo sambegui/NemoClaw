@@ -84,6 +84,9 @@ export async function setupSelectedMessagingChannels(
         continue;
       }
     }
+    for (const line of ch.setupNotes ?? []) {
+      console.log(`  ${line}`);
+    }
     if (ch.appTokenEnvKey) {
       const existingAppToken = getMessagingToken(ch.appTokenEnvKey);
       if (existingAppToken) {
@@ -168,6 +171,22 @@ export async function setupSelectedMessagingChannels(
               ? "any member in the configured server can message the bot"
               : "bot will require manual pairing";
           console.log(`  Skipped ${ch.name} user ID (${skippedReason})`);
+        }
+      }
+    }
+    if (ch.channelIdEnvKey && (!ch.serverIdEnvKey || process.env[ch.serverIdEnvKey])) {
+      const existingChannelIds = getMessagingConfigValue(ch.channelIdEnvKey) || "";
+      if (existingChannelIds) {
+        process.env[ch.channelIdEnvKey] = existingChannelIds;
+        console.log(`  ✓ ${ch.name} — channel IDs already set: ${existingChannelIds}`);
+      } else {
+        console.log(`  ${ch.channelIdHelp}`);
+        const channelIds = (await prompt(`  ${ch.channelIdLabel}: `)).trim();
+        if (channelIds) {
+          process.env[ch.channelIdEnvKey] = channelIds;
+          console.log(`  ✓ ${ch.name} channel IDs saved`);
+        } else {
+          console.log(`  Skipped ${ch.name} channel IDs (channel @mentions stay disabled)`);
         }
       }
     }

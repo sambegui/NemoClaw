@@ -4,7 +4,7 @@
 import type { Session, SessionUpdates } from "../../../state/onboard-session";
 import { withSandboxPhaseTrace } from "../../tracing";
 
-export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChannelConfig, SandboxGpuConfig> {
+export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChannelConfig, SandboxGpuConfig, ResourceProfile> {
   resume: boolean;
   fresh: boolean;
   resumeAgentChanged: boolean;
@@ -41,7 +41,8 @@ export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChann
     stringSetsEqual(left: string[], right: string[]): boolean;
     removeSandboxFromRegistry(sandboxName: string): void;
     repairRecordedSandbox(sandboxName: string | null): void;
-    ensureValidatedBraveSearchCredential(): Promise<string | null>;
+    ensureValidatedBraveSearchCredential(): Promise<unknown>;
+    isBackToSelection(value: unknown): boolean;
     configureWebSearch(
       existingConfig: WebSearchConfig | null,
       agent: Agent,
@@ -57,6 +58,7 @@ export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChann
     setupMessagingChannels(agent: Agent, existingChannels: string[] | null): Promise<string[]>;
     readMessagingChannelConfigFromEnv(): MessagingChannelConfig | null;
     promptValidatedSandboxName(agent: Agent): Promise<string>;
+    selectResourceProfileForSandbox(): Promise<ResourceProfile | null>;
     stopStaleDashboardListenersForSandbox(sandboxes: unknown[], sandboxName: string): void;
     listRegistrySandboxes(): { sandboxes: unknown[] };
     createSandbox(
@@ -71,6 +73,7 @@ export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChann
       agent: Agent,
       controlUiPort: number | null,
       sandboxGpuConfig: SandboxGpuConfig,
+      resourceProfile: ResourceProfile | null,
       hermesToolGateways: string[],
     ): Promise<string>;
     updateSandboxRegistry(sandboxName: string, updates: Record<string, unknown>): void;
@@ -79,6 +82,11 @@ export interface SandboxStateOptions<Gpu, Agent, WebSearchConfig, MessagingChann
     recordStepComplete(stepName: string, updates: SessionUpdates): Promise<Session>;
     toSessionUpdates(updates: Record<string, unknown>): SessionUpdates;
     skippedStepMessage(stepName: string, detail?: string | null): void;
+    recordStateSkipped(state: "sandbox", metadata?: Record<string, unknown> | null): Promise<Session>;
+    recordRepairEvent(
+      type: "state.repair.started" | "state.repair.completed" | "state.repair.failed",
+      options?: { state?: "sandbox"; error?: string | null; metadata?: Record<string, unknown> | null },
+    ): Promise<Session>;
     error(message?: string): void;
     exitProcess(code: number): never;
   };
@@ -96,7 +104,7 @@ function sameEffectiveTelegramRequireMention(left: boolean | null, right: boolea
   return (left ?? false) === (right ?? false);
 }
 
-export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingChannelConfig, SandboxGpuConfig>({
+export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingChannelConfig, SandboxGpuConfig, ResourceProfile>({
   resume,
   fresh,
   resumeAgentChanged,
@@ -121,7 +129,8 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
   Agent,
   WebSearchConfig,
   MessagingChannelConfig,
-  SandboxGpuConfig
+  SandboxGpuConfig,
+  ResourceProfile
 >): Promise<SandboxStateResult<WebSearchConfig>> {
   const webSearchSupportProbePath = fromDockerfile ? deps.resolvePath(fromDockerfile) : null;
   const webSearchSupported = deps.agentSupportsWebSearch(agent, webSearchSupportProbePath, rootDir);
@@ -182,6 +191,7 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
     if (webSearchConfig) deps.note("  [resume] Reusing Brave Search configuration already baked into the sandbox.");
     selectedMessagingChannels = session?.messagingChannels ?? [];
     deps.skippedStepMessage("sandbox", sandboxName);
+    await deps.recordStateSkipped("sandbox", { reason: "resume", sandboxName });
   } else {
     if (resume && session?.steps?.sandbox?.status === "complete") {
       if (resumeAgentChanged) {
@@ -206,7 +216,25 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
         if (sandboxName) deps.removeSandboxFromRegistry(sandboxName);
       } else if (sandboxReuseState === "not_ready") {
         deps.note(`  [resume] Recorded sandbox '${sandboxName}' exists but is not ready; recreating it.`);
-        deps.repairRecordedSandbox(sandboxName);
+        const repairMetadata = { repair: "recorded-sandbox-cleanup", sandboxName };
+        await deps.recordRepairEvent("state.repair.started", {
+          state: "sandbox",
+          metadata: repairMetadata,
+        });
+        try {
+          deps.repairRecordedSandbox(sandboxName);
+        } catch (err) {
+          await deps.recordRepairEvent("state.repair.failed", {
+            state: "sandbox",
+            error: err instanceof Error ? err.message : String(err),
+            metadata: repairMetadata,
+          });
+          throw err;
+        }
+        await deps.recordRepairEvent("state.repair.completed", {
+          state: "sandbox",
+          metadata: repairMetadata,
+        });
       } else {
         deps.note("  [resume] Recorded sandbox state is unavailable; recreating it.");
         if (sandboxName) deps.removeSandboxFromRegistry(sandboxName);
@@ -217,7 +245,11 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
     if (nextWebSearchConfig) {
       deps.note("  [resume] Revalidating Brave Search configuration for sandbox recreation.");
       const braveApiKey = await deps.ensureValidatedBraveSearchCredential();
-      nextWebSearchConfig = braveApiKey ? webSearchConfig : null;
+      if (deps.isBackToSelection(braveApiKey)) {
+        nextWebSearchConfig = null;
+      } else {
+        nextWebSearchConfig = braveApiKey ? webSearchConfig : null;
+      }
       if (nextWebSearchConfig) deps.note("  [resume] Reusing Brave Search configuration.");
     } else {
       nextWebSearchConfig = await deps.configureWebSearch(null, agent, webSearchSupportProbePath);
@@ -244,6 +276,7 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
     });
 
     if (!sandboxName) sandboxName = await deps.promptValidatedSandboxName(agent);
+    const resourceProfile = await deps.selectResourceProfileForSandbox();
     if (fresh) deps.stopStaleDashboardListenersForSandbox(deps.listRegistrySandboxes().sandboxes, sandboxName);
     sandboxName = await withSandboxPhaseTrace(
       sandboxName,
@@ -263,6 +296,7 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
           agent,
           controlUiPort,
           sandboxGpuConfig,
+          resourceProfile,
           hermesToolGateways,
         ),
     );

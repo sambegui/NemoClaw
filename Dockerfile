@@ -63,7 +63,7 @@ COPY --from=builder /opt/nemoclaw/dist/ /opt/nemoclaw/dist/
 COPY nemoclaw/openclaw.plugin.json /opt/nemoclaw/
 COPY nemoclaw/package.json nemoclaw/package-lock.json /opt/nemoclaw/
 COPY nemoclaw-blueprint/ /opt/nemoclaw-blueprint/
-RUN chmod -R a+rX /opt/nemoclaw-blueprint/
+RUN chmod -R a+rX /opt/nemoclaw /opt/nemoclaw-blueprint/
 
 # Install runtime dependencies only (no devDependencies, no build step)
 WORKDIR /opt/nemoclaw
@@ -76,7 +76,9 @@ ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FETCH_TIMEOUT=300000
 RUN npm ci --omit=dev
 COPY scripts/patch-openclaw-tool-catalog.js /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js
-RUN chmod 755 /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js
+COPY scripts/patch-openclaw-chat-send.js /usr/local/lib/nemoclaw/patch-openclaw-chat-send.js
+RUN chmod 755 /usr/local/lib/nemoclaw/patch-openclaw-tool-catalog.js \
+        /usr/local/lib/nemoclaw/patch-openclaw-chat-send.js
 
 # Upgrade OpenClaw if the base image is stale.
 #
@@ -290,6 +292,22 @@ RUN set -eu; \
     if grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = (1e4|15e3)' "$OC_DIST"; then echo "ERROR: Patch 5 left a short handshake-timeout constant" >&2; exit 1; fi; \
     if ! grep -REq --include='*.js' 'DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 6e4' "$OC_DIST"; then echo "ERROR: Patch 5 did not find patched 6e4 constant" >&2; exit 1; fi
 
+# Patch OpenClaw chat.send gateway behavior for OpenClaw 2026.5.x.
+#
+# OpenClaw can accept rapid TUI/WebChat chat.send requests and then emit a
+# terminal chat event with state="final" but no assistant message for the later
+# submitted run. That makes clients treat the turn as complete even though no
+# visible reply was delivered. The shim also correlates real agent run IDs back
+# to the submitted chat.send run ID when OpenClaw starts an internal run with a
+# different ID, carries that submitted ID through queued follow-up turns, and
+# adds the submitted run ID as the transcript idempotency key.
+#
+# Removal criteria: drop when upstream OpenClaw fixes openclaw/openclaw#70164
+# and openclaw/openclaw#50298, or when NemoClaw no longer ships OpenClaw 2026.5.x.
+# hadolint ignore=DL3059
+RUN node /usr/local/lib/nemoclaw/patch-openclaw-chat-send.js \
+    /usr/local/lib/node_modules/openclaw/dist
+
 # Patch OpenClaw's pinned 2026.5.18 compiled selection runtime to expose a
 # compact searchable tool catalog to the model while preserving the full
 # effective tool set behind tool_call. NEMOCLAW_TOOL_CATALOG=0 disables this
@@ -377,6 +395,11 @@ ARG NEMOCLAW_TELEGRAM_CONFIG_B64=e30=
 # metadata only — the bot token flows through the OpenShell provider, never
 # baked into the image. Default: empty map.
 ARG NEMOCLAW_WECHAT_CONFIG_B64=e30=
+# Base64-encoded JSON Slack config (e.g.
+# {"allowedChannels":["C012AB3CD","C987ZY6XW"]}).
+# Channel IDs scope Slack channel @mention handling. User allowlists still come
+# from NEMOCLAW_MESSAGING_ALLOWED_IDS_B64. Default: empty map.
+ARG NEMOCLAW_SLACK_CONFIG_B64=e30=
 # Set to "1" to force-disable device-pairing auth. Also auto-disabled when
 # CHAT_UI_URL is a non-loopback address (Brev Launchable, remote deployments)
 # since terminal-based pairing is impossible in those contexts.
@@ -424,6 +447,7 @@ ENV NEMOCLAW_MODEL=${NEMOCLAW_MODEL} \
     NEMOCLAW_DISCORD_GUILDS_B64=${NEMOCLAW_DISCORD_GUILDS_B64} \
     NEMOCLAW_TELEGRAM_CONFIG_B64=${NEMOCLAW_TELEGRAM_CONFIG_B64} \
     NEMOCLAW_WECHAT_CONFIG_B64=${NEMOCLAW_WECHAT_CONFIG_B64} \
+    NEMOCLAW_SLACK_CONFIG_B64=${NEMOCLAW_SLACK_CONFIG_B64} \
     NEMOCLAW_OPENCLAW_WECHAT_PLUGIN_PREINSTALLED=1 \
     NEMOCLAW_DISABLE_DEVICE_AUTH=${NEMOCLAW_DISABLE_DEVICE_AUTH} \
     NEMOCLAW_PROXY_HOST=${NEMOCLAW_PROXY_HOST} \
@@ -739,12 +763,63 @@ RUN if [ "$NEMOCLAW_DARWIN_VM_COMPAT" = "1" ]; then \
 # Health check: poll the gateway's /health endpoint so Docker (and Compose)
 # can detect and restart unhealthy containers in standalone deployments.
 # Ref: https://github.com/NVIDIA/NemoClaw/issues/1430
+#
+# Two-stage probe so Docker health does not contradict the NemoClaw delivery
+# chain on runtimes where the dashboard port lives in a different network
+# namespace (e.g. DGX Spark / aarch64 with OpenShell-managed forwarding).
+# The reporter saw `nemoclaw status` Ready + the host forward succeed while
+# Docker marked the container unhealthy because the in-container curl could
+# not see the dashboard listener. See #3975.
+#
+#   1. Direct in-container probe (HTTP 200) — definitive when it works,
+#      preserves the original Compose/standalone health signal.
+#   2. ONLY on curl exit 7 ("Couldn't connect"), fall back to verifying
+#      ALL of:
+#        - the OpenClaw gateway process started by nemoclaw-start is
+#          still alive (via pgrep --ignore-ancestors), AND
+#        - the gateway log file exists and is non-empty (proves the
+#          process started and emitted its banner; rules out cases
+#          where the gateway never came up).
+#      Exit 7 means the in-container TCP connect was refused by the
+#      kernel because nothing is bound to the dashboard port inside
+#      this network namespace — the namespace-mismatch shape reported
+#      in #3975. A connect timeout (curl exit 28) is treated as a real
+#      failure: a listener exists but is not responding (wedged HTTP
+#      server), and we want Docker to restart in that case.
+#
+# Tradeoff: this fallback also fires in a standalone deployment where the
+# gateway process is alive but the configured dashboard port is wrong or
+# the listener never came up. We accept that residual risk because it
+# requires a misconfiguration the start-period (45s) already gives the
+# wizard a chance to fix, and the existing host-side delivery chain
+# probes (verify-deployment.ts, host port forward, sandbox status) still
+# catch it from outside.
+#
+# The process pattern matches both `openclaw gateway run` (the launcher
+# command nemoclaw-start runs) and `openclaw-gateway` (the re-execed
+# binary form OpenClaw switches into after startup). This is the same
+# variant set the host-side gateway-stop script in services.ts matches.
+#
+# pgrep uses --ignore-ancestors so it cannot self-match the healthcheck
+# shell that Docker spawns to run this CMD — that shell's argv contains
+# the literal 'openclaw gateway' string we're searching for, and
+# without --ignore-ancestors `pgrep -f` would happily report it as the
+# live gateway even after the real process exited (procps 4.0+ supports
+# this flag; the base image pins procps to 2:4.0.4-9).
+#
+# We deliberately do not fall back on HTTP 4xx/5xx — those mean the gateway
+# answered with a failure inside this container, which is a real bad signal.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
     CMD port="${NEMOCLAW_DASHBOARD_PORT:-${OPENCLAW_GATEWAY_PORT:-}}"; \
         if [ -z "$port" ]; then \
             port="$(python3 -c 'import os; from urllib.parse import urlparse; raw = os.environ.get("CHAT_UI_URL") or "http://127.0.0.1:18789"; raw = raw if "://" in raw else "http://" + raw; u = urlparse(raw); print(u.port or 18789)' 2>/dev/null || printf '18789')"; \
         fi; \
-        curl -sf "http://127.0.0.1:${port}/health"
+        rc=0; \
+        curl -sf --max-time 3 "http://127.0.0.1:${port}/health" > /dev/null 2>&1 || rc=$?; \
+        if [ "$rc" = 0 ]; then exit 0; fi; \
+        if [ "$rc" != 7 ]; then exit 1; fi; \
+        pgrep --ignore-ancestors -f 'openclaw[ -]gateway' > /dev/null 2>&1 || exit 1; \
+        [ -s /tmp/gateway.log ]
 
 # Entrypoint runs as root to start the gateway as the gateway user,
 # then drops to sandbox for agent commands. See nemoclaw-start.sh.
