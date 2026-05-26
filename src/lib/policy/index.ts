@@ -187,7 +187,7 @@ function loadPresetForSandbox(sandboxName: string, presetName: string): string |
  */
 function getPresetEndpoints(content: string): string[] {
   const hosts: string[] = [];
-  const regex = /host:\s*([^\s,}]+)/g;
+  const regex = /^[ \t]*(?:-[ \t]*)?host:[ \t]*([^#\s,}]+)/gm;
   let match;
   while ((match = regex.exec(content)) !== null) {
     hosts.push(match[1].replace(/^["']|["']$/g, ""));
@@ -210,7 +210,22 @@ const MESSAGING_PRESET_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
 };
 
-function getMessagingPresetWarning(presetName: string): string | null {
+function getPresetValidationWarning(presetName: string): string | null {
+  if (presetName === "jira") {
+    return [
+      "Jira preset validation uses per-binary policy signals.",
+      "Node HTTPS is allowed for Atlassian API traffic:",
+      'node -e "require(\'https\').get(\'https://api.atlassian.com\', r => console.log(r.statusCode))"',
+      "curl is intentionally not in the preset binary allowlist. Avoid plain",
+      "curl -s probes for auth.atlassian.com: Atlassian can return an empty",
+      "redirect body, which looks the same as a blocked request. Use an",
+      "observable status probe instead:",
+      "curl -sS -o /dev/null -w '%{http_code}' --max-time 10 https://auth.atlassian.com",
+      "Before approval, expect 000 or a local policy denial; after approval,",
+      "expect an HTTP status such as 301 or 200.",
+    ].join("\n  ");
+  }
+
   const label = MESSAGING_PRESET_LABELS[presetName];
   if (!label) return null;
   const lines = [
@@ -1002,9 +1017,38 @@ function listCustomPresets(sandboxName: string): PresetInfo[] {
 }
 
 /**
+ * True when every `network_policies` key declared in `content` is present in
+ * `gatewayPolicyNames`. Works for both built-in preset YAML and the custom
+ * preset YAML stored under a sandbox's registry entry — keeping a single
+ * matching rule means `policy-list` and `status` stay consistent for either
+ * preset source. (#3590)
+ */
+function presetMatchesGateway(
+  content: string | null,
+  gatewayPolicyNames: ReadonlySet<string>,
+): boolean {
+  const entries = extractPresetEntries(content);
+  if (!entries) return false;
+
+  let presetPolicies;
+  try {
+    const presetParsed = YAML.parse("network_policies:\n" + entries);
+    presetPolicies = presetParsed?.network_policies;
+  } catch {
+    return false;
+  }
+
+  if (!presetPolicies || typeof presetPolicies !== "object") return false;
+
+  const presetKeys = Object.keys(presetPolicies);
+  return presetKeys.length > 0 && presetKeys.every((k) => gatewayPolicyNames.has(k));
+}
+
+/**
  * Query the gateway for the currently loaded policy and determine which
  * presets are actually enforced by matching network_policies entries
- * against known preset definitions.
+ * against known preset definitions. Considers both built-in presets and
+ * sandbox-scoped custom presets recorded in the registry. (#3590)
  *
  * Returns an array of preset names whose network_policies keys are all
  * found in the gateway's loaded policy, or `null` when the gateway
@@ -1040,30 +1084,17 @@ function getGatewayPresets(sandboxName: string): string[] | null {
   }
 
   const gatewayPolicyNames = new Set(Object.keys(gatewayPolicies));
-  const matched = [];
+  const matched: string[] = [];
 
   for (const preset of listPresets()) {
-    const content = loadPresetForSandbox(sandboxName, preset.name);
-    if (!content) continue;
-    const entries = extractPresetEntries(content);
-    if (!entries) continue;
-
-    let presetPolicies;
-    try {
-      const wrapped = "network_policies:\n" + entries;
-      const presetParsed = YAML.parse(wrapped);
-      presetPolicies = presetParsed?.network_policies;
-    } catch {
-      continue;
-    }
-
-    if (!presetPolicies || typeof presetPolicies !== "object") continue;
-
-    // A preset is considered "active on gateway" if ALL of its
-    // network_policies keys exist in the gateway's loaded policy.
-    const presetKeys = Object.keys(presetPolicies);
-    if (presetKeys.length > 0 && presetKeys.every((k) => gatewayPolicyNames.has(k))) {
+    if (presetMatchesGateway(loadPresetForSandbox(sandboxName, preset.name), gatewayPolicyNames)) {
       matched.push(preset.name);
+    }
+  }
+
+  for (const entry of registry.getCustomPolicies(sandboxName)) {
+    if (presetMatchesGateway(entry.content, gatewayPolicyNames)) {
+      matched.push(entry.name);
     }
   }
 
@@ -1183,7 +1214,7 @@ export {
   listPresets,
   loadPreset,
   getPresetEndpoints,
-  getMessagingPresetWarning,
+  getPresetValidationWarning,
   setupPolicyPresetSupported,
   filterSetupPolicyPresets,
   listSetupPolicyPresets,

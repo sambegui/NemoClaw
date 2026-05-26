@@ -5,15 +5,18 @@
 
 The PR Review Advisor is an SDK-powered, NemoClaw-specific pull request reviewer. It runs as a
 trusted GitHub Actions job, inspects PRs as read-only data, and posts a sticky advisory comment with
-blockers, warnings, suggestions, acceptance coverage, security notes, and test-depth guidance.
+blockers, warnings, suggestions, acceptance coverage, security notes, and code-review follow-up guidance.
 
-It complements CodeRabbit and the E2E Advisor by encoding NemoClaw maintainer review policy:
+It complements the existing PR surfaces by keeping a NemoClaw maintainer code-review lens focused on the patch itself:
 
 - sandbox and workflow security review;
 - acceptance-clause coverage against linked issues;
-- E2E Advisor recommendation verification;
+- previous PR Review Advisor follow-up for code findings;
 - codebase drift, monolith growth, and architecture guardrails;
+- source-of-truth review for fallback, recovery, tolerant parsing, monkeypatching, and other localized workaround behavior;
 - correctness and test-quality checks that CI cannot prove.
+
+It intentionally does not report GitHub mergeability, branch protection, CI status, reviewer state, CodeRabbit state, or E2E pass/fail status; those are handled elsewhere in the PR UI.
 
 ## Workflow
 
@@ -69,6 +72,7 @@ If present, this token is used for sticky PR comments. Otherwise the workflow fa
 - `pr-review-advisor-result.json` — parsed advisor response or execution metadata.
 - `pr-review-advisor-final-result.json` — normalized result used for comments.
 - `pr-review-advisor-summary.md` — markdown summary used in the job summary/comment.
+- `pr-review-advisor-detailed-review.md` — expanded acceptance, security, and source-of-truth review details.
 - `pr-review-advisor-session.html` — exported advisor session transcript.
 
 ## Manual run
