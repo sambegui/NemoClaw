@@ -17,6 +17,8 @@ import {
   EXPECTED_FAILURE_ERROR_CLASSES,
   EXPECTED_FAILURE_PHASES,
   EXPECTED_FAILURE_SIDE_EFFECTS,
+  PLATFORM_REMOTE_CLASSIFICATIONS,
+  PLATFORM_REMOTE_EXECUTION_STATUSES,
 } from "./schema.ts";
 import type {
   ScenariosFile,
@@ -25,6 +27,8 @@ import type {
   ExpectedFailurePhase,
   ExpectedFailureErrorClass,
   ExpectedFailureSideEffect,
+  PlatformRemoteClassification,
+  PlatformRemoteExecutionStatus,
 } from "./schema.ts";
 
 export interface ResolverInput {
@@ -155,6 +159,53 @@ function validateExpectedFailureBlock(
   }
 }
 
+
+function validateStringList(value: unknown, origin: string): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${origin} must be a list of strings`);
+  }
+}
+
+function validatePlatformRemoteInventory(doc: Record<string, unknown>): void {
+  const rows = doc.platform_remote_inventory;
+  if (rows === undefined) return;
+  if (!Array.isArray(rows)) {
+    throw new Error("platform_remote_inventory must be a list");
+  }
+  const seen = new Set<string>();
+  for (const [index, row] of rows.entries()) {
+    const origin = `platform_remote_inventory[${index}]`;
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      throw new Error(`${origin} must be a mapping`);
+    }
+    const r = row as Record<string, unknown>;
+    if (typeof r.classification !== "string" || !PLATFORM_REMOTE_CLASSIFICATIONS.includes(r.classification as PlatformRemoteClassification)) {
+      throw new Error(`${origin}.classification must be one of: ${PLATFORM_REMOTE_CLASSIFICATIONS.join(", ")}`);
+    }
+    if (r.execution_status !== undefined && (typeof r.execution_status !== "string" || !PLATFORM_REMOTE_EXECUTION_STATUSES.includes(r.execution_status as PlatformRemoteExecutionStatus))) {
+      throw new Error(`${origin}.execution_status must be one of: ${PLATFORM_REMOTE_EXECUTION_STATUSES.join(", ")}`);
+    }
+    if ((r.classification === "covered" || r.classification === "new assertion") && (typeof r.id !== "string" || !r.id.startsWith("expected.platform_remote."))) {
+      throw new Error(`${origin} (${String(r.inventory_key ?? "unnamed")}) requires id starting with expected.platform_remote. for covered/new assertion rows`);
+    }
+    if (r.id !== undefined && (typeof r.id !== "string" || !r.id.startsWith("expected.platform_remote."))) {
+      throw new Error(`${origin}.id must start with expected.platform_remote.`);
+    }
+    const key = String(r.id ?? r.inventory_key ?? "");
+    if (!key) throw new Error(`${origin} requires id or inventory_key`);
+    if (seen.has(key)) throw new Error(`duplicate platform_remote_inventory row: ${key}`);
+    seen.add(key);
+    for (const stringKey of ["scenario", "suite", "rationale"] as const) {
+      if (r[stringKey] !== undefined && typeof r[stringKey] !== "string") {
+        throw new Error(`${origin}.${stringKey} must be a string`);
+      }
+    }
+    validateStringList(r.runner_requirements, `${origin}.runner_requirements`);
+    validateStringList(r.required_secrets, `${origin}.required_secrets`);
+  }
+}
+
 function validateScenarios(doc: Record<string, unknown>, file: string): ScenariosFile {
   requireSections(doc, file, [
     "platforms",
@@ -163,6 +214,7 @@ function validateScenarios(doc: Record<string, unknown>, file: string): Scenario
     "onboarding",
     "setup_scenarios",
   ]);
+  validatePlatformRemoteInventory(doc);
   const setup = doc.setup_scenarios as Record<string, unknown>;
   for (const [id, entry] of Object.entries(setup)) {
     if (!entry || typeof entry !== "object") {
@@ -335,6 +387,12 @@ export function loadMetadataFromDir(dir: string): ResolverInput {
     ensureObject(readYaml(suitesPath), suitesPath),
     suitesPath,
   );
+  const inventoryPath = path.join(path.dirname(scenariosPath), "platform-remote-inventory.yaml");
+  if (fs.existsSync(inventoryPath)) {
+    const inventoryDoc = ensureObject(readYaml(inventoryPath), inventoryPath);
+    validatePlatformRemoteInventory(inventoryDoc);
+    scenarios.platform_remote_inventory = inventoryDoc.platform_remote_inventory as ScenariosFile["platform_remote_inventory"];
+  }
   return { scenarios, expectedStates, suites, sourceDir: dir };
 }
 

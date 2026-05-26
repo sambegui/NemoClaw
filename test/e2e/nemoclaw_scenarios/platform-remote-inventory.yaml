@@ -1,0 +1,1343 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+platform_remote_inventory:
+- id: expected.platform_remote.prereq.docker-running.gpu
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.nvidia-smi-vram
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.non-interactive-env.gpu
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: onboarding assertion
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.third-party-acceptance.gpu
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: onboarding assertion
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.ollama-binary-available
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.ollama-port-owned
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.install-noninteractive-ollama
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: setup expected state
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.cli-on-path
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.sandbox-listed
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.sandbox-status-healthy
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.sandbox-gpu-enabled
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.proof-nvidia-smi
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.proof-proc-comm-write
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.proof-cuinit
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.inference-provider-ollama
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.ollama-localhost-reachable
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.token-exists
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.token-mode-600
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.liveness
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.rejects-unauthenticated
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.accepts-persisted-token
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.docker-gpu-topology-skip
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.container-host-reachable
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.kill-precondition
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.recovers-from-persisted-token
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.recovered-accepts-original-token
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.ollama_proxy.recovery-skip-metadata
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-ollama-proxy
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.ollama-model-available
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.direct-ollama-chat-pong
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.gpu.sandbox-inference-local-pong
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-ollama
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.cleanup.destroy-removes-sandbox.gpu
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-cleanup
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.cleanup.uninstall-delete-models
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-cleanup
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.cleanup.nemoclaw-state-removed
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw
+  suite: platform-remote-gpu-cleanup
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.docker-running.gpu-reonboard
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw-reonboard
+  suite: onboarding assertion
+  runner_requirements:
+  - self-hosted-gpu
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.nvidia-smi.gpu-reonboard
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw-reonboard
+  suite: onboarding assertion
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.prereq.noninteractive-env.gpu-reonboard
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw-reonboard
+  suite: onboarding assertion
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.ollama-controlled
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw-reonboard
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-onboard-exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: gpu-repo-local-ollama-openclaw-reonboard
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.cli-on-path
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-sandbox-listed
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-status-healthy
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.ollama-running-first
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.proxy-running-first
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-token-exists-mode-600
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-token-accepted
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.ollama-model-available
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.ssh-config-first
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.first-sandbox-inference-pong
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.second-onboard-exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.token-exists-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.token-mode-600-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.proxy-running-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.persisted-token-accepted-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.unauthenticated-rejected-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.wrong-token-rejected-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.ssh-config-after-second
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.second-sandbox-inference-pong-not-401
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.reonboard.destroy-removes-sandbox
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-gpu-reonboard
+  runner_requirements:
+  - self-hosted-gpu
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.prereq-docker-running
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.prereq-nvidia-api-key
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: onboarding assertion
+  runner_requirements:
+  - brev
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.prereq-nvidia-api-reachable
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: onboarding assertion
+  runner_requirements:
+  - brev
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.prereq-noninteractive-env
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: onboarding assertion
+  runner_requirements:
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.script-present
+  classification: covered
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.bootstrap-exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.nemoclaw-help
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.openshell-version
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.node-runtime-compatible
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.docker-usable-after-install
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.ready-sentinel
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.clone-directory-exists
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.cli-dist-built
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.plugin-dist-built
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.onboard-exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.sandbox-listed
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.sandbox-status-healthy
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.inference-provider-nvidia-prod
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.gateway-liveness-or-naming-skip
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.direct-nvidia-pong
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.sandbox-inference-local-pong
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.openclaw-agent-thinking-off-42
+  classification: covered
+  execution_status: expected_pass
+  scenario: brev-launchable-cloud-openclaw
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.launchable.destroy-removes-sandbox
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-launchable
+  runner_requirements:
+  - brev
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.prereq-linux-platform
+  classification: new assertion
+  execution_status: deferred_platform_or_secret
+  scenario: dgx-spark-repo-install
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.prereq-docker-running
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.prereq-noninteractive-env
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: onboarding assertion
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.prereq-third-party-acceptance
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: onboarding assertion
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.generic-installer-flow
+  classification: covered
+  execution_status: deferred_platform_or_secret
+  scenario: dgx-spark-repo-install
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.install-exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.nemoclaw-on-path
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.openshell-on-path
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.nemoclaw-help
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.gpu-bridge-host-service-ports
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: brev-remote-branch-validation
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  - docker
+  required_secrets:
+  - BREV_API_TOKEN
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.gpu-runtime-toolkit-proof
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  required_secrets:
+  - BREV_API_TOKEN
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.gpu-proxy-env-source-shape
+  classification: covered
+  execution_status: deferred_platform_or_secret
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  required_secrets:
+  - BREV_API_TOKEN
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.registry-default-e2e-test
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.registry-cpu-gpu-disabled
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.full-suite-pass-no-fail
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.gpu-suite-pass-no-fail
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  required_secrets:
+  - BREV_API_TOKEN
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.deploy-cli-sandbox-ready
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.deploy-cli-registry-entry
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - brev
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.macos.workflow-triggers
+  classification: covered
+  execution_status: expected_pass
+  scenario: macos-repo-cloud-openclaw
+  suite: platform-remote-macos
+  runner_requirements:
+  - macos-26
+  - docker
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.macos.runner-macos-26
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-macos
+  runner_requirements:
+  - macos-26
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.workflow-triggers
+  classification: covered
+  execution_status: expected_pass
+  scenario: wsl-repo-cloud-openclaw
+  suite: platform-remote-wsl
+  runner_requirements:
+  - windows-latest
+  - wsl2
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.runner-windows-latest
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-wsl
+  runner_requirements:
+  - windows-latest
+  - wsl2
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.delivery-chain-health-accepts-forward
+  classification: new assertion
+  execution_status: deferred_platform_or_secret
+  scenario: dgx-spark-repo-local-ollama-openclaw
+  suite: platform-remote-spark-runtime
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.old-ollama-upgrade-path
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-runtime
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.model-selection-available-memory
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-spark-runtime
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.user-local-ollama-fallback
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: dgx-spark-repo-install
+  suite: platform-remote-spark-install
+  runner_requirements:
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.source-install-bootstraps-openshell
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: wsl-repo-cloud-openclaw
+  suite: platform-remote-wsl
+  runner_requirements:
+  - windows-latest
+  - wsl2
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.no-distro-ubuntu-2404-or-actionable-failure
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: wsl-no-distro-bootstrap-negative
+  suite: platform-remote-wsl
+  runner_requirements:
+  - windows-latest
+  - wsl2
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.idle-gateway-recovers-and-retries
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: wsl-repo-cloud-openclaw
+  suite: platform-remote-wsl
+  runner_requirements:
+  - windows-latest
+  - wsl2
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.wsl.fake-gpu-rejected
+  classification: new assertion
+  execution_status: deferred_platform_or_secret
+  scenario: wsl-fake-gpu-negative
+  suite: platform-remote-wsl
+  runner_requirements:
+  - self-hosted-gpu
+  - windows-latest
+  - wsl2
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.sandbox.build-context-readable-by-user
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: ubuntu-repo-cloud-openclaw and platform variants
+  suite: platform-remote-spark-runtime or shared platform suite
+  runner_requirements:
+  - dgx-spark
+  - ubuntu-latest
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.jetson.nvidia-runtime-path
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: jetson-repo-local-openclaw
+  suite: platform-remote-jetson
+  runner_requirements:
+  - jetson-tegra
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.jetson.forced-gpu-fail-fast-guidance
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: jetson-forced-gpu-negative
+  suite: platform-remote-jetson
+  runner_requirements:
+  - self-hosted-gpu
+  - jetson-tegra
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.spark.gpu-recreate-preserves-start-command
+  classification: new assertion
+  execution_status: deferred_platform_or_secret
+  scenario: dgx-spark-repo-local-ollama-openclaw
+  suite: platform-remote-spark-runtime
+  runner_requirements:
+  - self-hosted-gpu
+  - dgx-spark
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.brev.gpu-bridge-reachability-live
+  classification: deferred
+  execution_status: deferred_platform_or_secret
+  scenario: brev-remote-branch-validation
+  suite: platform-remote-brev-branch
+  runner_requirements:
+  - self-hosted-gpu
+  - brev
+  - docker
+  required_secrets:
+  - BREV_API_TOKEN
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.target-ref-used
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-public-install
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.workflow.runtime-actions-node-compatible
+  classification: covered
+  execution_status: expected_pass
+  scenario: platform-remote-metadata
+  suite: coverage metadata
+  runner_requirements:
+  - macos-26
+  - windows-latest
+  - wsl2
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.prereq-docker-running
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: ubuntu-public-cloud-openclaw-target-ref
+  suite: setup assertion
+  runner_requirements:
+  - ubuntu-latest
+  - docker
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.prereq-nvidia-api-key-reachable
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: setup assertion
+  runner_requirements: []
+  required_secrets:
+  - NVIDIA_API_KEY
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.prereq-noninteractive-env
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: onboarding assertion
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.platform-linux-or-explicit-skip
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: setup assertion
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.exits-zero
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-public-install
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.source-isolation
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-public-install
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.github-clone-path-evidence
+  classification: new assertion
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-public-install
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- id: expected.platform_remote.public_install.toolchain-on-path
+  classification: covered
+  execution_status: expected_pass
+  scenario: same
+  suite: platform-remote-public-install
+  runner_requirements:
+  - ubuntu-latest
+  required_secrets: []
+  rationale: 'Imported from issue #3816 platform/remote assertion inventory.'
+- inventory_key: retired.pre-cleanup-complete
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness setup, not product behavior.
+- inventory_key: retired.repo-root-exists-cd-succeeds
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness-only checkout assertion.
+- inventory_key: retired.uninstall-skipped-with-skip-uninstall-1
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Debug harness skip, not domain behavior.
+- inventory_key: retired.cleanup-complete
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness cleanup, duplicate of product cleanup rows.
+- inventory_key: retired.pre-cleanup-complete-2
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness setup.
+- inventory_key: retired.cleanup-complete-2
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness cleanup.
+- inventory_key: retired.pre-cleanup-clone-pre-seeded
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness artifact setup.
+- inventory_key: retired.cd-to-clone-succeeds
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness-only clone usability.
+- inventory_key: retired.launchable-clone-directory-cleaned-up
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness artifact cleanup.
+- inventory_key: retired.cd-to-repo-succeeds
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness checkout.
+- inventory_key: retired.invalid-sandbox-name-exits-before-brev-provisioning
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Generic CLI input validation, outside platform-remote.
+- inventory_key: retired.invalid-name-output-includes-specific-guidance
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Generic CLI validation detail.
+- inventory_key: retired.invalid-name-path-does-not-invoke-brev-ssh-install
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Generic input validation, not platform behavior.
+- inventory_key: retired.credential-messaging-dashboard-selected-suite-outputs-contain-pass-and-no-fail
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Mostly outside platform-remote domain.
+- inventory_key: retired.pr-4038-openclaw-json-parsing-hardening
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Helper parser hardening is not platform-remote behavior; affected launchable/OpenClaw behavior covered elsewhere.
+- inventory_key: retired.pre-cleanup-complete-3
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness setup.
+- inventory_key: retired.interactive-mode-unsupported-skip-fail
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Generic installer mode behavior outside this domain.
+- inventory_key: retired.optional-checks-scripts-pass-or-skip-if-absent
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Optional harness dispatch, not stable domain behavior.
+- inventory_key: retired.cleanup-complete-keep-sandbox-skip
+  classification: retired
+  execution_status: retired
+  scenario: metadata only
+  suite: metadata only
+  runner_requirements: []
+  required_secrets: []
+  rationale: Harness cleanup/debug behavior.

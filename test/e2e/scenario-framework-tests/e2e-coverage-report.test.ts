@@ -84,4 +84,16 @@ describe("coverage report", () => {
     expect(md).toMatch(/## Gaps/);
     expect(md).toMatch(/unused-state/);
   });
+  it("should_render_platform_remote_runner_and_secret_requirements", () => {
+    const meta = loadMetadataFromDir(E2E_DIR);
+    const md = renderCoverageReport(meta);
+    expect(md).toContain("## Platform Remote Inventory");
+    expect(md).toContain("expected.platform_remote.launchable.prereq-nvidia-api-key");
+    expect(md).toContain("NVIDIA_API_KEY");
+    expect(md).toContain("self-hosted-gpu");
+    expect(md).toContain("jetson-tegra");
+    expect(md).toContain("deferred_platform_or_secret");
+    expect(md).not.toMatch(/nvapi-[A-Za-z0-9_-]+/);
+  });
+
 });

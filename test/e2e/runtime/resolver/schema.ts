@@ -131,6 +131,34 @@ export interface SetupScenario {
   expected_states?: never;
 }
 
+export const PLATFORM_REMOTE_CLASSIFICATIONS = [
+  "covered",
+  "new assertion",
+  "deferred",
+  "retired",
+] as const;
+export type PlatformRemoteClassification = (typeof PLATFORM_REMOTE_CLASSIFICATIONS)[number];
+
+export const PLATFORM_REMOTE_EXECUTION_STATUSES = [
+  "expected_pass",
+  "deferred_platform_or_secret",
+  "metadata_only",
+  "retired",
+] as const;
+export type PlatformRemoteExecutionStatus = (typeof PLATFORM_REMOTE_EXECUTION_STATUSES)[number];
+
+export interface PlatformRemoteInventoryRow extends AnyRecord {
+  id?: string;
+  inventory_key?: string;
+  classification: PlatformRemoteClassification;
+  execution_status?: PlatformRemoteExecutionStatus;
+  scenario?: string;
+  suite?: string;
+  runner_requirements?: string[];
+  required_secrets?: string[];
+  rationale?: string;
+}
+
 export interface ScenariosFile {
   platforms: Record<string, PlatformProfile>;
   installs: Record<string, InstallProfile>;
@@ -141,6 +169,7 @@ export interface ScenariosFile {
   onboarding_profiles?: Record<string, OnboardingProfile>;
   test_plans?: Record<string, TestPlan>;
   onboarding_assertions?: Record<string, AnyRecord>;
+  platform_remote_inventory?: PlatformRemoteInventoryRow[];
 }
 
 export type ExpectedStateConfig = AnyRecord;

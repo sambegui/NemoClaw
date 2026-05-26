@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
 
-import { loadMetadataFromDir } from "../runtime/resolver/load.ts";
+import { loadMetadataFromDir, loadMetadataFromObjects } from "../runtime/resolver/load.ts";
 
 const E2E_DIR = path.resolve(import.meta.dirname, "..");
 const SCENARIOS_PATH = path.join(E2E_DIR, "nemoclaw_scenarios", "scenarios.yaml");
@@ -153,4 +153,56 @@ setup_scenarios:
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  it("should_reject_invalid_platform_remote_classification", () => {
+    const fixture = {
+      platforms: { p: {} },
+      installs: { i: {} },
+      runtimes: { r: {} },
+      onboarding: { o: { agent: "openclaw", provider: "nvidia" } },
+      setup_scenarios: {
+        s: { dimensions: { platform: "p", install: "i", runtime: "r", onboarding: "o" }, expected_state: "ready", suites: [] },
+      },
+      platform_remote_inventory: [{ id: "expected.platform_remote.bad", classification: "maybe" }],
+    };
+    expect(() =>
+      loadMetadataFromObjects({
+        scenarios: fixture,
+        expectedStates: { expected_states: { ready: {} } },
+        suites: { suites: {} },
+      }),
+    ).toThrow(/covered, new assertion, deferred, retired/);
+  });
+
+  it("should_require_stable_ids_for_covered_and_new_platform_remote_assertions", () => {
+    const fixture = {
+      platforms: { p: {} },
+      installs: { i: {} },
+      runtimes: { r: {} },
+      onboarding: { o: { agent: "openclaw", provider: "nvidia" } },
+      setup_scenarios: {
+        s: { dimensions: { platform: "p", install: "i", runtime: "r", onboarding: "o" }, expected_state: "ready", suites: [] },
+      },
+      platform_remote_inventory: [{ inventory_key: "missing-id-row", classification: "covered" }],
+    };
+    expect(() =>
+      loadMetadataFromObjects({
+        scenarios: fixture,
+        expectedStates: { expected_states: { ready: {} } },
+        suites: { suites: {} },
+      }),
+    ).toThrow(/missing-id-row.*expected\.platform_remote/s);
+  });
+
+  it("should_load_platform_remote_inventory_metadata", () => {
+    const meta = loadMetadataFromDir(E2E_DIR);
+    const rows = meta.scenarios.platform_remote_inventory ?? [];
+    expect(rows.length).toBeGreaterThan(100);
+    for (const classification of ["covered", "new assertion", "deferred", "retired"]) {
+      expect(rows.some((row) => row.classification === classification), classification).toBe(true);
+    }
+    expect(rows.some((row) => row.required_secrets?.includes("NVIDIA_API_KEY"))).toBe(true);
+    expect(rows.some((row) => row.runner_requirements?.includes("self-hosted-gpu"))).toBe(true);
+    expect(rows.some((row) => row.runner_requirements?.includes("jetson-tegra"))).toBe(true);
+  });
+
 });

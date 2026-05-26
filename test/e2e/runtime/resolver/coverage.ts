@@ -70,6 +70,17 @@ export function renderCoverageReport(
   lines.push("");
   lines.push(`Total suites: ${Object.keys(meta.suites.suites).length}`);
   lines.push("");
+if ((scenarios.platform_remote_inventory ?? []).length > 0) {
+    lines.push("## Platform Remote Inventory");
+    lines.push("");
+    lines.push("| Assertion | Classification | Execution | Scenario | Suite | Runners | Secrets | Rationale |");
+    lines.push("|---|---|---|---|---|---|---|---|");
+    for (const row of (scenarios.platform_remote_inventory ?? []).slice().sort((a, b) => (a.id ?? a.inventory_key ?? "").localeCompare(b.id ?? b.inventory_key ?? ""))) {
+      lines.push(`| ${row.id ?? row.inventory_key ?? ""} | ${row.classification} | ${row.execution_status ?? ""} | ${row.scenario ?? ""} | ${row.suite ?? ""} | ${(row.runner_requirements ?? []).join(", ") || "_none_"} | ${(row.required_secrets ?? []).join(", ") || "_none_"} | ${row.rationale ?? ""} |`);
+    }
+    lines.push("");
+  }
+
   lines.push("## Scenarios");
   lines.push("");
   const hasStatus =
