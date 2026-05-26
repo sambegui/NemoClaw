@@ -329,6 +329,7 @@ Classification vocabulary is exactly: `covered`, `new assertion`, `deferred`, `r
 - Add platform-remote expectation metadata to the current resolver-owned source metadata under `test/e2e/nemoclaw_scenarios/`. If no assertion-inventory source file exists, add a focused source file such as `test/e2e/nemoclaw_scenarios/platform-remote-inventory.yaml` and load it through the existing resolver/coverage-report path.
 - Do not edit generated inventory artifacts such as `test/e2e/docs/parity-inventory.generated.json` by hand, and do not reintroduce the removed workflow-level parity-map gate.
 - Add allowed statuses: `covered`, `new assertion`, `deferred`, `retired` for inventory classification, and execution statuses such as `expected_pass`, `deferred_platform_or_secret`, `metadata_only`, `retired` if the existing reporter uses a separate execution vocabulary.
+- Extend the resolver schema/load path deliberately when adding new metadata files or top-level keys (for example, platform-remote inventory rows, required secrets, and manual/deferred runner metadata). Add schema tests first so unsupported classifications, missing IDs, and undocumented emitted IDs fail locally.
 - Ensure every `expected.platform_remote.*` emitted by suites has metadata.
 - Update the existing scenario coverage/reporting mechanism so all rows above are visible.
 

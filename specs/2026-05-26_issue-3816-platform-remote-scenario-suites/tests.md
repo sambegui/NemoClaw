@@ -29,7 +29,7 @@ Primary existing test locations:
 - `e2e-metadata-final-hygiene.test.ts`
   - Required changes: require metadata for every emitted `expected.platform_remote.*` ID and reject `covered`/`new assertion` rows without IDs.
 - `e2e-scenario-schema.test.ts`
-  - Required changes: validate platform/remote runner metadata including GPU, Brev, DGX Spark, macOS, WSL, Jetson/manual, and `NVIDIA_API_KEY` requirements.
+  - Required changes: validate any new resolver-loaded platform/remote inventory schema, classification vocabulary, stable assertion IDs, runner metadata including GPU, Brev, DGX Spark, macOS, WSL, Jetson/manual, and `NVIDIA_API_KEY` requirements.
 
 **New Tests to Create:**
 
@@ -40,13 +40,13 @@ Primary existing test locations:
 
 2. `test_should_reject_invalid_platform_remote_classification`
    - **Input**: Metadata fixture using an unsupported classification such as `maybe`.
-   - **Expected**: Schema validation fails and names allowed values: `covered`, `new assertion`, `deferred`, `retired`.
-   - **Covers**: Required classification vocabulary.
+   - **Expected**: Resolver/schema validation fails and names allowed values: `covered`, `new assertion`, `deferred`, `retired`.
+   - **Covers**: Required classification vocabulary and explicit loader support for any new inventory metadata file.
 
 3. `test_should_require_stable_ids_for_covered_and_new_platform_remote_assertions`
    - **Input**: Metadata fixture with a `covered` row missing `expected.platform_remote.*` ID.
    - **Expected**: Hygiene test fails with the missing inventory row named.
-   - **Covers**: Stable assertion ID contract.
+   - **Covers**: Stable assertion ID contract and parity between emitted suite IDs and resolver-loaded metadata.
 
 4. `test_should_render_platform_remote_runner_and_secret_requirements`
    - **Input**: Metadata rows for GPU, Brev, DGX Spark, macOS, WSL, Jetson, and public install.
