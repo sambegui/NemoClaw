@@ -79,6 +79,17 @@ function getStepEnv(job: unknown, stepName: string): Record<string, unknown> | u
   return step.env as Record<string, unknown>;
 }
 
+function getCheckoutStep(job: unknown): Record<string, unknown> | undefined {
+  if (typeof job !== "object" || job === null) return undefined;
+  const steps = (job as Record<string, unknown>).steps;
+  if (!Array.isArray(steps)) return undefined;
+  return steps.find((step): step is Record<string, unknown> => {
+    if (typeof step !== "object" || step === null) return false;
+    const uses = (step as Record<string, unknown>).uses;
+    return typeof uses === "string" && uses.startsWith("actions/checkout");
+  });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("nightly E2E workflow validation", () => {
@@ -145,9 +156,10 @@ describe("nightly E2E workflow validation", () => {
     ).toEqual([]);
   });
 
-  it("public installer E2Es install the workflow target ref", () => {
+  it("public installer E2Es install the resolved checkout ref", () => {
     const jobs = workflow.jobs as Record<string, unknown>;
-    const expectedRef = "${{ inputs.target_ref || github.sha }}";
+    const expectedCheckoutRef = "${{ inputs.target_ref || github.ref }}";
+    const expectedInstallRef = "${{ steps.public_install_ref.outputs.ref }}";
     const publicInstallerJobs: Array<[string, string]> = [
       ["cloud-onboard-e2e", "Run cloud onboard E2E test"],
       ["openclaw-tui-chat-correlation-e2e", "Run OpenClaw TUI chat correlation E2E test"],
@@ -155,12 +167,31 @@ describe("nightly E2E workflow validation", () => {
     const invalid: string[] = [];
 
     for (const [jobName, stepName] of publicInstallerJobs) {
+      const checkoutWith = getCheckoutStep(jobs[jobName])?.with as
+        | Record<string, unknown>
+        | undefined;
+      if (checkoutWith?.ref !== expectedCheckoutRef) {
+        invalid.push(`${jobName} checkout.ref=${String(checkoutWith?.ref)}`);
+      }
+
+      const resolver = getJobStep(jobs[jobName], "Resolve public install ref");
+      if (!resolver) {
+        invalid.push(`${jobName} missing resolved-ref step`);
+      } else {
+        if (resolver.id !== "public_install_ref") {
+          invalid.push(`${jobName} resolved-ref id=${String(resolver.id)}`);
+        }
+        if (typeof resolver.run !== "string" || !resolver.run.includes("git rev-parse HEAD")) {
+          invalid.push(`${jobName} resolved-ref step does not use git rev-parse HEAD`);
+        }
+      }
+
       const env = getStepEnv(jobs[jobName], stepName);
       if (!env) {
         invalid.push(`${jobName} (${stepName} missing env)`);
         continue;
       }
-      if (env.NEMOCLAW_PUBLIC_INSTALL_REF !== expectedRef) {
+      if (env.NEMOCLAW_PUBLIC_INSTALL_REF !== expectedInstallRef) {
         invalid.push(
           `${jobName} NEMOCLAW_PUBLIC_INSTALL_REF=${String(env.NEMOCLAW_PUBLIC_INSTALL_REF)}`,
         );
@@ -172,8 +203,9 @@ describe("nightly E2E workflow validation", () => {
 
     expect(
       invalid,
-      `Public installer E2Es must pass inputs.target_ref through to the curl-install path; ` +
-        `otherwise trusted main dispatch checks out the PR head but installs main. ` +
+      `Public installer E2Es must resolve the checked-out ref once and pass that SHA ` +
+        `through to the curl-install path; otherwise trusted dispatch can check out one ` +
+        `commit but install another. ` +
         `Invalid jobs: ${invalid.join(", ")}`,
     ).toEqual([]);
   });
