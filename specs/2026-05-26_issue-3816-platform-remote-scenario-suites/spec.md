@@ -362,7 +362,7 @@ Classification vocabulary is exactly: `covered`, `new assertion`, `deferred`, `r
 - Add `platform-remote-public-install` suite and `ubuntu-public-cloud-openclaw-target-ref` scenario.
 - Preserve macOS `macos-26`, WSL `windows-latest`/WSL2, Docker optional/skipped metadata, and PR #4046 workflow runtime metadata.
 
-### Phase 7: Final validation and cleanup
+### Phase 7: Final validation and cleanup [COMPLETED: fe56e0655]
 
 - Run local framework validation commands.
 - Run `run-scenario.sh <id> --plan-only` for every new/changed scenario.
