@@ -36,3 +36,20 @@ export function parseLiveSandboxNames(listOutput = ""): Set<string> {
   }
   return names;
 }
+
+export function parseReadySandboxNames(listOutput = ""): Set<string> {
+  const clean = stripAnsi(listOutput);
+  const names = new Set<string>();
+  for (const rawLine of clean.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^(NAME|No sandboxes found\.?$)/i.test(line)) continue;
+    if (/^Error:/i.test(line)) continue;
+    if (isOpenShellProtobufSchemaMismatch(line)) continue;
+    const cols = line.split(/\s+/);
+    if (cols[0] && cols.at(-1) === "Ready") {
+      names.add(cols[0]);
+    }
+  }
+  return names;
+}
