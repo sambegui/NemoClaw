@@ -1015,6 +1015,68 @@ describe("Phase 1.E install dispatcher splits", () => {
 
 
 
+describe("Issue #3816 platform remote helper library", () => {
+  it("test_should_source_platform_remote_helpers_under_strict_shell_mode", () => {
+    const r = runBash(`
+      set -euo pipefail
+      . "${VALIDATION_LIB}/platform_remote.sh"
+      declare -F e2e_platform_remote_load_context >/dev/null
+      declare -F e2e_context_require >/dev/null
+      declare -F e2e_env_is_dry_run >/dev/null
+      declare -F e2e_pass >/dev/null
+      declare -F e2e_fail >/dev/null
+    `);
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it("test_should_fail_clearly_when_platform_remote_context_is_missing", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-platform-remote-missing-"));
+    try {
+      const r = runBash(`
+        set -euo pipefail
+        . "${VALIDATION_LIB}/platform_remote.sh"
+        e2e_platform_remote_load_context
+      `, { E2E_CONTEXT_DIR: tmp });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/context\.env|E2E_SCENARIO|missing/i);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("test_should_redact_platform_remote_secret_values", () => {
+    const r = runBash(`
+      set -euo pipefail
+      . "${VALIDATION_LIB}/platform_remote.sh"
+      printf 'key=nvapi-secret-value token=brev-secret proxy=proxy-secret' | e2e_platform_remote_redact
+    `);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).not.toContain("nvapi-secret-value");
+    expect(r.stdout).not.toContain("brev-secret");
+    expect(r.stdout).not.toContain("proxy-secret");
+    expect(r.stdout).toContain("[REDACTED]");
+  });
+
+  it("test_should_emit_platform_remote_assertion_ids_in_dry_run", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-platform-remote-dry-"));
+    try {
+      fs.writeFileSync(path.join(tmp, "context.env"), "E2E_SCENARIO=test\nE2E_PLATFORM_OS=ubuntu\nE2E_SANDBOX_NAME=sb\n");
+      const r = runBash(`
+        set -euo pipefail
+        . "${VALIDATION_LIB}/platform_remote.sh"
+        e2e_platform_remote_load_context
+        e2e_platform_remote_assertion expected.platform_remote.gpu.cli-on-path 'cli available'
+      `, { E2E_CONTEXT_DIR: tmp, E2E_DRY_RUN: "1" });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain("expected.platform_remote.gpu.cli-on-path");
+      expect(r.stdout).toMatch(/dry-run|PASS/i);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+
 describe("baseline onboarding validation helper", () => {
   it("baseline_helper_should_source_under_strict_shell_options", () => {
     const r = runBash(`set -euo pipefail; source "${VALIDATION_SUITES}/lib/baseline_onboarding.sh"`);
