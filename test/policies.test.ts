@@ -324,6 +324,7 @@ describe("policies", () => {
       const parsed = parsePresetYaml("openclaw-pricing");
       const endpoints: Array<Record<string, unknown>> =
         parsed?.network_policies?.["openclaw-pricing"]?.endpoints ?? [];
+      expect(endpoints).toHaveLength(2);
 
       const litellm = endpoints.find((item) => item.host === "raw.githubusercontent.com");
       if (!litellm) throw new Error("expected raw.githubusercontent.com endpoint");

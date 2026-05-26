@@ -1,17 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# OpenClaw's gateway/openclaw-pricing subsystem fetches reference pricing from
+# OpenClaw's gateway/model-pricing subsystem fetches reference pricing from
 # LiteLLM and OpenRouter on every gateway start. With default-strict egress
 # both fetches fail closed with `TypeError: fetch failed`, the gateway
 # emits a WARN every startup, and every session JSONL row records
 # `usage.cost = 0` even though token counts populate correctly. Tools
 # reading the session log to display per-turn cost (audit dashboards,
 # compliance review surfaces) cannot distinguish a real free run from
-# the silent failure mode. Enabling this preset whitelists the two
+# the silent failure mode. Enabling this preset allowlists the two
 # specific pricing endpoints, pinned to GET-only on a single path each.
 preset:
   name: openclaw-pricing
-  description: "OpenClaw openclaw-pricing reference fetch (LiteLLM + OpenRouter)"
+  description: "OpenClaw model-pricing reference fetch (LiteLLM + OpenRouter)"
 network_policies:
   openclaw-pricing:
     name: openclaw-pricing

@@ -178,7 +178,11 @@ export async function handlePoliciesState<Agent, WebSearchConfig>({
       disabledChannels: activeSandbox?.disabledChannels,
       webSearchConfig,
       provider,
-      agent: (agent as { name?: string } | null)?.name ?? null,
+      // selectOnboardAgent returns null for the default OpenClaw path (no
+      // --agent flag, no recorded agent). Normalise that to "openclaw" so
+      // openclaw-pricing auto-suggestion still fires; explicit Hermes runs
+      // keep their own name and are left alone.
+      agent: (agent as { name?: string } | null)?.name ?? "openclaw",
       webSearchSupported,
       hermesToolGateways,
       onSelection: (policyPresets) => {
