@@ -329,13 +329,25 @@ function parseCurrentPolicy(raw: string | null | undefined): string {
 /**
  * Resolve the openshell binary, preferring an absolute path so spawnSync does
  * not raise ENOENT in non-interactive shells where ~/.local/bin/ is absent
- * from PATH (issue #4224). When nothing resolves, exits with an actionable
- * error that names every location checked, instead of letting the call fall
- * through to an opaque `spawnSync openshell ENOENT`.
+ * from PATH (issue #4224). Falls back to the literal "openshell" so callers
+ * that build argv at module scope (or in tests that only check argv shape)
+ * don't side-effect on a missing binary; command entry points call
+ * `assertOpenshellResolvable()` before invoking openshell to surface the
+ * actionable diagnostic.
  */
 function resolveOpenshellBinary(): string {
-  const resolved = openshellResolveModule.resolveOpenshell();
-  if (resolved) return resolved;
+  return openshellResolveModule.resolveOpenshell() ?? "openshell";
+}
+
+/**
+ * Pre-spawn check used at command entry points before any
+ * `run(buildPolicy*Command(...))`. If the binary cannot be resolved, prints
+ * every location checked and an install hint, then exits nonzero — instead
+ * of letting the spawn surface as the opaque `spawnSync openshell ENOENT`
+ * (issue #4224).
+ */
+function assertOpenshellResolvable(): void {
+  if (openshellResolveModule.resolveOpenshell()) return;
 
   const home = process.env.HOME;
   const override = process.env.NEMOCLAW_OPENSHELL_BIN;
@@ -634,6 +646,7 @@ function removePreset(sandboxName: string, presetName: string): boolean {
   fs.writeFileSync(tmpFile, updated, { encoding: "utf-8", mode: 0o600 });
 
   try {
+    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
     console.log(`  Removed preset: ${presetName}`);
   } finally {
@@ -772,6 +785,7 @@ function applyPresetContent(
   fs.writeFileSync(tmpFile, merged, { encoding: "utf-8", mode: 0o600 });
 
   try {
+    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
 
     console.log(`  Applied preset: ${presetName}`);
@@ -885,6 +899,7 @@ function applyPresets(sandboxName: string, presetNames: string[]): boolean {
   fs.writeFileSync(tmpFile, merged, { encoding: "utf-8", mode: 0o600 });
 
   try {
+    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
 
     for (const presetName of uniquePresetNames) {
@@ -1234,6 +1249,7 @@ function applyPermissivePolicy(sandboxName: string): void {
   }
 
   console.log("  Applying permissive policy...");
+  assertOpenshellResolvable();
   run(buildPolicySetCommand(policyPath, sandboxName));
   console.log("  Applied permissive policy.");
 }
@@ -1253,6 +1269,7 @@ export {
   parseCurrentPolicy,
   buildPolicySetCommand,
   buildPolicyGetCommand,
+  assertOpenshellResolvable,
   mergePresetIntoPolicy,
   mergePresetNamesIntoPolicy,
   removePresetFromPolicy,

@@ -897,7 +897,7 @@ exit 1
       expect(cmd).toEqual([fakeOpenshell, "policy", "get", "--full", "my-assistant"]);
     });
 
-    it("emits an actionable error listing every checked location when openshell cannot be resolved", () => {
+    it("assertOpenshellResolvable emits a diagnostic listing every checked location and exits nonzero when openshell cannot be resolved", () => {
       const resolveSpy = vi
         .spyOn(resolveOpenshellModule, "resolveOpenshell")
         .mockReturnValue(null);
@@ -914,8 +914,7 @@ exit 1
       process.env.NEMOCLAW_OPENSHELL_BIN = "/nonexistent/openshell";
 
       try {
-        expect(() => policies.buildPolicySetCommand("/tmp/policy.yaml", "my-assistant"))
-          .toThrow(/__test_exit__/);
+        expect(() => policies.assertOpenshellResolvable()).toThrow(/__test_exit__/);
         expect(exitSpy).toHaveBeenCalledWith(1);
         const combined = errors.join("\n");
         expect(combined).toMatch(/openshell binary not found/);
@@ -925,6 +924,25 @@ exit 1
         expect(combined).toContain("/usr/local/bin/openshell");
         expect(combined).toContain("/usr/bin/openshell");
         expect(combined).toMatch(/Install OpenShell|NEMOCLAW_OPENSHELL_BIN/);
+      } finally {
+        resolveSpy.mockRestore();
+        errSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+    });
+
+    it("assertOpenshellResolvable is a noop when openshell resolves", () => {
+      const resolveSpy = vi
+        .spyOn(resolveOpenshellModule, "resolveOpenshell")
+        .mockReturnValue(fakeOpenshell);
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
+        throw new Error("should not exit");
+      }) as never);
+      try {
+        expect(() => policies.assertOpenshellResolvable()).not.toThrow();
+        expect(exitSpy).not.toHaveBeenCalled();
+        expect(errSpy).not.toHaveBeenCalled();
       } finally {
         resolveSpy.mockRestore();
         errSpy.mockRestore();
