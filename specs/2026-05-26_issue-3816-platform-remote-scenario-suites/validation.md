@@ -137,7 +137,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 ## Validation Scenarios
 
-### Scenario 1.1: Inventory completeness is machine-validated [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 1.1: Inventory completeness is machine-validated [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: Platform/remote metadata includes rows for every assertion in `spec.md`
@@ -151,7 +151,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: npm, Vitest
 
-### Scenario 1.2: Inventory simplification is rejected [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 1.2: Inventory simplification is rejected [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Sad Path
 
 **Given**: A fixture removes or merges granular GPU/proxy assertions
@@ -165,7 +165,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: Vitest
 
-### Scenario 2.1: Platform remote helper is context-driven and secret-safe [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 2.1: Platform remote helper is context-driven and secret-safe [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: A seeded context with fake secret values
@@ -179,7 +179,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: Bash, npm/Vitest
 
-### Scenario 3.1: GPU/local Ollama and re-onboard plans are valid [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 3.1: GPU/local Ollama and re-onboard plans are valid [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: GPU scenario metadata exists
@@ -193,7 +193,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: Bash, scenario runner
 
-### Scenario 3.2: GPU live suite is skipped/deferred without GPU runner [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 3.2: GPU live suite is skipped/deferred without GPU runner [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Sad Path
 
 **Given**: Default PR runner lacks NVIDIA GPU/Docker CDI
@@ -207,7 +207,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: Bash/GitHub Actions
 
-### Scenario 4.1: Launchable and public install prove live cloud path on PR branch [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 4.1: Launchable and public install prove live cloud path on PR branch [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: PR branch workflow has `NVIDIA_API_KEY` and required Brev capability
@@ -221,7 +221,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: GitHub Actions, `gh` optional
 
-### Scenario 4.2: Missing `NVIDIA_API_KEY` skips cloud live checks explicitly [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 4.2: Missing `NVIDIA_API_KEY` skips cloud live checks explicitly [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Sad Path
 
 **Given**: Cloud scenario workflow lacks `NVIDIA_API_KEY`
@@ -235,7 +235,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: GitHub Actions or local fixture
 
-### Scenario 5.1: DGX Spark and Jetson remain represented despite manual runners [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 5.1: DGX Spark and Jetson remain represented despite manual runners [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: DGX Spark and Jetson scenarios are not available on default PR infrastructure
@@ -249,7 +249,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: Bash
 
-### Scenario 6.1: macOS and WSL workflow metadata is preserved [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 6.1: macOS and WSL workflow metadata is preserved [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Happy Path
 
 **Given**: Existing macOS and WSL workflows and scenario metadata
@@ -263,7 +263,7 @@ gh workflow run "E2E / Scenario Runner" --ref <pr-branch> -f scenario=wsl-repo-c
 
 **Tools Required**: npm/Vitest, Bash
 
-### Scenario 6.2: WSL negative platform assertions classify failures correctly [STATUS: passed] [VALIDATED: ece6cf753]
+### Scenario 6.2: WSL negative platform assertions classify failures correctly [STATUS: passed] [VALIDATED: 414b9517a]
 **Type**: Sad Path
 
 **Given**: Fixtures for no-distro and fake-GPU WSL states
