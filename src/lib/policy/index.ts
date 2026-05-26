@@ -649,12 +649,15 @@ function removePreset(sandboxName: string, presetName: string): boolean {
     console.log(`  Narrowing sandbox egress — removing: ${endpoints.join(", ")}`);
   }
 
+  // Run before creating temp resources so a missing-binary exit doesn't
+  // orphan files in $TMPDIR (the finally cleanup doesn't run on process.exit).
+  assertOpenshellResolvable();
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-policy-"));
   const tmpFile = path.join(tmpDir, "policy.yaml");
   fs.writeFileSync(tmpFile, updated, { encoding: "utf-8", mode: 0o600 });
 
   try {
-    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
     console.log(`  Removed preset: ${presetName}`);
   } finally {
@@ -788,12 +791,15 @@ function applyPresetContent(
     console.log(`  Widening sandbox egress — adding: ${endpoints.join(", ")}`);
   }
 
+  // Run before creating temp resources so a missing-binary exit doesn't
+  // orphan files in $TMPDIR (the finally cleanup doesn't run on process.exit).
+  assertOpenshellResolvable();
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-policy-"));
   const tmpFile = path.join(tmpDir, "policy.yaml");
   fs.writeFileSync(tmpFile, merged, { encoding: "utf-8", mode: 0o600 });
 
   try {
-    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
 
     console.log(`  Applied preset: ${presetName}`);
@@ -902,12 +908,15 @@ function applyPresets(sandboxName: string, presetNames: string[]): boolean {
     }
   }
 
+  // Run before creating temp resources so a missing-binary exit doesn't
+  // orphan files in $TMPDIR (the finally cleanup doesn't run on process.exit).
+  assertOpenshellResolvable();
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-policy-"));
   const tmpFile = path.join(tmpDir, "policy.yaml");
   fs.writeFileSync(tmpFile, merged, { encoding: "utf-8", mode: 0o600 });
 
   try {
-    assertOpenshellResolvable();
     run(buildPolicySetCommand(tmpFile, sandboxName));
 
     for (const presetName of uniquePresetNames) {

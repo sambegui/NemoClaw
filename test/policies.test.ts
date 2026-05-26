@@ -950,6 +950,47 @@ exit 1
         exitSpy.mockRestore();
       }
     });
+
+    // The assertion must fire BEFORE any temp dir/file creation. With a real
+    // `process.exit(1)` the matching `finally` does not run, so a temp dir
+    // created before the exit gets orphaned in $TMPDIR. A mocked exit (which
+    // throws) doesn't reproduce that — `finally` still runs and cleans up. To
+    // catch the real-world bug, snapshot $TMPDIR at the *moment* of exit:
+    // if the assertion fires before mkdtempSync, no nemoclaw-policy-* dir
+    // should exist yet.
+    it("applyPreset does not create temp dirs before the openshell resolvability check", () => {
+      const beforeCount = fs
+        .readdirSync(os.tmpdir())
+        .filter((entry) => entry.startsWith("nemoclaw-policy-")).length;
+      let countAtExit = -1;
+
+      const resolveSpy = vi
+        .spyOn(resolveOpenshellModule, "resolveOpenshell")
+        .mockReturnValue(null);
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => {
+        countAtExit = fs
+          .readdirSync(os.tmpdir())
+          .filter((entry) => entry.startsWith("nemoclaw-policy-")).length;
+        throw new Error("__test_exit__");
+      }) as never);
+
+      try {
+        // Apply a real built-in preset so applyPresetContent runs end-to-end
+        // up to the resolvability check.
+        expect(() => policies.applyPreset("my-assistant", "npm")).toThrow(/__test_exit__/);
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        // No `nemoclaw-policy-*` temp dir should have been created before
+        // the resolvability check exited.
+        expect(countAtExit).toBe(beforeCount);
+      } finally {
+        resolveSpy.mockRestore();
+        errSpy.mockRestore();
+        logSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+    });
   });
 
   describe("extractPresetEntries", () => {
