@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { Interface as ReadlineInterface } from "node:readline";
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import * as policies from "../dist/lib/policy";
 import { execTimeout } from "./helpers/timeouts";
@@ -778,8 +778,10 @@ exit 1
   describe("buildPolicySetCommand", () => {
     it("returns an argv array with sandbox name as a separate element", () => {
       const cmd = policies.buildPolicySetCommand("/tmp/policy.yaml", "my-assistant");
-      expect(cmd).toEqual([
-        "openshell",
+      // The binary is resolved via resolveOpenshell() so it may be an absolute
+      // path; assert the openshell tail and the rest of the argv shape.
+      expect(cmd[0]).toMatch(/openshell$/);
+      expect(cmd.slice(1)).toEqual([
         "policy",
         "set",
         "--policy",
@@ -803,11 +805,15 @@ exit 1
     });
 
     it("uses the resolved openshell binary when provided by the installer path", () => {
-      process.env.NEMOCLAW_OPENSHELL_BIN = "/tmp/fake path/openshell";
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openshell-bin-"));
+      const override = path.join(tmpDir, "openshell");
+      fs.writeFileSync(override, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const prev = process.env.NEMOCLAW_OPENSHELL_BIN;
+      process.env.NEMOCLAW_OPENSHELL_BIN = override;
       try {
         const cmd = policies.buildPolicySetCommand("/tmp/policy.yaml", "my-assistant");
         expect(cmd).toEqual([
-          "/tmp/fake path/openshell",
+          override,
           "policy",
           "set",
           "--policy",
@@ -816,7 +822,9 @@ exit 1
           "my-assistant",
         ]);
       } finally {
-        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+        if (prev === undefined) delete process.env.NEMOCLAW_OPENSHELL_BIN;
+        else process.env.NEMOCLAW_OPENSHELL_BIN = prev;
+        fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     });
   });
@@ -824,7 +832,66 @@ exit 1
   describe("buildPolicyGetCommand", () => {
     it("returns an argv array with sandbox name as a separate element", () => {
       const cmd = policies.buildPolicyGetCommand("my-assistant");
-      expect(cmd).toEqual(["openshell", "policy", "get", "--full", "my-assistant"]);
+      expect(cmd[0]).toMatch(/openshell$/);
+      expect(cmd.slice(1)).toEqual(["policy", "get", "--full", "my-assistant"]);
+    });
+  });
+
+  // Regression for issue #4224: when openshell is installed at ~/.local/bin/openshell
+  // (the installer's user-local location) but PATH from a non-interactive shell does
+  // not include ~/.local/bin/, buildPolicySetCommand / buildPolicyGetCommand must
+  // resolve openshell to an absolute path so spawnSync does not raise ENOENT.
+  describe("issue 4224: spawnSync openshell ENOENT in non-interactive shells", () => {
+    let tmpHome: string;
+    let fakeOpenshell: string;
+    let origHome: string | undefined;
+    let origPath: string | undefined;
+    let origBin: string | undefined;
+
+    beforeEach(() => {
+      tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-issue4224-"));
+      const localBin = path.join(tmpHome, ".local", "bin");
+      fs.mkdirSync(localBin, { recursive: true });
+      fakeOpenshell = path.join(localBin, "openshell");
+      fs.writeFileSync(fakeOpenshell, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+      origHome = process.env.HOME;
+      origPath = process.env.PATH;
+      origBin = process.env.NEMOCLAW_OPENSHELL_BIN;
+      // Simulate the non-interactive shell: openshell not on PATH, no override.
+      process.env.HOME = tmpHome;
+      process.env.PATH = "/nonexistent-nemoclaw-path";
+      delete process.env.NEMOCLAW_OPENSHELL_BIN;
+    });
+
+    afterEach(() => {
+      if (origHome === undefined) delete process.env.HOME;
+      else process.env.HOME = origHome;
+      if (origPath === undefined) delete process.env.PATH;
+      else process.env.PATH = origPath;
+      if (origBin === undefined) delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      else process.env.NEMOCLAW_OPENSHELL_BIN = origBin;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    });
+
+    it("buildPolicySetCommand resolves openshell to ~/.local/bin/openshell when PATH lacks it", () => {
+      const cmd = policies.buildPolicySetCommand("/tmp/policy.yaml", "my-assistant");
+      expect(cmd[0]).toBe(fakeOpenshell);
+      expect(cmd).toEqual([
+        fakeOpenshell,
+        "policy",
+        "set",
+        "--policy",
+        "/tmp/policy.yaml",
+        "--wait",
+        "my-assistant",
+      ]);
+    });
+
+    it("buildPolicyGetCommand resolves openshell to ~/.local/bin/openshell when PATH lacks it", () => {
+      const cmd = policies.buildPolicyGetCommand("my-assistant");
+      expect(cmd[0]).toBe(fakeOpenshell);
+      expect(cmd).toEqual([fakeOpenshell, "policy", "get", "--full", "my-assistant"]);
     });
   });
 

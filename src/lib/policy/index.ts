@@ -13,6 +13,7 @@ const YAML = require("yaml");
 const { ROOT, run, runCapture } = require("../runner");
 const registry = require("../state/registry");
 const { loadAgent } = require("../agent/defs");
+const { resolveOpenshell } = require("../adapters/openshell/resolve");
 
 const PRESETS_DIR = path.join(ROOT, "nemoclaw-blueprint", "policies", "presets");
 
@@ -324,19 +325,27 @@ function parseCurrentPolicy(raw: string | null | undefined): string {
 }
 
 /**
+ * Resolve the openshell binary, preferring an absolute path so spawnSync does
+ * not raise ENOENT in non-interactive shells where ~/.local/bin/ is absent
+ * from PATH (issue #4224). Falls back to the literal "openshell" so callers
+ * that handle the missing binary themselves still surface an error.
+ */
+function resolveOpenshellBinary(): string {
+  return resolveOpenshell() ?? "openshell";
+}
+
+/**
  * Build the openshell policy set command as an argv array.
  */
 function buildPolicySetCommand(policyFile: string, sandboxName: string): string[] {
-  const binary = process.env.NEMOCLAW_OPENSHELL_BIN || "openshell";
-  return [binary, "policy", "set", "--policy", policyFile, "--wait", sandboxName];
+  return [resolveOpenshellBinary(), "policy", "set", "--policy", policyFile, "--wait", sandboxName];
 }
 
 /**
  * Build the openshell policy get command as an argv array.
  */
 function buildPolicyGetCommand(sandboxName: string): string[] {
-  const binary = process.env.NEMOCLAW_OPENSHELL_BIN || "openshell";
-  return [binary, "policy", "get", "--full", sandboxName];
+  return [resolveOpenshellBinary(), "policy", "get", "--full", sandboxName];
 }
 
 /**
