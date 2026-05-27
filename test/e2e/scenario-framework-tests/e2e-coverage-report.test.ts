@@ -6,7 +6,6 @@ import path from "node:path";
 
 import { loadMetadataFromDir, loadMetadataFromObjects } from "../runtime/resolver/load.ts";
 import { renderCoverageReport } from "../runtime/resolver/coverage.ts";
-import { renderLegacyContractCoverageReport } from "../runtime/resolver/parity.ts";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const E2E_DIR = path.join(REPO_ROOT, "test/e2e");
@@ -54,31 +53,6 @@ describe("coverage report", () => {
     const md = renderCoverageReport(meta);
     expect(md).toMatch(/## Gaps/);
     expect(md).toMatch(/empty-suite-scenario.*no suites|no suites.*empty-suite-scenario/s);
-  });
-
-  it("should_render_setup_parity_vs_assertion_parity_report", () => {
-    const md = renderLegacyContractCoverageReport([
-      {
-        legacyScript: "test/e2e/test-full-e2e.sh",
-        assertionId: "full.e2e.agent.response",
-        owner: "scenario-framework",
-        sourceAudit: "audit#top-level",
-        status: "metadata-only",
-        contract: {
-          environment: { os: "ubuntu" },
-          manifest: { scenarioId: "ubuntu-repo-cloud-openclaw" },
-          fixtures: [{ id: "fake-openai" }],
-          runtimeActions: [{ id: "onboard.openclaw", order: 1 }],
-          assertions: [],
-        },
-      },
-    ]);
-    expect(md).toContain("Environment");
-    expect(md).toContain("Manifest/no-manifest");
-    expect(md).toContain("Fixtures");
-    expect(md).toContain("Runtime actions");
-    expect(md).toContain("Assertions");
-    expect(md).toContain("metadata-only");
   });
 
   it("should_flag_expected_states_not_used_by_any_scenario", () => {

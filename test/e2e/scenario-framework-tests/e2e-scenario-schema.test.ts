@@ -8,7 +8,6 @@ import path from "node:path";
 import yaml from "js-yaml";
 
 import { loadMetadataFromDir } from "../runtime/resolver/load.ts";
-import type { ScenarioContract } from "../runtime/resolver/parity.ts";
 
 const E2E_DIR = path.resolve(import.meta.dirname, "..");
 const SCENARIOS_PATH = path.join(E2E_DIR, "nemoclaw_scenarios", "scenarios.yaml");
@@ -117,30 +116,6 @@ describe("E2E scenario metadata schema", () => {
         expect.arrayContaining([expect.any(String)]),
       );
     }
-  });
-
-  it("should_define_parity_contract_top_level_parts", () => {
-    const contract: ScenarioContract = {
-      environment: { os: "ubuntu", requirements: ["docker"] },
-      manifest: { scenarioId: "ubuntu-repo-cloud-openclaw" },
-      fixtures: [{ id: "fake-openai", cleanup: "teardown" }],
-      runtimeActions: [{ id: "channels.add", order: 1 }],
-      assertions: [
-        {
-          assertionId: "scenario.schema.contract",
-          implementation: "validation_suites/assert/inference-works.sh",
-          evidencePath: ".e2e/assertions/scenario-schema-contract.json",
-          boundary: "sandbox",
-        },
-      ],
-    };
-    expect(Object.keys(contract)).toEqual([
-      "environment",
-      "manifest",
-      "fixtures",
-      "runtimeActions",
-      "assertions",
-    ]);
   });
 
   it("should_reject_platform_specific_fixture_without_runner_requirements", () => {
