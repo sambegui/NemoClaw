@@ -229,7 +229,7 @@ Each phase must follow this order so parity cannot be claimed before real behavi
 - Inventory validation fails if a `retired` entry lacks rationale.
 - Existing scenario metadata tests still pass.
 
-## Phase 2: Environment, Manifest, Fixture, and Runtime Action Primitives
+## Phase 2: Environment, Manifest, Fixture, and Runtime Action Primitives [COMPLETED: e44d347ac]
 
 ### Audit sections covered
 
