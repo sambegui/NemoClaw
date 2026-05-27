@@ -98,6 +98,21 @@ afterEach(() => {
 // Instead, test the logic by directly manipulating state files and
 // calling functions that read them at invocation time.
 
+async function loadShieldsModule(): Promise<typeof import("../../../dist/lib/shields/index")> {
+  const distModulePath = path.join(
+    process.cwd(),
+    "dist",
+    "lib",
+    "shields",
+    "index.js",
+  );
+  return import(distModulePath);
+}
+
+function stateDir(): string {
+  return path.join(tmpDir, ".nemoclaw", "state");
+}
+
 describe("shields — unit logic", () => {
   describe("parseDuration (inline in shields.ts)", () => {
     // parseDuration is inlined in shields.ts. Test it via the ESM module.
@@ -382,21 +397,6 @@ describe("shields — unit logic", () => {
   });
 
   describe("NC-3112: status self-heals stale expired auto-restore markers", () => {
-    async function loadShieldsModule() {
-      const distModulePath = path.join(
-        process.cwd(),
-        "dist",
-        "lib",
-        "shields",
-        "index.js",
-      );
-      return import(distModulePath);
-    }
-
-    function stateDir(): string {
-      return path.join(tmpDir, ".nemoclaw", "state");
-    }
-
     function writeState(
       sandboxName: string,
       state: Record<string, unknown>,
@@ -660,21 +660,6 @@ describe("shields — unit logic", () => {
   // shieldsStatus: locked-state drift surface
   // -------------------------------------------------------------------
   describe("shieldsStatus surfaces drift returned by the verifier", () => {
-    async function loadShieldsModule() {
-      const distModulePath = path.join(
-        process.cwd(),
-        "dist",
-        "lib",
-        "shields",
-        "index.js",
-      );
-      return import(distModulePath);
-    }
-
-    function stateDir(): string {
-      return path.join(tmpDir, ".nemoclaw", "state");
-    }
-
     function writeLockedState(sandboxName: string): void {
       fs.mkdirSync(stateDir(), { recursive: true });
       fs.writeFileSync(

@@ -313,6 +313,80 @@ else
   fail "shields status should show UP: ${STATUS_OUTPUT}"
 fi
 
+if echo "$STATUS_OUTPUT" | grep -q "DRIFTED"; then
+  fail "clean lockdown should not report DRIFTED: ${STATUS_OUTPUT}"
+else
+  pass "shields status does not report DRIFTED on a clean lockdown"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# Phase 5b: host-root tamper — shields status surfaces drift (#4243)
+# ══════════════════════════════════════════════════════════════════
+section "Phase 5b: shields status detects host-root tamper"
+
+CTR=$(docker ps --filter "name=openshell-${SANDBOX_NAME}" --format "{{.Names}}" | head -n 1)
+if [ -z "${CTR}" ]; then
+  fail "Could not find sandbox container openshell-${SANDBOX_NAME} for tamper drill"
+else
+  info "Tampering sandbox filesystem via host-root docker exec on ${CTR}"
+  CONFIG_DIR=$(dirname "${CONFIG_PATH}")
+  HASH_PATH="${CONFIG_DIR}/.config-hash"
+  docker exec --user root "${CTR}" sh -c "
+    chmod 2770 '${CONFIG_DIR}' &&
+    chown sandbox:sandbox '${CONFIG_DIR}' &&
+    chmod 660 '${CONFIG_PATH}' '${HASH_PATH}' &&
+    chown sandbox:sandbox '${CONFIG_PATH}' '${HASH_PATH}'
+  " >/dev/null 2>&1 || true
+
+  PERMS_TAMPERED=$(docker exec --user root "${CTR}" stat -c '%a %U:%G' "${CONFIG_PATH}" 2>/dev/null || true)
+  info "Config perms after tamper: ${PERMS_TAMPERED}"
+
+  set +e
+  DRIFT_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
+  DRIFT_EXIT=$?
+  set -e
+  echo "$DRIFT_OUTPUT"
+
+  if [ "${DRIFT_EXIT}" = "2" ]; then
+    pass "shields status exits 2 when sandbox filesystem drifts from declared lockdown"
+  else
+    fail "shields status should exit 2 on drift, got ${DRIFT_EXIT}: ${DRIFT_OUTPUT}"
+  fi
+
+  if echo "$DRIFT_OUTPUT" | grep -q "DRIFTED"; then
+    pass "shields status reports DRIFTED on host-root tamper"
+  else
+    fail "shields status output missing DRIFTED marker: ${DRIFT_OUTPUT}"
+  fi
+
+  if echo "$DRIFT_OUTPUT" | grep -qE "mode=660 \(expected 444\)"; then
+    pass "drift listing includes file mode mismatch"
+  else
+    fail "drift listing should include file mode mismatch: ${DRIFT_OUTPUT}"
+  fi
+
+  if echo "$DRIFT_OUTPUT" | grep -qE "owner=sandbox:sandbox \(expected root:root\)"; then
+    pass "drift listing includes ownership mismatch"
+  else
+    fail "drift listing should include ownership mismatch: ${DRIFT_OUTPUT}"
+  fi
+
+  info "Restoring lockdown perms so Phase 6 can run shields down cleanly"
+  docker exec --user root "${CTR}" sh -c "
+    chmod 755 '${CONFIG_DIR}' &&
+    chown root:root '${CONFIG_DIR}' &&
+    chmod 444 '${CONFIG_PATH}' '${HASH_PATH}' &&
+    chown root:root '${CONFIG_PATH}' '${HASH_PATH}'
+  " >/dev/null 2>&1 || true
+
+  CLEAN_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
+  if echo "$CLEAN_OUTPUT" | grep -q "Shields: UP (lockdown active)"; then
+    pass "shields status returns to clean UP after manual re-lock"
+  else
+    fail "shields status should return to clean UP after re-lock: ${CLEAN_OUTPUT}"
+  fi
+fi
+
 # ══════════════════════════════════════════════════════════════════
 # Phase 6: shields down — config returns to writable
 # ══════════════════════════════════════════════════════════════════
