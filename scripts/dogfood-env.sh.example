@@ -14,20 +14,46 @@
 #     bash scripts/dogfood-orchestrator.sh
 
 # -----------------------------------------------------------------------------
-# REQUIRED — secrets. These NEVER go in version control.
+# REQUIRED — secrets, auto-fetched from local CLI credential stores.
 # -----------------------------------------------------------------------------
+#
+# No paste required — just be logged in via `gh auth login` and `brev login`
+# first; the auto-fetch below reads from where each CLI already stores its
+# token. If either lookup fails, the block warns; the orchestrator's Phase 1
+# env-check would then fail-fast before any cost is incurred.
 
-# Brev account API token. Must have create + delete permissions for the
-# verification sandboxes the skill provisions per candidate. See
-# https://docs.brev.dev/ for token generation.
-export BREV_API_TOKEN="<paste-here>"
+# GitHub token. `gh auth token` prints the active token to stdout. Required
+# scopes: `repo` (label + comment writes); `project` (Project 199 move on
+# fixed-on-latest verdicts — orchestrator soft-warns if missing). To add the
+# project scope: `gh auth refresh -h github.com -s project` in a real TTY.
+if command -v gh >/dev/null 2>&1; then
+  export GH_TOKEN="$(gh auth token 2>/dev/null || echo "")"
+fi
+if [ -z "${GH_TOKEN:-}" ]; then
+  echo "[dogfood-env] warning: could not auto-fetch GH_TOKEN — run 'gh auth login' first." >&2
+fi
 
-# GitHub token. Required scopes:
-#   - repo    : label and comment writes on NVIDIA/NemoClaw issues
-#   - project : Project 199 move on fixed-on-latest verdicts (orchestrator
-#               will soft-warn if missing; skill degrades gracefully)
-# Generate at https://github.com/settings/tokens (classic or fine-grained).
-export GH_TOKEN="<paste-here>"
+# Brev account tokens. Stored in ~/.brev/credentials.json after `brev login`:
+#   - access_token  : short-lived (hours); used for API calls
+#   - refresh_token : longer-lived; brev CLI uses it to auto-renew access
+# Must have create + delete permissions for the verification sandboxes the
+# skill provisions per candidate. Pass BOTH so the orchestrator can
+# reconstruct a complete credentials.json inside the sandbox — passing only
+# access_token works for short runs but kills long batches when it expires.
+if [ -f "$HOME/.brev/credentials.json" ] && command -v jq >/dev/null 2>&1; then
+  export BREV_API_TOKEN="$(jq -r '.access_token // empty' "$HOME/.brev/credentials.json" 2>/dev/null || echo "")"
+  export BREV_REFRESH_TOKEN="$(jq -r '.refresh_token // empty' "$HOME/.brev/credentials.json" 2>/dev/null || echo "")"
+fi
+if [ -z "${BREV_API_TOKEN:-}" ]; then
+  echo "[dogfood-env] warning: could not auto-fetch BREV_API_TOKEN — run 'brev login' first." >&2
+fi
+# Sanity-check that the token still works on the host. If brev ls fails with
+# 'logged out', the access token has expired and refresh has also lapsed.
+if [ -n "${BREV_API_TOKEN:-}" ] && command -v brev >/dev/null 2>&1; then
+  if ! brev ls >/dev/null 2>&1; then
+    echo "[dogfood-env] warning: brev token expired locally — run 'brev login' to refresh." >&2
+  fi
+fi
 
 # NVIDIA API key — ONLY needed if you plan to process non-Ollama candidates.
 # The default candidate filter (VERIFY_STALE_FORCE_OLLAMA_ONLY=1, see below)

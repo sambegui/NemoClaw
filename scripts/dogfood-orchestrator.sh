@@ -110,6 +110,21 @@ command -v gh >/dev/null 2>&1 || { info "  installing gh..."; install_gh; }
 command -v brev >/dev/null 2>&1 || { info "  installing brev..."; install_brev; }
 command -v openclaw >/dev/null 2>&1 || fail "openclaw not in PATH — the maintainer sandbox image is missing OpenClaw."
 
+# The sandbox is a fresh container — gh reads GH_TOKEN from env automatically,
+# but brev expects its credentials at ~/.brev/credentials.json. Reconstruct
+# the file from the BREV_API_TOKEN + BREV_REFRESH_TOKEN env vars that came
+# in via NemoClaw's deploy passthrough. Both tokens are needed: access for
+# immediate API calls, refresh so a long batch can renew after expiry.
+# Idempotent — only creates the file if it doesn't already exist.
+if [ ! -f "$HOME/.brev/credentials.json" ] && [ -n "${BREV_API_TOKEN:-}" ]; then
+  info "  reconstructing ~/.brev/credentials.json from env tokens"
+  mkdir -p "$HOME/.brev"
+  jq -n --arg access "$BREV_API_TOKEN" --arg refresh "${BREV_REFRESH_TOKEN:-}" \
+    'if $refresh == "" then {access_token: $access} else {access_token: $access, refresh_token: $refresh} end' \
+    > "$HOME/.brev/credentials.json"
+  chmod 600 "$HOME/.brev/credentials.json"
+fi
+
 info "  jq, gh, brev, openclaw all callable."
 
 # -----------------------------------------------------------------------------
