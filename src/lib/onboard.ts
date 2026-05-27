@@ -20,6 +20,7 @@ const {
   createInferenceSelectionValidationHelpers,
 }: typeof import("./onboard/inference-selection-validation") = require("./onboard/inference-selection-validation");
 const { cleanupTempDir }: typeof import("./onboard/temp-files") = require("./onboard/temp-files");
+const { abortNonInteractive }: typeof import("./onboard/non-interactive-abort") = require("./onboard/non-interactive-abort");
 const { stopStaleDashboardListenersForSandbox } = require("./onboard/stale-gateway-cleanup");
 const {
   ensureOllamaLoopbackSystemdOverride,
@@ -250,7 +251,6 @@ const {
   LOCAL_INFERENCE_PROVIDERS,
   OLLAMA_PROXY_CREDENTIAL_ENV,
   VLLM_LOCAL_CREDENTIAL_ENV,
-  DISCORD_SNOWFLAKE_RE,
   getProviderLabel,
   getEffectiveProviderName,
   getNonInteractiveProvider,
@@ -263,7 +263,6 @@ const {
   LOCAL_INFERENCE_PROVIDERS: string[];
   OLLAMA_PROXY_CREDENTIAL_ENV: string;
   VLLM_LOCAL_CREDENTIAL_ENV: string;
-  DISCORD_SNOWFLAKE_RE: RegExp;
   getProviderLabel: (key: string) => string;
   getEffectiveProviderName: (key: string | null | undefined) => string | null;
   getNonInteractiveProvider: () => string | null;
@@ -372,6 +371,7 @@ const {
   getRecordedMessagingChannelsForResume: getRecordedMessagingChannelsForResumeFromState,
 }: typeof import("./onboard/messaging-credentials") = require("./onboard/messaging-credentials");
 const {
+  collectMessagingBuildConfig,
   computeTelegramRequireMention,
   getStoredMessagingChannelConfig,
   messagingChannelConfigsEqual,
@@ -487,6 +487,7 @@ import {
   readMessagingChannelConfigFromEnv,
 } from "./messaging-channel-config";
 import { streamGatewayStart } from "./onboard/gateway";
+import { runOllamaStartupOrGate } from "./onboard/ollama-startup";
 import {
   mergeRequiredHermesToolGatewayPolicyPresets,
   normalizeHermesToolGatewaySelections,
@@ -500,7 +501,7 @@ import {
   resolveMessagingChannelSeed,
   resolveQrSelectedChannels,
 } from "./onboard/messaging-state";
-import { getMessagingToken } from "./onboard/messaging-token";
+import { getValidatedMessagingToken, getValidatedMessagingTokenByEnvKey } from "./onboard/messaging-token";
 import type {
   DockerDriverBinaryOverrides,
   OpenShellInstallDeps,
@@ -2996,11 +2997,11 @@ async function createSandbox(
   const conflictCheckChannels = Array.isArray(enabledChannels)
     ? enabledChannels.flatMap((name) => {
         const def = MESSAGING_CHANNELS.find((c) => c.name === name);
-        if (!def || !def.envKey || !getMessagingToken(def.envKey)) return [];
+        if (!def || !def.envKey || !getValidatedMessagingToken(def, def.envKey)) return [];
         const tokenEnvKeys = getChannelTokenKeys(def);
         const credentialHashes: Record<string, string> = {};
         for (const envKey of tokenEnvKeys) {
-          const hash = hashCredential(getMessagingToken(envKey));
+          const hash = hashCredential(getValidatedMessagingToken(def, envKey));
           if (hash) credentialHashes[envKey] = hash;
         }
         if (Object.keys(credentialHashes).length === 0) return [];
@@ -3068,27 +3069,27 @@ async function createSandbox(
     {
       name: `${sandboxName}-discord-bridge`,
       envKey: "DISCORD_BOT_TOKEN",
-      token: getMessagingToken("DISCORD_BOT_TOKEN"),
+      token: getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "DISCORD_BOT_TOKEN"),
     },
     {
       name: `${sandboxName}-slack-bridge`,
       envKey: "SLACK_BOT_TOKEN",
-      token: getMessagingToken("SLACK_BOT_TOKEN"),
+      token: getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "SLACK_BOT_TOKEN"),
     },
     {
       name: `${sandboxName}-slack-app`,
       envKey: "SLACK_APP_TOKEN",
-      token: getMessagingToken("SLACK_APP_TOKEN"),
+      token: getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "SLACK_APP_TOKEN"),
     },
     {
       name: `${sandboxName}-telegram-bridge`,
       envKey: "TELEGRAM_BOT_TOKEN",
-      token: getMessagingToken("TELEGRAM_BOT_TOKEN"),
+      token: getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "TELEGRAM_BOT_TOKEN"),
     },
     {
       name: `${sandboxName}-wechat-bridge`,
       envKey: "WECHAT_BOT_TOKEN",
-      token: getMessagingToken("WECHAT_BOT_TOKEN"),
+      token: getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "WECHAT_BOT_TOKEN"),
     },
   ]
     .filter(({ envKey }) => !enabledEnvKeys || enabledEnvKeys.has(envKey))
@@ -3612,49 +3613,14 @@ async function createSandbox(
 
   console.log(`  Creating sandbox '${sandboxName}' (this takes a few minutes on first run)...`);
   const messagingChannelConfig = readMessagingChannelConfigFromEnv();
-  // Build allowed sender IDs map from env vars set during the messaging prompt.
-  // Each channel with a userIdEnvKey in MESSAGING_CHANNELS may have a
-  // comma-separated list of IDs (e.g. TELEGRAM_ALLOWED_IDS="123,456").
-  const messagingAllowedIds: Record<string, string[]> = {};
   const enabledTokenEnvKeys = new Set(messagingTokenDefs.map(({ envKey }) => envKey));
   const activeChannelNames = new Set(activeMessagingChannels);
-  for (const ch of MESSAGING_CHANNELS) {
-    if (activeChannelNames.has(ch.name) && ch.userIdEnvKey && process.env[ch.userIdEnvKey]) {
-      const ids = String(process.env[ch.userIdEnvKey])
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (ids.length > 0) messagingAllowedIds[ch.name] = ids;
-    }
-  }
-  const discordGuilds: Record<string, { requireMention: boolean; users?: string[] }> = {};
-  if (enabledTokenEnvKeys.has("DISCORD_BOT_TOKEN")) {
-    const serverIds = (process.env.DISCORD_SERVER_IDS || process.env.DISCORD_SERVER_ID || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const userIds = (process.env.DISCORD_ALLOWED_IDS || process.env.DISCORD_USER_ID || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const serverId of serverIds) {
-      if (!DISCORD_SNOWFLAKE_RE.test(serverId)) {
-        console.warn("  Warning: configured Discord server ID does not look like a snowflake.");
-      }
-    }
-    for (const userId of userIds) {
-      if (!DISCORD_SNOWFLAKE_RE.test(userId)) {
-        console.warn("  Warning: configured Discord user ID does not look like a snowflake.");
-      }
-    }
-    const requireMention = process.env.DISCORD_REQUIRE_MENTION !== "0";
-    for (const serverId of serverIds) {
-      discordGuilds[serverId] = {
-        requireMention,
-        ...(userIds.length > 0 ? { users: userIds } : {}),
-      };
-    }
-  }
+  const { messagingAllowedIds, discordGuilds, slackConfig } = collectMessagingBuildConfig({
+    channels: MESSAGING_CHANNELS,
+    activeChannelNames,
+    enabledTokenEnvKeys,
+    discordSnowflakeRe: onboardProviders.DISCORD_SNOWFLAKE_RE,
+  });
   // Telegram mention-only mode — parity with Discord's requireMention.
   // Off by default so existing sandboxes behave the same; opt-in via
   // TELEGRAM_REQUIRE_MENTION=1 or the interactive prompt. See #1737.
@@ -3743,6 +3709,7 @@ async function createSandbox(
     false,
     sandboxInferenceBaseUrlOverride,
     hermesToolGateways,
+    slackConfig,
   );
   // Only pass non-sensitive env vars to the sandbox. Credentials flow through
   // OpenShell providers — the gateway injects them as placeholders and the L7
@@ -4199,33 +4166,31 @@ async function selectAndValidateOllamaModel(
     const probe = await prepareOllamaModel(selectedModel, installedModels);
     if (!probe.ok) {
       console.error(`  ${probe.message}`);
-      if (isNonInteractive()) process.exit(1);
+      if (isNonInteractive()) abortNonInteractive(`Ollama model '${selectedModel}' unavailable.`);
       console.log("  Choose a different Ollama model or select Other.");
       console.log("");
       continue;
     }
     const validationBaseUrl = getLocalProviderValidationBaseUrl(provider);
-    if (!validationBaseUrl) {
-      console.error("  Local Ollama validation URL could not be determined.");
-      process.exit(1);
-    }
+    if (!validationBaseUrl)
+      abortNonInteractive("Local Ollama validation URL could not be determined.");
     const validation = await validateOpenAiLikeSelection(
       "Local Ollama",
-      validationBaseUrl,
+      validationBaseUrl!,
       selectedModel,
       null,
       "Choose a different Ollama model or select Other.",
       null,
       {
         skipResponsesProbe: true,
-        requireChatCompletionsToolCalling: true,
+        requireChatCompletionsToolCalling: process.env.NEMOCLAW_OLLAMA_REQUIRE_TOOLS !== "0",
         allowHostDockerInternal:
           localInference.getResolvedOllamaHost() === OLLAMA_HOST_DOCKER_INTERNAL,
       },
     );
     if (validation.retry === "selection") return { outcome: "back-to-selection" };
     if (!validation.ok) {
-      if (isNonInteractive()) process.exit(1);
+      if (isNonInteractive()) abortNonInteractive(`model '${selectedModel}' failed validation.`);
       continue;
     }
     // Ollama's /v1/responses endpoint does not produce correctly formatted
@@ -5139,18 +5104,16 @@ async function setupNim(
           );
           process.exit(1);
         }
-        if (!ollamaReady) {
-          console.log("  Starting Ollama...");
-          // Keep raw Ollama loopback-only; the auth proxy (or Docker Desktop
-          // on WSL via host.docker.internal) fronts container access.
-          runShell(`OLLAMA_HOST=127.0.0.1:${OLLAMA_PORT} ollama serve > /dev/null 2>&1 &`, {
-            ignoreError: true,
-          });
-          if (!waitForHttp(`http://127.0.0.1:${OLLAMA_PORT}/`, 10)) {
-            console.error(`  Ollama did not become ready on :${OLLAMA_PORT} within timeout.`);
-            if (isNonInteractive()) process.exit(1);
-            continue selectionLoop;
-          }
+        const ollamaStartup = runOllamaStartupOrGate({
+          ollamaReady,
+          ollamaPort: OLLAMA_PORT,
+          getLocalProviderBaseUrl,
+          isNonInteractive,
+        });
+        if (ollamaStartup.kind === "continue") continue selectionLoop;
+        if (ollamaStartup.kind === "fallback") {
+          ({ provider, credentialEnv, endpointUrl, model, preferredInferenceApi } = ollamaStartup.result);
+          break;
         }
         if (shouldFrontOllamaWithProxy()) {
           if (!startOllamaAuthProxy()) process.exit(1);
@@ -5275,7 +5238,7 @@ async function setupNim(
           ? installOllamaOnMacOS({ isNonInteractive, isUpgrade })
           : installOllamaOnLinux({ isNonInteractive, isUpgrade });
         if (!installResult.ok) {
-          if (isNonInteractive()) process.exit(1);
+          if (isNonInteractive()) abortNonInteractive("Ollama install failed. See errors above.");
           continue selectionLoop;
         }
         const upgradeCheck = assertOllamaUpgradeApplied(ollamaInstallMenu);
@@ -5322,7 +5285,7 @@ async function setupNim(
           promptFn: prompt,
         });
         if (!result.ok) {
-          if (isNonInteractive()) process.exit(1);
+          if (isNonInteractive()) abortNonInteractive("vLLM install failed. See errors above.");
           continue selectionLoop;
         }
         // Fall through to the same provider/model setup as the running-vLLM
@@ -5946,7 +5909,7 @@ async function setupMessagingChannels(
     resolveMessagingChannelSeed(
       availableChannels,
       existingChannels,
-      (channel) => Boolean(getMessagingToken(channel.envKey)),
+      (channel) => Boolean(getValidatedMessagingToken(channel, channel.envKey)),
       { includeAllExisting },
     );
 
@@ -5956,7 +5919,7 @@ async function setupMessagingChannels(
     if (found.length > 0) {
       note(`  [non-interactive] Messaging tokens detected: ${found.join(", ")}`);
       if (found.includes("telegram")) {
-        const telegramToken = getMessagingToken("TELEGRAM_BOT_TOKEN");
+        const telegramToken = getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "TELEGRAM_BOT_TOKEN");
         if (telegramToken) {
           await checkTelegramReachability(telegramToken);
         }
@@ -5986,7 +5949,7 @@ async function setupMessagingChannels(
     output.write("  Available messaging channels:\n");
     availableChannels.forEach((ch, i) => {
       const marker = enabled.has(ch.name) ? "●" : "○";
-      const status = getMessagingToken(ch.envKey) ? " (configured)" : "";
+      const status = getValidatedMessagingToken(ch, ch.envKey) ? " (configured)" : "";
       output.write(`    [${i + 1}] ${marker} ${ch.name} — ${ch.description}${status}\n`);
     });
     output.write("\n");
@@ -6085,7 +6048,7 @@ async function setupMessagingChannels(
   // so this second call only fires on the interactive path — guard explicitly
   // to make the no-double-probe invariant visible at the call site.
   if (!isNonInteractive() && enabled.has("telegram")) {
-    const telegramToken = getMessagingToken("TELEGRAM_BOT_TOKEN");
+    const telegramToken = getValidatedMessagingTokenByEnvKey(MESSAGING_CHANNELS, "TELEGRAM_BOT_TOKEN");
     if (telegramToken) {
       await checkTelegramReachability(telegramToken);
     }
