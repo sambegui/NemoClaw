@@ -346,7 +346,7 @@ else
     PERMS_TAMPERED=$(docker exec --user root "${CTR}" stat -c '%a %U:%G' "${CONFIG_PATH}" 2>/dev/null || true)
     info "Config perms after tamper: ${PERMS_TAMPERED}"
 
-    DRIFT_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1) || true
+    DRIFT_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
     DRIFT_EXIT=$?
     echo "$DRIFT_OUTPUT"
 
@@ -375,7 +375,11 @@ else
     fi
 
     info "Restoring lockdown perms so Phase 6 can run shields down cleanly"
+    # BusyBox chmod with 3-digit octal preserves setgid, so clear it
+    # explicitly before applying the 755 dir mode to match what
+    # `shields up` produces (plain 755, not 2755).
     docker exec --user root "${CTR}" sh -c "
+      chmod g-s '${CONFIG_DIR}' &&
       chmod 755 '${CONFIG_DIR}' &&
       chown root:root '${CONFIG_DIR}' &&
       chmod 444 '${CONFIG_PATH}' '${HASH_PATH}' &&
@@ -386,7 +390,7 @@ else
     if [ "${RESTORE_EXIT}" != "0" ]; then
       fail "Could not restore lockdown perms via docker exec (exit ${RESTORE_EXIT})"
     else
-      CLEAN_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1) || true
+      CLEAN_OUTPUT=$(nemoclaw "${SANDBOX_NAME}" shields status 2>&1)
       CLEAN_EXIT=$?
 
       if [ "${CLEAN_EXIT}" = "0" ] && echo "$CLEAN_OUTPUT" | grep -q "Shields: UP (lockdown active)"; then
