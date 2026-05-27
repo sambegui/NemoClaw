@@ -71,11 +71,11 @@ describe("WSL2 inference verification timeouts (issue #987)", () => {
       const platform = require(platformPath);
       const originalRunCurlProbe = httpProbe.runCurlProbe;
       const originalIsWsl = platform.isWsl;
-      const calls: string[][] = [];
+      const calls: { args: string[]; opts?: { timeoutMs?: number } }[] = [];
       let index = 0;
       platform.isWsl = () => false;
-      httpProbe.runCurlProbe = (args: string[]) => {
-        calls.push(args);
+      httpProbe.runCurlProbe = (args: string[], opts?: { timeoutMs?: number }) => {
+        calls.push({ args, opts });
         const status = statuses[index++] ?? 0;
         if (status === 0) {
           return {
@@ -121,7 +121,7 @@ describe("WSL2 inference verification timeouts (issue #987)", () => {
       const { result, calls } = runProbeWithCurlStatuses([28, 28, 0]);
       expect(result.ok).toBe(true);
       expect(calls.length).toBe(3);
-      expect(calls[2]).toEqual(
+      expect(calls[2].args).toEqual(
         expect.arrayContaining(["--connect-timeout", "20", "--max-time", "30"]),
       );
     });
@@ -214,9 +214,10 @@ describe("WSL2 inference verification timeouts (issue #987)", () => {
 
     it("doubles timeout values for the retry attempt", () => {
       const { calls } = runProbeWithCurlStatuses([28, 28, 0]);
-      expect(calls[2]).toEqual(
+      expect(calls[2].args).toEqual(
         expect.arrayContaining(["--connect-timeout", "20", "--max-time", "30"]),
       );
+      expect(calls[2].opts?.timeoutMs).toBe(35_000);
     });
 
     it("appends WSL2 hint when retry fails on WSL2", () => {
