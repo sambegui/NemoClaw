@@ -70,6 +70,15 @@ Apply these rules in order. Drop any issue that fails a rule.
 
 **Integration skip (deferred to v2):** drop if any of `Integration: Slack`, `Integration: Discord`, `Integration: Telegram`, `Integration: Hermes`, `Integration: OpenClaw`, `Integration: WeChat`. These need third-party credentials a fresh Brev box cannot provide.
 
+**Provider-credential skip (`VERIFY_STALE_FORCE_OLLAMA_ONLY=1`).** When this env var is set, additionally drop any issue whose body or title indicates the bug exercises a non-`ollama` inference provider — i.e., the reproducer's outcome depends on a real provider credential that is not mounted in the runtime. The match patterns (case-insensitive):
+
+- `Provider: nim`, `Provider: openai`, `Provider: anthropic`, `Provider: nvidia`, `Provider: integrate.api.nvidia.com`, `Provider: build.nvidia.com`
+- Bug body or title contains `NVIDIA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `NIM_API_KEY`
+- Reproducer fences (` ``` `) reference `nim-service.local`, `integrate.api.nvidia.com`, `api.openai.com`, `api.anthropic.com`
+- `BUG_PROVIDER` (parsed by Step 5 of `environment-and-reproducer.md`) ends up as anything other than `ollama`
+
+This filter exists so the skill can run unattended without the Step 6 "Required-API-key prompt" stalling the autonomous run. The default is unset (all provider credentials honored); set it explicitly when the runtime mounts only Ollama. **Match conservatively** — when in doubt, drop the candidate. False-positive skips just shrink the batch; false-negative passes stall the agent at Step 6 and waste the slot.
+
 **Component allowlist (must have at least one):** `NemoClaw CLI`, `Sandbox`, `OpenShell`, `Docker`, `Getting Started`, or any `Platform:` label that survived the platform skip.
 
 **Idempotency:** drop if **either** of these is true:

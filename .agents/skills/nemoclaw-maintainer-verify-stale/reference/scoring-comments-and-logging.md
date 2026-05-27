@@ -285,11 +285,20 @@ If a partial-fix PR is in flight that targets the same surface, add one sentence
 
 The trailing HTML comment is the **idempotency marker** Step 3 looks for. Always include today's date in `YYYY-MM-DD` format so the candidate filter can apply the 7-day TTL.
 
-**Pre-post state-check.** A long-running verification can race with the maintainer closing the issue independently — happened on #2513 and #2519 (mid-batch closes by @jyaunches with their own verification). Re-check `state == OPEN` right before posting. If closed, apply the label tag-only (skipping the comment, since the maintainer's own close-comment is now the authoritative record) and skip the Project 199 move.
+**Pre-post state-check.** A long-running verification can race with the maintainer closing the issue independently — happened on #2513 and #2519 (mid-batch closes by @jyaunches with their own verification). Re-check `state == OPEN` right before posting. If closed, apply the label tag-only (skipping the comment, since the maintainer's own close-comment is now the authoritative record) and skip the Project 199 move. **In dry-run mode, the label-apply is itself skipped** — dry-run never mutates issue state, even on the closed-mid-run path; the would-have-applied label is logged to `metadata.json` instead, identical to the live-run dry-run path below.
 
 ```bash
 STATE=$(gh issue view "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --json state --jq .state)
 if [ "$STATE" != "OPEN" ]; then
+  if [ "${VERIFY_STALE_DRY_RUN:-0}" = "1" ]; then
+    mkdir -p "${VERIFY_STALE_LOG_DIR:-/tmp}/$ISSUE_NUMBER"
+    jq --arg label "$LABEL" --arg state "$STATE" \
+      '.would_apply_label = $label | .closed_mid_run = true | .observed_state = $state' \
+      "${VERIFY_STALE_LOG_DIR:-/tmp}/$ISSUE_NUMBER/metadata.json" > "${VERIFY_STALE_LOG_DIR:-/tmp}/$ISSUE_NUMBER/metadata.json.tmp" \
+      && mv "${VERIFY_STALE_LOG_DIR:-/tmp}/$ISSUE_NUMBER/metadata.json.tmp" "${VERIFY_STALE_LOG_DIR:-/tmp}/$ISSUE_NUMBER/metadata.json"
+    echo "[verify-stale] DRY_RUN — #$ISSUE_NUMBER closed mid-run; would have applied $LABEL tag-only"
+    exit 0
+  fi
   echo "[verify-stale] #$ISSUE_NUMBER closed since verification started — applying label tag-only, skipping comment + tracker move"
   gh issue edit "$ISSUE_NUMBER" --repo NVIDIA/NemoClaw --add-label "$LABEL"
   exit 0
