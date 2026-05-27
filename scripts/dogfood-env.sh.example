@@ -108,6 +108,14 @@ export VERIFY_STALE_FORCE_OLLAMA_ONLY="1"
 # line 577 and elsewhere.)
 export NEMOCLAW_NON_INTERACTIVE="1"
 
+# Tells `nemoclaw onboard` to pick the Ollama provider in non-interactive
+# mode. The canonical blueprint doesn't declare an Ollama profile, but the
+# onboard code accepts "ollama" as a valid NEMOCLAW_PROVIDER value (see
+# src/lib/onboard/providers.ts) and configures the sandbox to use Ollama at
+# the host gateway. Without this, non-interactive onboard falls back to the
+# default `build` provider which demands a real NVIDIA_API_KEY.
+export NEMOCLAW_PROVIDER="ollama"
+
 # -----------------------------------------------------------------------------
 # OPTIONAL — overrides with sensible defaults.
 # -----------------------------------------------------------------------------
