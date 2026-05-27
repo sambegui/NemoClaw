@@ -120,14 +120,31 @@ export NEMOCLAW_NON_INTERACTIVE="1"
 export NEMOCLAW_PROVIDER="anthropic"
 export NEMOCLAW_MODEL="claude-opus-4-7"
 
-# ANTHROPIC_API_KEY: REQUIRED when NEMOCLAW_PROVIDER=anthropic. The recommended
-# pattern is to export it in your shell BEFORE sourcing this file, so a real
-# key never lives in a file (even a gitignored one):
-#     export ANTHROPIC_API_KEY="sk-ant-..."   ← run this in your shell
-#     source scripts/dogfood-env.sh           ← then source
-# If unset, onboard's Phase 3 will fail-fast with a clear message.
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ "${NEMOCLAW_PROVIDER:-}" = "anthropic" ]; then
-  echo "[dogfood-env] warning: ANTHROPIC_API_KEY not set; nemoclaw onboard Phase 3 will fail. Export it in your shell before sourcing this file." >&2
+# ANTHROPIC_API_KEY + ANTHROPIC_BASE_URL: REQUIRED when NEMOCLAW_PROVIDER=anthropic.
+#
+# At NVIDIA, do NOT use a real `sk-ant-...` key directly. Instead route through
+# the internal proxy at inference-api.nvidia.com (privacy/legal/compliance reasons):
+#   1. Get a key at https://inference.nvidia.com/key-management
+#   2. export ANTHROPIC_API_KEY='<inference.nvidia.com-issued key>'
+#   3. export ANTHROPIC_BASE_URL='https://inference-api.nvidia.com'
+#
+# Export both BEFORE sourcing this file so the actual key never lives in a file
+# (even a gitignored one):
+#     export ANTHROPIC_API_KEY='<your inference.nvidia.com key>'
+#     export ANTHROPIC_BASE_URL='https://inference-api.nvidia.com'
+#     source scripts/dogfood-env.sh
+#
+# The Anthropic SDK respects ANTHROPIC_BASE_URL natively, so the proxy override
+# applies to anything in the agent's call path that uses the SDK. (Note: if
+# NemoClaw's onboard hardcodes the endpoint past the env var, fall back to
+# NEMOCLAW_PROVIDER=anthropicCompatible with COMPATIBLE_ANTHROPIC_API_KEY set.)
+if [ "${NEMOCLAW_PROVIDER:-}" = "anthropic" ]; then
+  if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "[dogfood-env] warning: ANTHROPIC_API_KEY not set; nemoclaw onboard Phase 3 will fail. Export it in your shell before sourcing this file." >&2
+  fi
+  if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+    echo "[dogfood-env] warning: ANTHROPIC_BASE_URL not set; at NVIDIA, route through inference-api.nvidia.com (see comment block above)." >&2
+  fi
 fi
 
 # -----------------------------------------------------------------------------
