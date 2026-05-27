@@ -243,7 +243,10 @@ function recoverSandboxProcesses(sandboxName: string): boolean {
     !!(result && result.status === 0 && hasRecoveryMarker(result));
 
   if (agentScript) {
-    return recoveredCommand(executeSandboxCommand(sandboxName, agentScript));
+    const execResult = executeSandboxCommand(sandboxName, agentScript);
+    if (hasRecoveryMarker(execResult)) return true;
+    if (execResult !== null) return false;
+    return false;
   }
 
   const script = agentRuntime.buildOpenClawRecoveryScript(dashboardPort);

@@ -3725,7 +3725,7 @@ describe("CLI dispatch", () => {
     expect(fs.existsSync(sshCalls)).toBe(false);
   });
 
-  it("recovers non-OpenClaw agents over gRPC sandbox exec", () => {
+  it("recovers non-OpenClaw agents over gRPC sandbox exec when the recovery marker is present", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-connect-probe-agent-"));
     const localBin = path.join(home, "bin");
     const openshellCalls = path.join(home, "openshell-calls");
@@ -3755,7 +3755,7 @@ describe("CLI dispatch", () => {
         '  if [[ "$cmd" == *"HERMES_HOME=/sandbox/.hermes"* || "$cmd" == *"AGENT_BIN="* ]]; then',
         '    echo recovered > "$state_file"',
         "    echo 'GATEWAY_PID=789'",
-        "    exit 0",
+        "    exit 42",
         "  fi",
         '  if [[ "$cmd" == *"curl -so"* ]]; then',
         "    echo '__NEMOCLAW_SANDBOX_EXEC_STARTED__'",
