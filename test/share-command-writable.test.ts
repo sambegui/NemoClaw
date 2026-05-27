@@ -127,17 +127,35 @@ describe("checkLocalMountWritable (#3192)", () => {
       });
     });
 
-    it("treats EEXIST from non-recursive mkdir as success and proceeds to the writability check", () => {
+    it("treats EEXIST from non-recursive mkdir as success when the existing path is a directory", () => {
       const err = new Error("EEXIST: file already exists, mkdir '/parent/mnt'") as NodeJS.ErrnoException;
       err.code = "EEXIST";
       vi.spyOn(fs, "existsSync").mockReturnValue(true);
       vi.spyOn(fs, "mkdirSync").mockImplementation(() => {
         throw err;
       });
+      vi.spyOn(fs, "statSync").mockReturnValue({ isDirectory: () => true } as fs.Stats);
       const accessSpy = vi.spyOn(fs, "accessSync").mockImplementation(() => undefined);
 
       expect(checkLocalMountWritable("/parent/mnt")).toEqual({ writable: true });
       expect(accessSpy).toHaveBeenCalledWith("/parent/mnt", fs.constants.W_OK);
+    });
+
+    it("rejects an existing non-directory mount target instead of silently passing the writability check", () => {
+      const err = new Error("EEXIST: file already exists, mkdir '/parent/file'") as NodeJS.ErrnoException;
+      err.code = "EEXIST";
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      vi.spyOn(fs, "mkdirSync").mockImplementation(() => {
+        throw err;
+      });
+      vi.spyOn(fs, "statSync").mockReturnValue({ isDirectory: () => false } as fs.Stats);
+      const accessSpy = vi.spyOn(fs, "accessSync").mockImplementation(() => undefined);
+
+      expect(checkLocalMountWritable("/parent/file")).toEqual({
+        writable: false,
+        reason: "mount target exists and is not a directory",
+      });
+      expect(accessSpy).not.toHaveBeenCalled();
     });
   });
 });

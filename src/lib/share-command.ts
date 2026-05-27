@@ -130,6 +130,9 @@ export function checkLocalMountWritable(localMount: string): { writable: boolean
         fs.mkdirSync(localMount);
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") throw err;
+        if (!fs.statSync(localMount).isDirectory()) {
+          return { writable: false, reason: "mount target exists and is not a directory" };
+        }
       }
     } else {
       fs.mkdirSync(localMount, { recursive: true });
