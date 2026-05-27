@@ -189,6 +189,17 @@ New environment variables should be grouped and documented by scenario contract 
 
 ## Implementation Phases
 
+### Required implementation workflow for every phase
+
+Each phase must follow this order so parity cannot be claimed before real behavior exists:
+
+1. **Inventory first:** add or update parity inventory rows for every legacy script/assertion assigned to the phase, with owner, source audit reference, initial status, and no complete-parity claim.
+2. **Failing tests next:** add contract validation and domain-specific tests that fail for missing setup, missing assertion modules, placeholder steps, weak generic probes, and incomplete script coverage.
+3. **Primitives before mappings:** implement reusable fixtures, runtime actions, and assertion helpers in the existing scenario framework paths before wiring many scenarios to them.
+4. **Scenario wiring:** connect scenario metadata, expected state, suite steps, fixture dependencies, runtime action ordering, and assertion modules.
+5. **Evidence before status upgrade:** update a parity entry to `mapped-live` or `mapped-hermetic` only after the executable assertion module emits stable assertion IDs and evidence paths for every required behavior.
+6. **Phase closeout:** mark the phase complete only after every assigned row is `mapped-live`, `mapped-hermetic`, or `retired` with rationale; any `partial`, `metadata-only`, or `deferred` row keeps the phase open.
+
 ## Phase 1: Parity Contract Foundation
 
 ### Audit sections covered

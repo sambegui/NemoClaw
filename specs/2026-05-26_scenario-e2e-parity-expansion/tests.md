@@ -62,6 +62,16 @@ Do not create tests around a parallel `test/e2e/scenarios/` tree unless the acti
    - **Expected**: mapped status is rejected.
    - **Covers**: executable assertion gate.
 
+## Per-Phase TDD Workflow
+
+For each phase, implementation must add tests in this sequence:
+
+1. **Inventory coverage test**: proves every phase-assigned legacy script/assertion has an inventory row, owner/follow-up, source audit reference, and status.
+2. **No-cheat negative tests**: prove mapped status is rejected for metadata-only entries, placeholder steps, generic probes, missing setup, missing fixture cleanup, or missing evidence.
+3. **Primitive tests**: prove new fixture, runtime-action, resolver, and report helpers work hermetically before scenario metadata depends on them.
+4. **Domain acceptance tests**: prove each required behavior in the phase can pass only through the executable assertion module touching the correct boundary.
+5. **Phase closeout test**: proves the phase remains incomplete while any row is `partial`, `metadata-only`, or `deferred`, and passes only when all rows are mapped or retired with rationale.
+
 ## Phase 1: Parity Contract Foundation - Test Guide
 
 **Existing Tests to Modify:**
