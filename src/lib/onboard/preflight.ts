@@ -16,6 +16,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { DASHBOARD_PORT } from "../core/ports";
+import {
+  isWslDockerDesktopRuntime,
+  wslDockerDesktopGpuCompatibilityAction,
+} from "./wsl-docker-desktop-gpu";
+export { isWslDockerDesktopRuntime } from "./wsl-docker-desktop-gpu";
 
 // runner.ts still uses CommonJS-style exports — use require here.
 const { runCapture } = require("../runner");
@@ -299,12 +304,6 @@ export function getNvidiaCdiSpecPath(
   assessment: Pick<HostAssessment, "dockerCdiSpecDirs">,
 ): string {
   return path.join(normalizeCdiSpecDir(assessment.dockerCdiSpecDirs[0]), "nvidia.yaml");
-}
-
-export function isWslDockerDesktopRuntime(
-  assessment: Pick<HostAssessment, "isWsl" | "runtime">,
-): boolean {
-  return assessment.isWsl && assessment.runtime === "docker-desktop";
 }
 
 // True when at least one CDI spec under the configured directories declares
@@ -816,21 +815,7 @@ export function planHostRemediation(assessment: HostAssessment): RemediationActi
       "nemoclaw onboard      # or rerun with --no-gpu to skip GPU passthrough",
     ];
     if (isWslDockerDesktopRuntime(assessment)) {
-      actions.push({
-        id: "wsl_docker_desktop_gpu_compatibility",
-        title: "Use Docker Desktop WSL GPU compatibility path",
-        kind: "info",
-        reason:
-          "Docker Desktop is configured for CDI device injection (CDISpecDirs is set) but no " +
-          "nvidia.com/gpu CDI spec is visible from WSL. On Docker Desktop-backed WSL, NemoClaw " +
-          "uses Docker's `--gpus` compatibility path instead of trying to repair Linux host CDI " +
-          "from inside the WSL distro.",
-        commands: [
-          "If sandbox GPU setup later fails, verify Docker Desktop GPU support from WSL with `docker run --rm --gpus all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark`.",
-          "Rerun with `--no-gpu` to skip GPU passthrough.",
-        ],
-        blocking: false,
-      });
+      actions.push(wslDockerDesktopGpuCompatibilityAction());
     } else if (assessment.nvidiaContainerToolkitInstalled) {
       actions.push({
         id: "generate_nvidia_cdi_spec",

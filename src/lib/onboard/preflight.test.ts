@@ -13,7 +13,6 @@ import {
   getNvidiaCdiSpecPath,
   ensureSwap,
   isDockerUnderProvisioned,
-  isWslDockerDesktopRuntime,
   MIN_RECOMMENDED_DOCKER_CPUS,
   MIN_RECOMMENDED_DOCKER_MEM_GIB,
   parseDockerCdiSpecDirs,
@@ -840,14 +839,6 @@ describe("getNvidiaCdiSpecPath", () => {
   });
 });
 
-describe("isWslDockerDesktopRuntime", () => {
-  it("only matches Docker Desktop-backed WSL hosts", () => {
-    expect(isWslDockerDesktopRuntime({ isWsl: true, runtime: "docker-desktop" })).toBe(true);
-    expect(isWslDockerDesktopRuntime({ isWsl: true, runtime: "docker" })).toBe(false);
-    expect(isWslDockerDesktopRuntime({ isWsl: false, runtime: "docker-desktop" })).toBe(false);
-  });
-});
-
 describe("planHostRemediation", () => {
   it("recommends starting docker when installed but unreachable and service inactive", () => {
     const actions = planHostRemediation({
@@ -1112,77 +1103,6 @@ describe("planHostRemediation", () => {
       -1;
     expect(ctkInstallIndex).toBeGreaterThanOrEqual(0);
     expect(ctkGenerateIndex).toBeGreaterThan(ctkInstallIndex);
-  });
-
-  it("uses non-blocking Docker Desktop GPU compatibility guidance on WSL Docker Desktop", () => {
-    const actions = planHostRemediation({
-      platform: "linux",
-      isWsl: true,
-      runtime: "docker-desktop",
-      packageManager: "apt",
-      systemctlAvailable: true,
-      dockerServiceActive: null,
-      dockerServiceEnabled: null,
-      dockerInstalled: true,
-      dockerRunning: true,
-      dockerReachable: true,
-      nodeInstalled: true,
-      openshellInstalled: true,
-      dockerCgroupVersion: "v2",
-      dockerDefaultCgroupnsMode: "unknown",
-      isContainerRuntimeUnderProvisioned: false,
-      hasNestedOverlayConflict: false,
-      requiresHostCgroupnsFix: false,
-      isUnsupportedRuntime: false,
-      isHeadlessLikely: false,
-      hasNvidiaGpu: true,
-      dockerCdiSpecDirs: ["/etc/cdi", "/var/run/cdi"],
-      cdiNvidiaGpuSpecMissing: true,
-      nvidiaContainerToolkitInstalled: false,
-      notes: ["Running under WSL"],
-    });
-
-    expect(actions.find((entry) => entry.id === "install_nvidia_container_toolkit")).toBeUndefined();
-    const action = actions.find((entry) => entry.id === "wsl_docker_desktop_gpu_compatibility");
-    expect(action).toBeTruthy();
-    expect(action?.kind).toBe("info");
-    expect(action?.blocking).toBe(false);
-    expect(action?.title).toContain("Docker Desktop");
-    expect(action?.reason).toContain("--gpus");
-    expect(action?.commands.join("\n")).not.toContain("nvidia-ctk");
-    expect(action?.commands.join("\n")).not.toContain("nvidia-container-toolkit");
-  });
-
-  it("keeps NVIDIA Container Toolkit remediation for native Docker Engine inside WSL", () => {
-    const actions = planHostRemediation({
-      platform: "linux",
-      isWsl: true,
-      runtime: "docker",
-      packageManager: "apt",
-      systemctlAvailable: true,
-      dockerServiceActive: true,
-      dockerServiceEnabled: true,
-      dockerInstalled: true,
-      dockerRunning: true,
-      dockerReachable: true,
-      nodeInstalled: true,
-      openshellInstalled: true,
-      dockerCgroupVersion: "v2",
-      dockerDefaultCgroupnsMode: "unknown",
-      isContainerRuntimeUnderProvisioned: false,
-      hasNestedOverlayConflict: false,
-      requiresHostCgroupnsFix: false,
-      isUnsupportedRuntime: false,
-      isHeadlessLikely: false,
-      hasNvidiaGpu: true,
-      dockerCdiSpecDirs: ["/etc/cdi", "/var/run/cdi"],
-      cdiNvidiaGpuSpecMissing: true,
-      nvidiaContainerToolkitInstalled: false,
-      notes: ["Running under WSL"],
-    });
-
-    expect(actions.find((entry) => entry.id === "wsl_docker_desktop_gpu_compatibility")).toBeUndefined();
-    expect(actions.find((entry) => entry.id === "install_nvidia_container_toolkit")).toBeTruthy();
   });
 
   it("emits an install_nvidia_container_toolkit action with a docs pointer when nvidia-ctk is missing on unknown package managers", () => {

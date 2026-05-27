@@ -1175,6 +1175,7 @@ If you run `nemoclaw onboard` directly, preflight prints the manual remediation 
 The native Linux fix is the same on Docker hosts whose `docker info` advertises a non-empty `CDISpecDirs`.
 On WSL with Docker Desktop, Docker may advertise CDI directories even though `--device nvidia.com/gpu=all` is not usable from the WSL distro.
 For that runtime, NemoClaw skips Linux CDI repair and uses Docker's `--gpus` compatibility path for sandbox GPU access.
+This compatibility path can be retired once Docker Desktop exposes usable `nvidia.com/gpu` CDI specs inside WSL, or once OpenShell no longer requires host-visible CDI specs for Docker Desktop WSL GPU passthrough.
 
 Enable the refresh units, verify they list `nvidia.com/gpu` entries, then rerun onboarding:
 

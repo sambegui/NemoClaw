@@ -184,6 +184,31 @@ describe("sandbox GPU preflight", () => {
     expect(() => verifier("demo")).toThrow("GPU proof failed: fatal proof");
   });
 
+  it("uses Docker Desktop WSL guidance when direct sandbox GPU proof fails there", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const verifier = createDirectSandboxGpuVerifier({
+      platform: "linux",
+      env: { WSL_DISTRO_NAME: "Ubuntu" },
+      dockerInfoFormat: vi.fn(() => '"Docker Desktop"'),
+      runOpenshell: vi.fn(() => ({ status: 1, stdout: "", stderr: "required proof failed" })),
+      buildDirectSandboxGpuProofCommands: vi.fn(() => [
+        { args: ["sandbox", "exec", "demo", "--", "false"], label: "fatal proof" },
+      ]),
+      compactText: (value) => value.trim(),
+      redact: (value) => String(value),
+    });
+
+    try {
+      expect(() => verifier("demo")).toThrow("GPU proof failed: fatal proof");
+      const message = errorSpy.mock.calls.map((call) => call[0]).join("\n");
+      expect(message).toContain("Docker Desktop WSL");
+      expect(message).toContain("--gpus");
+      expect(message).not.toContain("sudo nvidia-ctk");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("exits with an explicit Jetson NVIDIA runtime message when runtime support is missing", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number | string | null) => {

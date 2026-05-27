@@ -1,24 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import fs from "node:fs";
-import os from "node:os";
-
 import { dockerInfoFormat } from "../adapters/docker";
 import { findReadableNvidiaCdiSpecFiles, getDockerCdiSpecDirs } from "./docker-cdi";
 import type { SandboxGpuConfig, SandboxGpuFlag } from "./sandbox-gpu-mode";
+import {
+  detectWslDockerDesktopStatus,
+  type WslDockerDesktopDetectionDeps,
+  type WslDockerDesktopStatus,
+  wslDockerDesktopGpuCompatibilityRemediationLines,
+} from "./wsl-docker-desktop-gpu";
 
 const SANDBOX_GPU_PREFLIGHT_TIMEOUT_MS = 30_000;
 
-type WslDockerDesktopStatus = "docker-desktop" | "not-docker-desktop" | "unknown";
-
-export type SandboxGpuPreflightDeps = {
-  platform?: NodeJS.Platform;
-  env?: NodeJS.ProcessEnv;
-  release?: string;
-  procVersion?: string;
-  readFileImpl?: (filePath: string, encoding: BufferEncoding) => string;
-  dockerInfoFormat?: (format: string, opts?: Record<string, unknown>) => string;
+export type SandboxGpuPreflightDeps = WslDockerDesktopDetectionDeps & {
   getDockerCdiSpecDirs?: () => string[];
   findReadableNvidiaCdiSpecFiles?: (dirs: string[]) => string[];
 };
@@ -50,77 +45,14 @@ export function resolveSandboxGpuFlagFromOptions(opts: SandboxGpuFlagOptions): S
   return null;
 }
 
-function detectWsl(
-  deps: Pick<
-    SandboxGpuPreflightDeps,
-    "env" | "platform" | "procVersion" | "readFileImpl" | "release"
-  >,
-): boolean {
-  const platform = deps.platform ?? process.platform;
-  if (platform !== "linux") return false;
-  const env = deps.env ?? process.env;
-  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
-  const release = deps.release ?? os.release();
-  if (/microsoft/i.test(release)) return true;
-  const procVersion =
-    deps.procVersion ??
-    (() => {
-      try {
-        const readFileImpl =
-          deps.readFileImpl ??
-          ((filePath: string, encoding: BufferEncoding) => fs.readFileSync(filePath, encoding));
-        return readFileImpl("/proc/version", "utf-8");
-      } catch {
-        return "";
-      }
-    })();
-  return /microsoft/i.test(procVersion);
-}
-
-function detectDockerDesktopRuntime(deps: SandboxGpuPreflightDeps): WslDockerDesktopStatus {
-  const dockerInfo = deps.dockerInfoFormat ?? dockerInfoFormat;
-  try {
-    const output = String(
-      dockerInfo("{{json .OperatingSystem}}", {
-        ignoreError: true,
-        timeout: SANDBOX_GPU_PREFLIGHT_TIMEOUT_MS,
-      }),
-    ).trim();
-    if (!output || output === "<no value>") return "unknown";
-    return /^"?docker desktop\b/i.test(output) ? "docker-desktop" : "not-docker-desktop";
-  } catch {
-    return "unknown";
-  }
-}
-
-function detectWslDockerDesktopStatus(deps: SandboxGpuPreflightDeps): WslDockerDesktopStatus {
-  if (!detectWsl(deps)) return "not-docker-desktop";
-  return detectDockerDesktopRuntime(deps);
-}
-
 export function sandboxGpuRemediationLines(
   options: { wslDockerDesktop?: boolean; wslDockerDesktopStatus?: WslDockerDesktopStatus } = {},
 ): string[] {
   const status =
     options.wslDockerDesktopStatus ??
     (options.wslDockerDesktop ? "docker-desktop" : "not-docker-desktop");
-  if (status === "docker-desktop") {
-    return [
-      "Docker Desktop WSL detected; NemoClaw uses Docker --gpus compatibility instead of CDI spec validation.",
-      "If sandbox GPU setup later fails, verify from WSL:",
-      "  docker run --rm --gpus all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark",
-      "Or force CPU sandbox behavior with NEMOCLAW_SANDBOX_GPU=0.",
-    ];
-  }
-  if (status === "unknown") {
-    return [
-      "WSL detected, but NemoClaw could not determine whether Docker is Docker Desktop or native Docker Engine.",
-      "If using Docker Desktop, confirm Settings > Resources > WSL integration is enabled for this distro, restart Docker Desktop, and verify:",
-      "  docker run --rm --gpus all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark",
-      "If using native Docker Engine inside WSL, install/configure NVIDIA Container Toolkit CDI, then restart Docker.",
-      "Or force CPU sandbox behavior with NEMOCLAW_SANDBOX_GPU=0.",
-    ];
-  }
+  const wslRemediationLines = wslDockerDesktopGpuCompatibilityRemediationLines(status);
+  if (wslRemediationLines) return wslRemediationLines;
   return [
     "Install/configure NVIDIA Container Toolkit CDI, then restart Docker:",
     "  sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml",
@@ -205,7 +137,7 @@ function validateJetsonSandboxGpuPreflight(deps: SandboxGpuPreflightDeps): void 
   console.log("  ✓ Docker NVIDIA runtime detected for Jetson/Tegra sandbox GPU");
 }
 
-export interface DirectSandboxGpuVerifierDeps {
+export interface DirectSandboxGpuVerifierDeps extends WslDockerDesktopDetectionDeps {
   runOpenshell(
     args: string[],
     opts?: Record<string, unknown>,
@@ -239,7 +171,9 @@ export function createDirectSandboxGpuVerifier(deps: DirectSandboxGpuVerifierDep
       const diagnostic = deps.compactText(deps.redact(`${result.stderr || ""} ${result.stdout || ""}`));
       console.error(`  ✗ GPU proof failed: ${proof.label}`);
       if (diagnostic) console.error(`    ${diagnostic.slice(0, 300)}`);
-      for (const line of sandboxGpuRemediationLines()) {
+      for (const line of sandboxGpuRemediationLines({
+        wslDockerDesktopStatus: detectWslDockerDesktopStatus(deps),
+      })) {
         console.error(`    ${line}`);
       }
       const statusText = String(result.status || 1);
