@@ -1215,8 +1215,8 @@ function shieldsStatus(
       // state does not persist whether `chattr +i` succeeded at lock time
       // (`chattr` is best-effort because kubectl exec may lack
       // CAP_LINUX_IMMUTABLE), so a missing `i` flag at status time cannot
-      // be distinguished from "never set in the first place". Verifying it
-      // would require schema migration; tracked as a follow-up.
+      // be distinguished from "never set in the first place". Verifying
+      // it requires persisted lock metadata.
       let driftIssues: string[] = [];
       try {
         const target = resolveConfig(sandboxName);
