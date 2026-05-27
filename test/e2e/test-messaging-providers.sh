@@ -1028,9 +1028,9 @@ main().catch((error) => {
   process.exit(2);
 });
 NODE
-node /tmp/nemoclaw-telegram-diagnostics-e2e.js missing-env 2>&1
-node /tmp/nemoclaw-telegram-diagnostics-e2e.js placeholder-mismatch 2>&1
-node /tmp/nemoclaw-telegram-diagnostics-e2e.js startup-401 2>&1
+NODE_OPTIONS= node /tmp/nemoclaw-telegram-diagnostics-e2e.js missing-env 2>&1
+NODE_OPTIONS= node /tmp/nemoclaw-telegram-diagnostics-e2e.js placeholder-mismatch 2>&1
+NODE_OPTIONS= node /tmp/nemoclaw-telegram-diagnostics-e2e.js startup-401 2>&1
 ")
 
     if echo "$telegram_diag_output" | grep -q 'E2E_FAIL_'; then

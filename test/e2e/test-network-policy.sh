@@ -195,6 +195,50 @@ sandbox_exec() {
   return $ssh_exit
 }
 
+start_e2e_http_server() {
+  local docroot="$1"
+  local port_file="$2"
+  local log_file="$3"
+  python3 - "$docroot" "$port_file" >"$log_file" 2>&1 <<'PYHTTP' &
+import functools
+import http.server
+import socketserver
+import sys
+
+docroot = sys.argv[1]
+port_file = sys.argv[2]
+
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=docroot)
+with ReusableTCPServer(("0.0.0.0", 0), handler) as server:
+    with open(port_file, "w", encoding="utf-8") as handle:
+        handle.write(str(server.server_address[1]))
+        handle.flush()
+    print(f"serving {docroot} on port {server.server_address[1]}", flush=True)
+    server.serve_forever()
+PYHTTP
+  echo "$!"
+}
+
+wait_for_e2e_http_port() {
+  local port_file="$1"
+  local pid="$2"
+  local _
+  for _ in {1..50}; do
+    if [ -s "$port_file" ]; then
+      tr -d '[:space:]' <"$port_file"
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 1
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 # ── Onboard sandbox ─────────────────────────────────────────────────────────
 setup_sandbox() {
   local api_key="${NVIDIA_API_KEY:-}"
@@ -617,48 +661,35 @@ console.log(pass ? 'SSRF_PASS' : 'SSRF_FAIL');
 test_net_10_openclaw_web_fetch_host_gateway() {
   log "=== TC-NET-10: OpenClaw web_fetch Host Gateway ==="
 
-  local host_dir server_log port server_pid marker
-  local deny_host_dir deny_server_log deny_port deny_server_pid deny_marker
+  local host_dir server_log port port_file server_pid marker
+  local deny_host_dir deny_server_log deny_port deny_port_file deny_server_pid deny_marker
   marker="NEMOCLAW_HOST_GATEWAY_WEB_FETCH_OK"
   deny_marker="NEMOCLAW_HOST_GATEWAY_WEB_FETCH_DENIED_PORT_SHOULD_NOT_LEAK"
   host_dir="$(mktemp -d)"
   deny_host_dir="$(mktemp -d)"
   server_log="$host_dir/http.log"
   deny_server_log="$deny_host_dir/http.log"
+  port_file="$host_dir/port"
+  deny_port_file="$deny_host_dir/port"
   printf '<html><body>%s</body></html>\n' "$marker" >"$host_dir/index.html"
   printf '<html><body>%s</body></html>\n' "$deny_marker" >"$deny_host_dir/index.html"
-  port="$(
-    python3 - <<'PYPORT'
-import socket
-with socket.socket() as sock:
-    sock.bind(("", 0))
-    print(sock.getsockname()[1])
-PYPORT
-  )"
-  deny_port="$(
-    python3 - <<'PYPORT'
-import socket
-with socket.socket() as sock:
-    sock.bind(("", 0))
-    print(sock.getsockname()[1])
-PYPORT
-  )"
-  while [ "$deny_port" = "$port" ]; do
-    deny_port="$(
-      python3 - <<'PYPORT'
-import socket
-with socket.socket() as sock:
-    sock.bind(("", 0))
-    print(sock.getsockname()[1])
-PYPORT
-    )"
-  done
 
-  (cd "$host_dir" && python3 -m http.server "$port" --bind 0.0.0.0 >"$server_log" 2>&1) &
-  server_pid=$!
-  (cd "$deny_host_dir" && python3 -m http.server "$deny_port" --bind 0.0.0.0 >"$deny_server_log" 2>&1) &
-  deny_server_pid=$!
-  sleep 1
+  server_pid="$(start_e2e_http_server "$host_dir" "$port_file" "$server_log")"
+  deny_server_pid="$(start_e2e_http_server "$deny_host_dir" "$deny_port_file" "$deny_server_log")"
+  if ! port="$(wait_for_e2e_http_port "$port_file" "$server_pid")"; then
+    fail "TC-NET-10: Setup" "host HTTP server failed to publish a port ($(cat "$server_log" 2>/dev/null))"
+    kill "$server_pid" "$deny_server_pid" 2>/dev/null || true
+    wait "$server_pid" "$deny_server_pid" 2>/dev/null || true
+    rm -rf "$host_dir" "$deny_host_dir"
+    return
+  fi
+  if ! deny_port="$(wait_for_e2e_http_port "$deny_port_file" "$deny_server_pid")"; then
+    fail "TC-NET-10: Setup" "deny host HTTP server failed to publish a port ($(cat "$deny_server_log" 2>/dev/null))"
+    kill "$server_pid" "$deny_server_pid" 2>/dev/null || true
+    wait "$server_pid" "$deny_server_pid" 2>/dev/null || true
+    rm -rf "$host_dir" "$deny_host_dir"
+    return
+  fi
   if ! kill -0 "$server_pid" 2>/dev/null; then
     fail "TC-NET-10: Setup" "host HTTP server failed to start ($(cat "$server_log" 2>/dev/null))"
     rm -rf "$host_dir"
@@ -765,7 +796,7 @@ fetch('http://host.openshell.internal:${deny_port}/', {signal: AbortSignal.timeo
 
   local denied_session_id denied_raw denied_reply denied_rc=0 denied_ssh_cmd
   denied_session_id="${session_id}-denied"
-  denied_ssh_cmd="openclaw agent --agent main --json --session-id '${denied_session_id}' -m 'Use the web_fetch tool to fetch http://host.openshell.internal:${deny_port}/. If the fetch is denied, reply with only DENIED_HOST_GATEWAY_POLICY. If the fetched page contains ${deny_marker}, reply with only ${deny_marker}.'"
+  denied_ssh_cmd="openclaw agent --agent main --json --session-id '${denied_session_id}' -m 'Use the web_fetch tool to fetch http://host.openshell.internal:${deny_port}/. If the fetch is denied or unavailable because of network policy, reply with only DENIED_HOST_GATEWAY_POLICY. If web_fetch returns any fetched page content, reply with only FETCHED_DENIED_HOST_GATEWAY_PAGE.'"
   denied_raw=$(run_with_timeout 180 ssh -F "$ssh_cfg" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
@@ -774,7 +805,8 @@ fetch('http://host.openshell.internal:${deny_port}/', {signal: AbortSignal.timeo
     "openshell-${SANDBOX_NAME}" \
     "$denied_ssh_cmd" \
     2>/dev/null) || denied_rc=$?
-  if printf '%s' "$denied_raw" | grep -q "$deny_marker"; then
+  denied_reply=$(printf '%s' "$denied_raw" | parse_openclaw_agent_text 2>/dev/null) || true
+  if printf '%s' "$denied_reply" | grep -qE "${deny_marker}|FETCHED_DENIED_HOST_GATEWAY_PAGE" || printf '%s' "$denied_raw" | grep -q "$deny_marker"; then
     rm -f "$ssh_cfg"
     cleanup_host_server
     fail "TC-NET-10: OpenClaw web_fetch policy" "web_fetch reached unapproved host gateway port: ${denied_raw:0:300}"
@@ -786,9 +818,13 @@ fetch('http://host.openshell.internal:${deny_port}/', {signal: AbortSignal.timeo
     fail "TC-NET-10: OpenClaw web_fetch policy" "OpenClaw SSRF guard, not OpenShell policy, blocked host gateway deny-case: ${denied_raw:0:300}"
     return
   fi
-  denied_reply=$(printf '%s' "$denied_raw" | parse_openclaw_agent_text 2>/dev/null) || true
-  if [ "$denied_rc" -ne 0 ] || printf '%s\n%s' "$denied_reply" "$denied_raw" | grep -qiE "DENIED_HOST_GATEWAY_POLICY|STATUS_403|\\b403\\b|denied|policy|forbidden|not allowed|not permitted|ERROR_"; then
+  if printf '%s\n%s' "$denied_reply" "$denied_raw" | grep -qiE "DENIED_HOST_GATEWAY_POLICY|STATUS_403|\\b403\\b|denied|policy|forbidden|not allowed|not permitted|ERROR_"; then
     pass "TC-NET-10: OpenClaw web_fetch cannot reach unapproved host gateway port"
+  elif [ "$denied_rc" -ne 0 ]; then
+    rm -f "$ssh_cfg"
+    cleanup_host_server
+    fail "TC-NET-10: OpenClaw web_fetch policy" "agent exited before producing a policy denial signal (exit ${denied_rc}, raw='${denied_raw:0:300}')"
+    return
   else
     rm -f "$ssh_cfg"
     cleanup_host_server
