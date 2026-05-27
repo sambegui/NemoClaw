@@ -37,8 +37,18 @@ SH
 chmod 755 "$FAKE_BIN/docker"
 
 cd "$REPO"
+BUILD_LOG="/tmp/nemoclaw-vm-driver-privileged-exec-routing-build.log"
+if [ ! -d node_modules/@types/node ]; then
+  echo "[vm-driver-privileged-exec-routing] Installing npm dependencies"
+  {
+    echo "Installing npm dependencies"
+    npm ci --ignore-scripts
+  } >"$BUILD_LOG" 2>&1
+else
+  echo "npm dependencies already present" >"$BUILD_LOG"
+fi
 echo "[vm-driver-privileged-exec-routing] Building CLI"
-npm run build:cli >/tmp/nemoclaw-vm-driver-privileged-exec-routing-build.log
+npm run build:cli >>"$BUILD_LOG" 2>&1
 
 export XDG_NEMOCLAW_FAKE_DOCKER_PS_FILE
 export XDG_NEMOCLAW_FAKE_DOCKER_LOG
