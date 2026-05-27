@@ -119,7 +119,29 @@ function makeStoppedGatewayEnv(prefix: string): Record<string, string> {
 function makeHealthyVmGatewayEnv(prefix: string): Record<string, string> {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const localBin = path.join(home, "bin");
+  const fakeOpenClawRoot = path.join(home, "fake-openclaw-root");
   fs.mkdirSync(localBin, { recursive: true });
+  const stateDirs = [
+    "agents",
+    "extensions",
+    "workspace",
+    "skills",
+    "hooks",
+    "identity",
+    "devices",
+    "canvas",
+    "cron",
+    "memory",
+    "telegram",
+    "wechat",
+    "whatsapp",
+    "credentials",
+  ];
+  for (const dir of stateDirs) {
+    const fullPath = path.join(fakeOpenClawRoot, dir);
+    fs.mkdirSync(fullPath, { recursive: true });
+    fs.writeFileSync(path.join(fullPath, ".keep"), "");
+  }
   writeSandboxRegistry(home, "alpha", { openshellDriver: "vm" });
 
   // VM-driver snapshots should trust gateway metadata, not the legacy cluster
@@ -135,14 +157,11 @@ function makeHealthyVmGatewayEnv(prefix: string): Record<string, string> {
     "  exit 0",
     "fi",
     'if [ "$1" = "sandbox" ] && [ "$2" = "exec" ]; then',
-    '  cmd="$8"',
-    '  if printf "%s" "$cmd" | grep -q "awk .!seen"; then',
-    "    exit 0",
-    "  fi",
-    '  if printf "%s" "$cmd" | grep -q "find "; then',
-    "    exit 0",
-    "  fi",
-    "  exit 2",
+    '  cmd=""',
+    '  for arg in "$@"; do cmd="$arg"; done',
+    `  translated="$(printf "%s" "$cmd" | sed 's#/sandbox/.openclaw#${fakeOpenClawRoot}#g')"`,
+    '  sh -c "$translated"',
+    "  exit $?",
     "fi",
     'if [ "$1" = "status" ]; then exit 0; fi',
     "exit 0",

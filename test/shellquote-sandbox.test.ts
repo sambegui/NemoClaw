@@ -9,6 +9,8 @@ import { pathToFileURL } from "url";
 import { spawnSync } from "child_process";
 import { describe, it, expect } from "vitest";
 
+const GRPC_FAKE_SSH = path.join(import.meta.dirname, "helpers", "grpc-fake-ssh.cjs");
+
 describe("sandboxName command hardening in onboard.js", () => {
   it("re-validates sandboxName at the createSandbox boundary", async () => {
     const onboardModule = await import("../dist/lib/onboard.js");
@@ -52,9 +54,21 @@ describe("sandboxName command hardening in onboard.js", () => {
     );
 
     fs.mkdirSync(fakeBin, { recursive: true });
-    fs.writeFileSync(path.join(fakeBin, "openshell"), "#!/usr/bin/env bash\nexit 0\n", {
-      mode: 0o755,
-    });
+    fs.writeFileSync(
+      path.join(fakeBin, "openshell"),
+      `#!/usr/bin/env bash
+if [ "$1" = "sandbox" ] && [ "$2" = "exec" ]; then
+  if printf "%s\\n" "$*" | grep -q "/health"; then
+    printf "200"
+  fi
+  exit 0
+fi
+exit 0
+`,
+      {
+        mode: 0o755,
+      },
+    );
     fs.writeFileSync(
       scriptPath,
       String.raw`
@@ -68,6 +82,9 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }
 }
+process.env.NEMOCLAW_GRPC_TEST_TRANSPORT = "1";
+process.env.NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH = "1";
+process.env.NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN = ${JSON.stringify(GRPC_FAKE_SSH)};
 const commands = [];
 const asText = (command) => Array.isArray(command) ? command.join(" ") : String(command);
 runner.run = (command, opts = {}) => {
@@ -119,7 +136,13 @@ try {
       const result = spawnSync(process.execPath, [scriptPath], {
         cwd: repoRoot,
         encoding: "utf-8",
-        env: { HOME: tmpDir, PATH: `${fakeBin}:${process.env.PATH || ""}` },
+        env: {
+          HOME: tmpDir,
+          PATH: `${fakeBin}:${process.env.PATH || ""}`,
+          NEMOCLAW_GRPC_TEST_TRANSPORT: "1",
+          NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH: "1",
+          NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN: GRPC_FAKE_SSH,
+        },
         timeout: 30_000,
       });
       expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);

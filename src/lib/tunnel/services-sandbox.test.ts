@@ -20,6 +20,42 @@ import {
   stopAll,
 } from "../../../dist/lib/tunnel/services";
 
+function syncRunnerResult(status = 0, stdout = "", stderr = "") {
+  return {
+    status: 0,
+    stdout: JSON.stringify({
+      ok: true,
+      result: { status, stdout, stderr },
+    }),
+    stderr: "",
+  };
+}
+
+function syncRunnerFailure(error: string) {
+  return {
+    status: 0,
+    stdout: JSON.stringify({ ok: false, error }),
+    stderr: "",
+  };
+}
+
+function readSyncRunnerPayload(spawnSyncSpy: ReturnType<typeof vi.spyOn>, callIndex = 0) {
+  const syncCalls = spawnSyncSpy.mock.calls.filter((call: unknown[]) => {
+    const [command, args] = call;
+    return (
+      command === process.execPath &&
+      Array.isArray(args) &&
+      args.some((arg) => String(arg).includes("sync-runner"))
+    );
+  });
+  const call = syncCalls[callIndex];
+  expect(call, "expected gRPC sync runner spawn").toBeTruthy();
+  return JSON.parse(String((call[2] as { input?: string }).input || "{}")) as {
+    sandboxName?: string;
+    argv?: string[];
+  };
+}
+
 // ---------------------------------------------------------------------------
 // stopSandboxChannels
 // ---------------------------------------------------------------------------
@@ -99,18 +135,17 @@ describe("stopSandboxChannels", () => {
     logSpy.mockRestore();
   });
 
-  it("falls back to openshell sandbox exec when the gateway container is unavailable", () => {
+  it("falls back to OpenShell gRPC exec when the gateway container is unavailable", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    spawnSyncSpy.mockReturnValueOnce({ status: 1, stdout: "" }).mockReturnValueOnce({ status: 0 });
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     stopSandboxChannels("my-sandbox");
 
-    expect(spawnSyncSpy).toHaveBeenNthCalledWith(
-      2,
-      "/usr/local/bin/openshell",
-      ["sandbox", "exec", "--name", "my-sandbox", "--", "sh", "-lc", expect.any(String)],
-      expect.objectContaining({ timeout: 20000 }),
-    );
+    const payload = readSyncRunnerPayload(spawnSyncSpy);
+    expect(payload.sandboxName).toBe("my-sandbox");
+    expect(payload.argv?.slice(0, 2)).toEqual(["sh", "-lc"]);
     const output = logSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("OpenClaw gateway stopped inside sandbox");
     logSpy.mockRestore();
@@ -157,29 +192,32 @@ describe("stopSandboxChannels", () => {
     logSpy.mockRestore();
   });
 
-  it("warns when privileged shutdown is unavailable and openshell is not found", () => {
+  it("warns when privileged shutdown is unavailable and gRPC exec fails", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    resolveOpenshellModule.resolveOpenshell = vi.fn(() => null);
-    spawnSyncSpy.mockReturnValueOnce({ status: 1, stdout: "" });
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerFailure("sync runner missing"));
 
     stopSandboxChannels("my-sandbox");
 
-    expect(spawnSyncSpy).toHaveBeenCalledTimes(1);
+    expect(spawnSyncSpy).toHaveBeenCalledTimes(2);
     const output = logSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("openshell not found");
+    expect(output).toContain("OpenShell gRPC exec could not stop");
+    expect(output).toContain("sync runner missing");
     logSpy.mockRestore();
   });
 
-  it("uses --name flag for fallback sandbox selection (not positional)", () => {
+  it("passes the sandbox name in the gRPC fallback payload", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    spawnSyncSpy.mockReturnValueOnce({ status: 1, stdout: "" }).mockReturnValueOnce({ status: 0 });
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     stopSandboxChannels("my-sandbox");
 
-    const args = spawnSyncSpy.mock.calls[1][1] as string[];
-    expect(args[1]).toBe("exec");
-    expect(args[2]).toBe("--name");
-    expect(args[3]).toBe("my-sandbox");
+    const payload = readSyncRunnerPayload(spawnSyncSpy);
+    expect(payload.sandboxName).toBe("my-sandbox");
+    expect(payload.argv?.slice(0, 2)).toEqual(["sh", "-lc"]);
     logSpy.mockRestore();
   });
 
@@ -284,6 +322,9 @@ describe("stopAll with sandbox channels", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const saved = process.env.NEMOCLAW_SANDBOX;
     process.env.NEMOCLAW_SANDBOX = "env-sandbox";
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     try {
       stopAll({ pidDir });
@@ -295,11 +336,7 @@ describe("stopAll with sandbox channels", () => {
       }
     }
 
-    expect(spawnSyncSpy).toHaveBeenCalledWith(
-      "/usr/local/bin/openshell",
-      expect.arrayContaining(["env-sandbox"]),
-      expect.any(Object),
-    );
+    expect(readSyncRunnerPayload(spawnSyncSpy).sandboxName).toBe("env-sandbox");
     logSpy.mockRestore();
   });
 
@@ -309,6 +346,9 @@ describe("stopAll with sandbox channels", () => {
     const savedNemoclawName = process.env.NEMOCLAW_SANDBOX_NAME;
     delete process.env.NEMOCLAW_SANDBOX;
     process.env.NEMOCLAW_SANDBOX_NAME = "named-sandbox";
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     try {
       stopAll({ pidDir });
@@ -325,11 +365,7 @@ describe("stopAll with sandbox channels", () => {
       }
     }
 
-    expect(spawnSyncSpy).toHaveBeenCalledWith(
-      "/usr/local/bin/openshell",
-      expect.arrayContaining(["named-sandbox"]),
-      expect.any(Object),
-    );
+    expect(readSyncRunnerPayload(spawnSyncSpy).sandboxName).toBe("named-sandbox");
     logSpy.mockRestore();
   });
 
@@ -341,6 +377,9 @@ describe("stopAll with sandbox channels", () => {
     process.env.NEMOCLAW_SANDBOX_NAME = "name-sandbox";
     process.env.NEMOCLAW_SANDBOX = "other-sandbox";
     delete process.env.SANDBOX_NAME;
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     try {
       stopAll({ pidDir });
@@ -353,11 +392,7 @@ describe("stopAll with sandbox channels", () => {
       else delete process.env.SANDBOX_NAME;
     }
 
-    expect(spawnSyncSpy).toHaveBeenCalledWith(
-      "/usr/local/bin/openshell",
-      expect.arrayContaining(["name-sandbox"]),
-      expect.any(Object),
-    );
+    expect(readSyncRunnerPayload(spawnSyncSpy).sandboxName).toBe("name-sandbox");
     logSpy.mockRestore();
   });
 
@@ -375,15 +410,14 @@ describe("stopAll with sandbox channels", () => {
     process.env.NEMOCLAW_SANDBOX_NAME = "name-sandbox";
     process.env.NEMOCLAW_SANDBOX = "other-sandbox";
     delete process.env.SANDBOX_NAME;
+    spawnSyncSpy
+      .mockReturnValueOnce({ status: 1, stdout: "" })
+      .mockReturnValueOnce(syncRunnerResult());
 
     try {
       stopAll();
 
-      expect(spawnSyncSpy).toHaveBeenCalledWith(
-        "/usr/local/bin/openshell",
-        expect.arrayContaining(["name-sandbox"]),
-        expect.any(Object),
-      );
+      expect(readSyncRunnerPayload(spawnSyncSpy).sandboxName).toBe("name-sandbox");
       expect(existsSync(join(effectivePidDir, "cloudflared.pid"))).toBe(false);
       expect(existsSync(join(lowerPriorityPidDir, "cloudflared.pid"))).toBe(true);
     } finally {

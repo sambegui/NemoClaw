@@ -8,6 +8,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { execTimeout, testTimeoutOptions } from "./helpers/timeouts";
 
+const GRPC_FAKE_SSH = path.join(import.meta.dirname, "helpers", "grpc-fake-ssh.cjs");
+
 /**
  * Tests for #1248 — inference route swap on sandbox connect.
  *
@@ -386,6 +388,9 @@ function runConnect(
         NEMOCLAW_NO_CONNECT_HINT: "1",
         NEMOCLAW_OLLAMA_PORT: "11434",
         NEMOCLAW_OLLAMA_PROXY_PORT: "11435",
+        NEMOCLAW_GRPC_TEST_TRANSPORT: "1",
+        NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH: "1",
+        NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN: GRPC_FAKE_SSH,
         ...extraEnv,
       },
       timeout: execTimeout(15_000),

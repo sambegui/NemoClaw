@@ -55,6 +55,10 @@ if (result.error) {
   process.exit(1);
 }
 
-process.stdout.write(result.stdout || "");
-process.stderr.write(result.stderr || "");
+if (result.stdout && result.stdout.length > 0) {
+  fs.writeSync(1, result.stdout);
+}
+if (result.stderr && result.stderr.length > 0) {
+  fs.writeSync(2, result.stderr);
+}
 process.exit(result.status ?? 1);

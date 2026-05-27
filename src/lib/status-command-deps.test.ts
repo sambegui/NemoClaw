@@ -10,6 +10,7 @@ import path from "node:path";
 const require = createRequire(import.meta.url);
 const { buildStatusCommandDeps } =
   require("../../dist/lib/status-command-deps.js") as typeof import("../../dist/lib/status-command-deps");
+const GRPC_FAKE_SSH = path.join(import.meta.dirname, "..", "..", "test", "helpers", "grpc-fake-ssh.cjs");
 
 function writeExecutable(target: string, body: string): void {
   fs.writeFileSync(target, body, { mode: 0o755 });
@@ -17,16 +18,31 @@ function writeExecutable(target: string, body: string): void {
 
 describe("buildStatusCommandDeps", () => {
   let previousOverride: string | undefined;
+  let previousHome: string | undefined;
+  let previousPath: string | undefined;
+  let previousGrpcTransport: string | undefined;
+  let previousGrpcLegacy: string | undefined;
+  let previousGrpcFakeSsh: string | undefined;
   let tmp: string;
   let callsFile: string;
   let openshell: string;
 
   beforeEach(() => {
     previousOverride = process.env.NEMOCLAW_OPENSHELL_BIN;
+    previousHome = process.env.HOME;
+    previousPath = process.env.PATH;
+    previousGrpcTransport = process.env.NEMOCLAW_GRPC_TEST_TRANSPORT;
+    previousGrpcLegacy = process.env.NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH;
+    previousGrpcFakeSsh = process.env.NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN;
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-status-deps-"));
     callsFile = path.join(tmp, "openshell.calls");
     openshell = path.join(tmp, "openshell");
     process.env.NEMOCLAW_OPENSHELL_BIN = openshell;
+    process.env.HOME = tmp;
+    process.env.PATH = `${tmp}${path.delimiter}${previousPath || ""}`;
+    process.env.NEMOCLAW_GRPC_TEST_TRANSPORT = "1";
+    process.env.NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH = "1";
+    process.env.NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN = GRPC_FAKE_SSH;
   });
 
   afterEach(() => {
@@ -34,6 +50,31 @@ describe("buildStatusCommandDeps", () => {
       delete process.env.NEMOCLAW_OPENSHELL_BIN;
     } else {
       process.env.NEMOCLAW_OPENSHELL_BIN = previousOverride;
+    }
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+    if (previousGrpcTransport === undefined) {
+      delete process.env.NEMOCLAW_GRPC_TEST_TRANSPORT;
+    } else {
+      process.env.NEMOCLAW_GRPC_TEST_TRANSPORT = previousGrpcTransport;
+    }
+    if (previousGrpcLegacy === undefined) {
+      delete process.env.NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH;
+    } else {
+      process.env.NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH = previousGrpcLegacy;
+    }
+    if (previousGrpcFakeSsh === undefined) {
+      delete process.env.NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN;
+    } else {
+      process.env.NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN = previousGrpcFakeSsh;
     }
     fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -57,7 +98,7 @@ exit 0
       { channel: "telegram", conflicts: 7 },
     ]);
     expect(fs.readFileSync(callsFile, "utf-8")).toContain(
-      "sandbox exec -n alpha -- sh -c tail -n 200 /tmp/gateway.log",
+      "sandbox exec --name alpha -- sh -c tail -n 200 /tmp/gateway.log",
     );
   });
 

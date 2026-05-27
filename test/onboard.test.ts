@@ -10,6 +10,8 @@ import { describe, expect, it } from "vitest";
 import { stageOptimizedSandboxBuildContext } from "../dist/lib/sandbox/build-context.js";
 import { testTimeoutOptions } from "./helpers/timeouts";
 
+const GRPC_FAKE_SSH = path.join(import.meta.dirname, "helpers", "grpc-fake-ssh.cjs");
+
 type ShimScalar = string | number | boolean | null | undefined;
 type ShimCallable = (...args: readonly string[]) => ShimValue;
 type ShimValue = ShimScalar | { [key: string]: ShimValue } | ShimValue[] | ShimCallable;
@@ -59,6 +61,14 @@ function stripMessagingEnv(source: NodeJS.ProcessEnv): Record<string, string | u
   return env;
 }
 
+function grpcTestEnv(): Record<string, string> {
+  return {
+    NEMOCLAW_GRPC_TEST_TRANSPORT: "1",
+    NEMOCLAW_GRPC_TEST_LEGACY_FAKE_SSH: "1",
+    NEMOCLAW_GRPC_TEST_FAKE_SSH_BIN: GRPC_FAKE_SSH,
+  };
+}
+
 type OnboardTestInternalsCandidate = Partial<OnboardTestInternals> | null;
 
 function isOnboardTestInternals(
@@ -89,6 +99,9 @@ const {
 } = onboardTestInternals;
 
 const repoRoot = path.join(import.meta.dirname, "..");
+const forwardBridgeStatePath = JSON.stringify(
+  path.join(repoRoot, "dist", "lib", "adapters", "openshell", "forward-bridge-state.js"),
+);
 const onboardScriptMocksPath = JSON.stringify(
   path.join(repoRoot, "test", "helpers", "onboard-script-mocks.cjs"),
 );
@@ -1681,10 +1694,8 @@ console.log(JSON.stringify({
     fs.writeFileSync(
       fakeOpenshell,
       `#!/usr/bin/env bash
-if [ "$1" = "sandbox" ] && [ "$2" = "download" ]; then
-  dest="\${@: -1}"
-  mkdir -p "$dest/sandbox/.openclaw"
-  cat > "$dest/sandbox/.openclaw/openclaw.json" <<'EOF'
+if [ "$1" = "sandbox" ] && [ "$2" = "exec" ] && printf "%s\\n" "$*" | grep -q "/sandbox/.openclaw/openclaw.json"; then
+  cat <<'EOF'
 {"gateway":{"auth":{"token":"test-token"}}}
 EOF
   exit 0
@@ -1709,7 +1720,9 @@ console.log(JSON.stringify({
       encoding: "utf-8",
       env: {
         ...process.env,
+        HOME: tmpDir,
         PATH: `${tmpDir}:${process.env.PATH || ""}`,
+        ...grpcTestEnv(),
       },
     });
 
@@ -1795,7 +1808,7 @@ console.log(JSON.stringify({
       mode: 0o755,
     });
 
-    const script = String.raw`
+const script = String.raw`
 const runner = require(${runnerPath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
@@ -2268,6 +2281,7 @@ console.log(JSON.stringify({ liveExists, sandbox: registry.getSandbox("my-assist
 
       const script = String.raw`
 const runner = require(${runnerPath});
+const { listForwardStates } = require(${forwardBridgeStatePath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
 const preflight = require(${preflightPath});
@@ -2328,7 +2342,7 @@ const { createSandbox } = require(${onboardPath});
 (async () => {
   process.env.OPENSHELL_GATEWAY = "nemoclaw";
   const sandboxName = await createSandbox(null, "gpt-5.4");
-  console.log(JSON.stringify({ sandboxName, commands, registerCalls, updateCalls, defaultCalls }));
+  console.log(JSON.stringify({ sandboxName, commands, registerCalls, updateCalls, defaultCalls, forwardStates: listForwardStates() }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -2344,6 +2358,7 @@ const { createSandbox } = require(${onboardPath});
           HOME: tmpDir,
           PATH: `${fakeBin}:${process.env.PATH || ""}`,
           NEMOCLAW_NON_INTERACTIVE: "1",
+          ...grpcTestEnv(),
         },
       });
 
@@ -2384,14 +2399,17 @@ const { createSandbox } = require(${onboardPath});
       assert.doesNotMatch(createCommand.command, /NVIDIA_API_KEY=/);
       assert.doesNotMatch(createCommand.command, /DISCORD_BOT_TOKEN=/);
       assert.doesNotMatch(createCommand.command, /SLACK_BOT_TOKEN=/);
-      assert.ok(
-        payload.commands.some(
-          (entry: CommandEntry) =>
-            entry.command.includes("forward start --background 18789 my-assistant") ||
-            entry.command.includes("forward start --background 0.0.0.0:18789 my-assistant"),
-        ),
-        "expected dashboard forward (loopback or WSL 0.0.0.0)",
-      );
+      assert.deepEqual(payload.forwardStates, [
+        {
+          sandboxName: "my-assistant",
+          bind: "127.0.0.1",
+          port: 18789,
+          targetHost: "127.0.0.1",
+          targetPort: 18789,
+          pid: 0,
+          startedAt: payload.forwardStates[0].startedAt,
+        },
+      ]);
     },
   );
 
@@ -2764,6 +2782,7 @@ const { createSandbox } = require(${onboardPath});
 
     const script = String.raw`
 const runner = require(${runnerPath});
+const { listForwardStates } = require(${forwardBridgeStatePath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
 const preflight = require(${preflightPath});
@@ -2813,7 +2832,7 @@ const { createSandbox } = require(${onboardPath});
   process.env.OPENSHELL_GATEWAY = "nemoclaw";
   process.env.CHAT_UI_URL = "https://chat.example.com";
   await createSandbox(null, "gpt-5.4");
-  console.log(JSON.stringify(commands));
+  console.log(JSON.stringify({ commands, forwardStates: listForwardStates() }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -2829,17 +2848,28 @@ const { createSandbox } = require(${onboardPath});
         HOME: tmpDir,
         PATH: `${fakeBin}:${process.env.PATH || ""}`,
         NEMOCLAW_NON_INTERACTIVE: "1",
+        ...grpcTestEnv(),
       },
     });
 
     assert.equal(result.status, 0, result.stderr);
-    const commands = parseStdoutJson<CommandEntry[]>(result.stdout);
-    assert.ok(
-      commands.some((entry: CommandEntry) =>
-        entry.command.includes("forward start --background 0.0.0.0:18789 my-assistant"),
-      ),
-      "expected remote dashboard forward target",
-    );
+    const payload = parseStdoutJson<{
+      commands: CommandEntry[];
+      forwardStates: Array<{ sandboxName: string; bind: string; port: number; targetPort: number }>;
+    }>(result.stdout);
+    assert.deepEqual(payload.forwardStates.map(({ sandboxName, bind, port, targetPort }) => ({
+      sandboxName,
+      bind,
+      port,
+      targetPort,
+    })), [
+      {
+        sandboxName: "my-assistant",
+        bind: "0.0.0.0",
+        port: 18789,
+        targetPort: 18789,
+      },
+    ]);
   });
 
   it("injects NEMOCLAW_DASHBOARD_PORT into sandbox create envArgs when set (#1925)", async () => {
@@ -2860,6 +2890,7 @@ const { createSandbox } = require(${onboardPath});
 
     const script = String.raw`
 const runner = require(${runnerPath});
+const { listForwardStates } = require(${forwardBridgeStatePath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
 const preflight = require(${preflightPath});
@@ -2913,7 +2944,7 @@ const { createSandbox } = require(${onboardPath});
 (async () => {
   process.env.OPENSHELL_GATEWAY = "nemoclaw";
   const sandboxName = await createSandbox(null, "gpt-5.4");
-  console.log(JSON.stringify({ sandboxName, commands }));
+  console.log(JSON.stringify({ sandboxName, commands, forwardStates: listForwardStates() }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -2935,6 +2966,7 @@ const { createSandbox } = require(${onboardPath});
         PATH: `${fakeBin}:${process.env.PATH || ""}`,
         NEMOCLAW_NON_INTERACTIVE: "1",
         NEMOCLAW_DASHBOARD_PORT: "19000",
+        ...grpcTestEnv(),
       },
     });
 
@@ -2956,14 +2988,21 @@ const { createSandbox } = require(${onboardPath});
     // overriding whatever value the Docker image had baked in.
     assert.match(createCommand.command, /NEMOCLAW_DASHBOARD_PORT=19000/);
     // Forward must use same-port mapping (openshell does not support asymmetric)
-    assert.ok(
-      payload.commands.some(
-        (entry: CommandEntry) =>
-          entry.command.includes("forward start --background 19000 my-assistant") ||
-          entry.command.includes("forward start --background 0.0.0.0:19000 my-assistant"),
-      ),
-      "expected dashboard forward for port 19000",
-    );
+    assert.deepEqual(payload.forwardStates.map(
+      ({ sandboxName, bind, port, targetPort }: { sandboxName: string; bind: string; port: number; targetPort: number }) => ({
+        sandboxName,
+        bind,
+        port,
+        targetPort,
+      }),
+    ), [
+      {
+        sandboxName: "my-assistant",
+        bind: "127.0.0.1",
+        port: 19000,
+        targetPort: 19000,
+      },
+    ]);
     assert.ok(
       !payload.commands.some((entry: CommandEntry) => entry.command.includes("19000:18789")),
       "forward must not use asymmetric 19000:18789 mapping",
@@ -2993,7 +3032,7 @@ const { createSandbox } = require(${onboardPath});
         mode: 0o755,
       });
 
-      const script = String.raw`
+const script = String.raw`
 const runner = require(${runnerPath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
@@ -4271,6 +4310,7 @@ const { createSandbox } = require(${onboardPath});
 
     const script = String.raw`
 const runner = require(${runnerPath});
+const { listForwardStates } = require(${forwardBridgeStatePath});
 const _n = (c) => (Array.isArray(c) ? c.join(" ") : String(c)).replace(/'/g, "");
 const registry = require(${registryPath});
 const childProcess = require("node:child_process");
@@ -4306,7 +4346,7 @@ const { createSandbox } = require(${onboardPath});
   process.env.OPENSHELL_GATEWAY = "nemoclaw";
   process.env.CHAT_UI_URL = "https://chat.example.com";
   const sandboxName = await createSandbox(null, "gpt-5.4", "nvidia-prod", null, "my-assistant");
-  console.log(JSON.stringify({ sandboxName, commands }));
+  console.log(JSON.stringify({ sandboxName, commands, forwardStates: listForwardStates() }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -4322,6 +4362,7 @@ const { createSandbox } = require(${onboardPath});
         HOME: tmpDir,
         PATH: `${fakeBin}:${process.env.PATH || ""}`,
         NEMOCLAW_NON_INTERACTIVE: "1",
+        ...grpcTestEnv(),
       },
     });
 
@@ -4329,14 +4370,22 @@ const { createSandbox } = require(${onboardPath});
     const payload = parseStdoutJson<{
       sandboxName: string;
       commands: CommandEntry[];
+      forwardStates: Array<{ sandboxName: string; bind: string; port: number; targetPort: number }>;
     }>(result.stdout);
     assert.equal(payload.sandboxName, "my-assistant");
-    assert.ok(
-      payload.commands.some((entry: CommandEntry) =>
-        entry.command.includes("forward start --background 0.0.0.0:18789 my-assistant"),
-      ),
-      "expected dashboard forward restore on sandbox reuse",
-    );
+    assert.deepEqual(payload.forwardStates.map(({ sandboxName, bind, port, targetPort }) => ({
+      sandboxName,
+      bind,
+      port,
+      targetPort,
+    })), [
+      {
+        sandboxName: "my-assistant",
+        bind: "0.0.0.0",
+        port: 18789,
+        targetPort: 18789,
+      },
+    ]);
     assert.ok(
       payload.commands.every((entry: CommandEntry) => !entry.command.includes("sandbox create")),
       "did not expect sandbox create when reusing existing sandbox",
