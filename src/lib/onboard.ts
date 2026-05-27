@@ -3720,13 +3720,6 @@ async function createSandbox(
   // and passed EVERYTHING else — including GITHUB_TOKEN,
   // AWS_SECRET_ACCESS_KEY, SSH_AUTH_SOCK, KUBECONFIG, NPM_TOKEN, and
   // any CI/CD secrets that happened to be in the host environment.
-  // The allowlist inverts the default: only known-safe env vars are
-  // forwarded, everything else is dropped.
-  //
-  // For the sandbox specifically, we also strip KUBECONFIG and
-  // SSH_AUTH_SOCK — the generic allowlist includes these for host-side
-  // subprocesses (gateway start, openshell CLI) but the sandbox should
-  // never have access to the host's Kubernetes cluster or SSH agent.
   const envArgs = [formatEnvAssignment("CHAT_UI_URL", chatUiUrl)];
   // Always pass the effective dashboard port into the sandbox so
   // nemoclaw-start.sh starts the gateway on the correct port. When the
