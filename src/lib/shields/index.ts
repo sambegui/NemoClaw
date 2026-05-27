@@ -16,10 +16,9 @@ const { fork } = require("child_process");
 const { randomBytes } = require("crypto");
 const { run, runCapture, validateName } = require("../runner");
 const { dockerExecFileSync } = require("../adapters/docker/exec");
-const { dockerCapture } = require("../adapters/docker/run");
-const registry = require("../state/registry") as {
-  getSandbox?: (name: string) => { openshellDriver?: string | null } | null;
-};
+const {
+  privilegedSandboxExecArgv,
+}: typeof import("../sandbox/privileged-exec") = require("../sandbox/privileged-exec");
 const {
   buildPolicyGetCommand,
   buildPolicySetCommand,
@@ -56,65 +55,11 @@ const STATE_DIR = resolveNemoclawStateDir();
 // privileged sandbox exec — bypasses the sandbox's Landlock context
 //
 // openshell sandbox exec runs commands INSIDE the Landlock domain, so it
-// can't modify read_only paths or change chattr flags. kubectl exec starts
-// a new process in the pod that does NOT inherit the Landlock ruleset.
-// On the legacy gateway we reach kubectl via the K3s container. On the
-// Docker-driver gateway there is no K3s container, so we exec into the
-// sandbox Docker container directly as root.
+// can't modify read_only paths or change chattr flags. We delegate the
+// argv shape to the central registry-scoped helper in
+// src/lib/sandbox/privileged-exec.ts, which fails closed when no matching
+// sandbox container is running.
 // ---------------------------------------------------------------------------
-
-const K3S_CONTAINER = "openshell-cluster-nemoclaw";
-
-function resolveDockerDriverSandboxContainer(
-  sandboxName: string,
-): string | null {
-  try {
-    if (registry.getSandbox?.(sandboxName)?.openshellDriver !== "docker") {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  const prefix = `openshell-${sandboxName}-`;
-  const exact = `openshell-${sandboxName}`;
-  const output = dockerCapture(["ps", "--format", "{{.Names}}"], {
-    ignoreError: true,
-  });
-  return (
-    output
-      .split("\n")
-      .map((line: string) => line.trim())
-      .find((name: string) => name === exact || name.startsWith(prefix)) || null
-  );
-}
-
-function kubectlExecArgv(sandboxName: string, cmd: string[]): string[] {
-  return [
-    "exec",
-    K3S_CONTAINER,
-    "kubectl",
-    "exec",
-    "-n",
-    "openshell",
-    sandboxName,
-    "-c",
-    "agent",
-    "--",
-    ...cmd,
-  ];
-}
-
-function privilegedSandboxExecArgv(
-  sandboxName: string,
-  cmd: string[],
-): string[] {
-  const dockerDriverContainer =
-    resolveDockerDriverSandboxContainer(sandboxName);
-  if (dockerDriverContainer) {
-    return ["exec", "--user", "root", dockerDriverContainer, ...cmd];
-  }
-  return kubectlExecArgv(sandboxName, cmd);
-}
 
 function privilegedSandboxExec(sandboxName: string, cmd: string[]): void {
   dockerExecFileSync(privilegedSandboxExecArgv(sandboxName, cmd), {
@@ -159,6 +104,7 @@ interface ShieldsState {
   shieldsDownReason?: string | null;
   shieldsDownPolicy?: string | null;
   shieldsPolicySnapshotPath?: string | null;
+  chattrApplied?: boolean;
   updatedAt?: string;
 }
 
@@ -345,6 +291,7 @@ function isShieldsState(value: unknown): value is ShieldsState {
     isOptionalNullableString(value.shieldsDownReason) &&
     isOptionalNullableString(value.shieldsDownPolicy) &&
     isOptionalNullableString(value.shieldsPolicySnapshotPath) &&
+    isOptionalBoolean(value.chattrApplied) &&
     isOptionalString(value.updatedAt)
   );
 }
@@ -645,7 +592,7 @@ function unlockAgentConfig(
 function lockAgentConfig(
   sandboxName: string,
   target: AgentConfigTarget,
-): void {
+): { chattrApplied: boolean } {
   const errors: string[] = [];
   const filesToLock = [target.configPath, ...(target.sensitiveFiles || [])];
 
@@ -724,6 +671,8 @@ function lockAgentConfig(
   if (issues.length > 0) {
     throw new Error(`Config not locked: ${issues.join(", ")}`);
   }
+
+  return { chattrApplied: chattrSucceeded };
 }
 
 function rollbackShieldsDown(
@@ -735,11 +684,11 @@ function rollbackShieldsDown(
   const rollbackResult = run(buildPolicySetCommand(snapshotPath, sandboxName), {
     ignoreError: true,
   });
-  let rollbackLocked = false;
+  let rollbackChattrApplied: boolean | null = null;
   if (rollbackResult.status === 0) {
     try {
-      lockAgentConfig(sandboxName, target);
-      rollbackLocked = true;
+      const lockResult = lockAgentConfig(sandboxName, target);
+      rollbackChattrApplied = lockResult.chattrApplied;
     } catch {
       console.error(
         "  Warning: Rollback re-lock could not be verified. Check config manually.",
@@ -748,13 +697,14 @@ function rollbackShieldsDown(
   } else {
     console.error("  Warning: Policy restore failed during rollback.");
   }
-  if (rollbackLocked) {
+  if (rollbackChattrApplied !== null) {
     saveShieldsState(sandboxName, {
       shieldsDown: false,
       shieldsDownAt: null,
       shieldsDownTimeout: null,
       shieldsDownReason: null,
       shieldsDownPolicy: null,
+      chattrApplied: rollbackChattrApplied,
     });
     console.error("  Lockdown restored. Config was never left unguarded.");
   } else {
@@ -1121,8 +1071,47 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
   // shieldsDown === false means explicitly locked by a previous shields-up.
   // undefined (no state file) means fresh sandbox — mutable default, allow shields-up.
   if (state.shieldsDown === false) {
+    // Verify the sandbox filesystem still matches the locked posture. If a
+    // host-root tamper has reverted protected perms, re-apply the lock so
+    // the recovery hint surfaced by `shields status` actually works.
+    const target = resolveAgentConfig(sandboxName);
+    const { issues } = verifyShieldsLockState(sandboxName, target, {
+      verifyChattr: state.chattrApplied === true,
+      exec: (cmd: string[]) => privilegedSandboxExecCapture(sandboxName, cmd),
+      assertLegacyLayout: assertNoLegacyStateLayout,
+    });
+    if (issues.length === 0) {
+      clearTimerMarker(sandboxName);
+      console.log("  Lockdown is already active.");
+      return;
+    }
+    console.log(
+      `  Lockdown drifted — re-applying lock for ${sandboxName}...`,
+    );
+    let lockResult: { chattrApplied: boolean };
+    try {
+      lockResult = lockAgentConfig(sandboxName, target);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`  ERROR: ${message}`);
+      console.error(
+        "  Config remains drifted — manual intervention required.",
+      );
+      return failShieldsCommand(message, opts.throwOnError);
+    }
+    saveShieldsState(sandboxName, {
+      shieldsDown: false,
+      chattrApplied: lockResult.chattrApplied,
+    });
     clearTimerMarker(sandboxName);
-    console.log("  Lockdown is already active.");
+    appendAuditEntry({
+      action: "shields_up",
+      sandbox: sandboxName,
+      timestamp: new Date().toISOString(),
+      restored_by: "operator",
+      reason: "drift remediation",
+    });
+    console.log(`  Lockdown re-applied for ${sandboxName}`);
     return;
   }
 
@@ -1166,8 +1155,9 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
     console.log(
       `  Locking ${target.agentName} config (${target.configPath})...`,
     );
+    let lockResult: { chattrApplied: boolean };
     try {
-      lockAgentConfig(sandboxName, target);
+      lockResult = lockAgentConfig(sandboxName, target);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`  ERROR: ${message}`);
@@ -1179,6 +1169,7 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
       );
       return failShieldsCommand(message, opts.throwOnError);
     }
+    saveShieldsState(sandboxName, { chattrApplied: lockResult.chattrApplied });
   }
 
   // 3. Calculate duration
@@ -1195,7 +1186,7 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
     shieldsDownTimeout: null,
     shieldsDownReason: null,
     shieldsDownPolicy: null,
-    // Keep snapshotPath for forensics — don't clear it
+    // Keep snapshotPath + chattrApplied for forensics / drift re-verify
   });
   clearTimerMarker(sandboxName);
 
@@ -1268,6 +1259,7 @@ function shieldsStatus(
       try {
         const target = resolveConfig(sandboxName);
         driftIssues = verify(sandboxName, target, {
+          verifyChattr: state.chattrApplied === true,
           exec: (cmd: string[]) => privilegedSandboxExecCapture(sandboxName, cmd),
           assertLegacyLayout: assertNoLegacyStateLayout,
         }).issues;

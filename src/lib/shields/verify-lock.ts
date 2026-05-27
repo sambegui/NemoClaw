@@ -17,7 +17,7 @@ export type LockTarget = {
 
 export type VerifyShieldsLockOptions = {
   verifyChattr?: boolean;
-  exec?: (cmd: string[]) => string;
+  exec: (cmd: string[]) => string;
   assertLegacyLayout?: (sandboxName: string, configDir: string) => void;
 };
 
@@ -38,9 +38,9 @@ function noopAssertLegacyLayout(_sandboxName: string, _configDir: string): void 
 export function verifyShieldsLockState(
   sandboxName: string,
   target: LockTarget,
-  options: VerifyShieldsLockOptions = {},
+  options: VerifyShieldsLockOptions,
 ): VerifyShieldsLockResult {
-  if (!options.exec) {
+  if (!options || !options.exec) {
     throw new Error("verifyShieldsLockState requires options.exec");
   }
   const exec = options.exec;

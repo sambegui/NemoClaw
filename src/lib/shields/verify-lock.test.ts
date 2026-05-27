@@ -183,8 +183,10 @@ describe("verifyShieldsLockState", () => {
 
   it("rejects calls without an exec dependency so production paths cannot silently no-op", async () => {
     const { verifyShieldsLockState } = await loadVerifier();
-    expect(() => verifyShieldsLockState("openclaw", target)).toThrow(
-      /requires options\.exec/,
-    );
+    const call = verifyShieldsLockState as unknown as (
+      name: string,
+      lockTarget: unknown,
+    ) => unknown;
+    expect(() => call("openclaw", target)).toThrow(/requires options\.exec/);
   });
 });
