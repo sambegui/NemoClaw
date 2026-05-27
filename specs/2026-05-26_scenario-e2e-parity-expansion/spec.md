@@ -322,7 +322,7 @@ Add or verify manifests for:
 - Negative onboarding cases are `mapped-hermetic` or `mapped-live` only when they assert failure message, no stack trace, and forbidden side effects.
 - Public installer and launchable setup cannot be satisfied by repo-current install manifests.
 
-## Phase 4: Inference Provider, Routing, and Config-Shape Parity
+## Phase 4: Inference Provider, Routing, and Config-Shape Parity [COMPLETED: 2037fbe84]
 
 ### Audit sections covered
 
