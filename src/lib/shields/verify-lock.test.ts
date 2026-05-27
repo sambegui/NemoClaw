@@ -22,6 +22,8 @@ const target = {
   sensitiveFiles: ["/sandbox/.openclaw/.config-hash"],
 };
 
+const noopLegacyLayoutAsserter = (): void => {};
+
 type StatLookup = Record<string, string>;
 
 function makeExec(perms: StatLookup): (cmd: string[]) => string {
@@ -43,7 +45,10 @@ describe("verifyShieldsLockState", () => {
       "/sandbox/.openclaw": "755 root:root",
     });
 
-    const result = verifyShieldsLockState("openclaw", target, { exec });
+    const result = verifyShieldsLockState("openclaw", target, {
+      exec,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
 
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
@@ -57,7 +62,10 @@ describe("verifyShieldsLockState", () => {
       "/sandbox/.openclaw": "2770 sandbox:sandbox",
     });
 
-    const result = verifyShieldsLockState("openclaw", target, { exec });
+    const result = verifyShieldsLockState("openclaw", target, {
+      exec,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
 
     expect(result.ok).toBe(false);
     expect(result.issues).toEqual(
@@ -90,7 +98,10 @@ describe("verifyShieldsLockState", () => {
         "/sandbox/.openclaw": "755 root:root",
       });
 
-      const result = verifyShieldsLockState("openclaw", target, { exec });
+      const result = verifyShieldsLockState("openclaw", target, {
+        exec,
+        assertLegacyLayout: noopLegacyLayoutAsserter,
+      });
 
       expect(result.ok).toBe(false);
       expect(result.issues).toContain(
@@ -107,7 +118,10 @@ describe("verifyShieldsLockState", () => {
       "/sandbox/.openclaw": "775 root:root",
     });
 
-    const result = verifyShieldsLockState("openclaw", target, { exec });
+    const result = verifyShieldsLockState("openclaw", target, {
+      exec,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
 
     expect(result.ok).toBe(false);
     expect(result.issues).toContain("dir mode=775 (expected 755)");
@@ -119,7 +133,10 @@ describe("verifyShieldsLockState", () => {
       throw new Error("Container not found");
     };
 
-    const result = verifyShieldsLockState("openclaw", target, { exec });
+    const result = verifyShieldsLockState("openclaw", target, {
+      exec,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
 
     expect(result.ok).toBe(false);
     expect(result.issues.some((issue: string) => issue.includes("stat failed"))).toBe(
@@ -144,18 +161,50 @@ describe("verifyShieldsLockState", () => {
       return "";
     };
 
-    const withoutChattrCheck = verifyShieldsLockState("openclaw", target, { exec });
+    const withoutChattrCheck = verifyShieldsLockState("openclaw", target, {
+      exec,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
     expect(withoutChattrCheck.ok).toBe(true);
 
     const withChattrCheck = verifyShieldsLockState("openclaw", target, {
       exec,
       verifyChattr: true,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
     });
     expect(withChattrCheck.ok).toBe(false);
     expect(withChattrCheck.issues).toEqual(
       expect.arrayContaining([
         "/sandbox/.openclaw/openclaw.json immutable bit not set",
         "/sandbox/.openclaw/.config-hash immutable bit not set",
+      ]),
+    );
+  });
+
+  it("records lsattr exec failure as drift when verifyChattr is requested so a missing binary is not a silent pass", async () => {
+    const { verifyShieldsLockState } = await loadVerifier();
+    const exec = (cmd: string[]): string => {
+      if (cmd[0] === "stat") {
+        if (cmd[cmd.length - 1] === "/sandbox/.openclaw") return "755 root:root";
+        return "444 root:root";
+      }
+      if (cmd[0] === "lsattr") {
+        throw new Error("lsattr: command not found");
+      }
+      return "";
+    };
+
+    const result = verifyShieldsLockState("openclaw", target, {
+      exec,
+      verifyChattr: true,
+      assertLegacyLayout: noopLegacyLayoutAsserter,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        "/sandbox/.openclaw/openclaw.json lsattr failed: lsattr: command not found",
+        "/sandbox/.openclaw/.config-hash lsattr failed: lsattr: command not found",
       ]),
     );
   });
@@ -183,8 +232,19 @@ describe("verifyShieldsLockState", () => {
 
   it("rejects calls without an exec dependency so production paths cannot silently no-op", async () => {
     const { verifyShieldsLockState } = await loadVerifier();
-    expect(() => verifyShieldsLockState("openclaw", target)).toThrow(
-      /requires options\.exec/,
-    );
+    expect(() =>
+      verifyShieldsLockState("openclaw", target, {
+        assertLegacyLayout: noopLegacyLayoutAsserter,
+      } as unknown as Parameters<typeof verifyShieldsLockState>[2]),
+    ).toThrow(/requires options\.exec/);
+  });
+
+  it("rejects calls without an assertLegacyLayout dependency so the legacy-layout check cannot be skipped", async () => {
+    const { verifyShieldsLockState } = await loadVerifier();
+    expect(() =>
+      verifyShieldsLockState("openclaw", target, {
+        exec: () => "",
+      } as unknown as Parameters<typeof verifyShieldsLockState>[2]),
+    ).toThrow(/requires options\.assertLegacyLayout/);
   });
 });

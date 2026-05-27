@@ -16,10 +16,6 @@ const { fork } = require("child_process");
 const { randomBytes } = require("crypto");
 const { run, runCapture, validateName } = require("../runner");
 const { dockerExecFileSync } = require("../adapters/docker/exec");
-const { dockerCapture } = require("../adapters/docker/run");
-const registry = require("../state/registry") as {
-  getSandbox?: (name: string) => { openshellDriver?: string | null } | null;
-};
 const {
   buildPolicyGetCommand,
   buildPolicySetCommand,
@@ -43,6 +39,9 @@ const { resolveNemoclawStateDir } = require("../state/paths");
 const { appendAuditEntry } = require("./audit");
 const { resolveAgentConfig } = require("../sandbox/config");
 const {
+  privilegedSandboxExecArgv,
+}: typeof import("../sandbox/privileged-exec") = require("../sandbox/privileged-exec");
+const {
   buildRuntimePermissivePolicy,
 }: typeof import("./permissive-runtime") = require("./permissive-runtime");
 const { cleanupTempDir } = require("../onboard/temp-files");
@@ -53,68 +52,15 @@ const {
 const STATE_DIR = resolveNemoclawStateDir();
 
 // ---------------------------------------------------------------------------
-// privileged sandbox exec — bypasses the sandbox's Landlock context
+// privileged sandbox exec — bypasses the sandbox's Landlock context.
 //
-// openshell sandbox exec runs commands INSIDE the Landlock domain, so it
-// can't modify read_only paths or change chattr flags. kubectl exec starts
-// a new process in the pod that does NOT inherit the Landlock ruleset.
-// On the legacy gateway we reach kubectl via the K3s container. On the
-// Docker-driver gateway there is no K3s container, so we exec into the
-// sandbox Docker container directly as root.
+// `openshell sandbox exec` runs commands inside the Landlock domain, so it
+// cannot modify read-only paths or change chattr flags. Privileged Docker
+// exec starts a new root process that does NOT inherit the Landlock ruleset.
+// Container resolution + registry-scoped owner matching live in
+// `../sandbox/privileged-exec`; this file just adds the dockerExecFileSync
+// invocation wrapper used by the lock/unlock helpers below.
 // ---------------------------------------------------------------------------
-
-const K3S_CONTAINER = "openshell-cluster-nemoclaw";
-
-function resolveDockerDriverSandboxContainer(
-  sandboxName: string,
-): string | null {
-  try {
-    if (registry.getSandbox?.(sandboxName)?.openshellDriver !== "docker") {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  const prefix = `openshell-${sandboxName}-`;
-  const exact = `openshell-${sandboxName}`;
-  const output = dockerCapture(["ps", "--format", "{{.Names}}"], {
-    ignoreError: true,
-  });
-  return (
-    output
-      .split("\n")
-      .map((line: string) => line.trim())
-      .find((name: string) => name === exact || name.startsWith(prefix)) || null
-  );
-}
-
-function kubectlExecArgv(sandboxName: string, cmd: string[]): string[] {
-  return [
-    "exec",
-    K3S_CONTAINER,
-    "kubectl",
-    "exec",
-    "-n",
-    "openshell",
-    sandboxName,
-    "-c",
-    "agent",
-    "--",
-    ...cmd,
-  ];
-}
-
-function privilegedSandboxExecArgv(
-  sandboxName: string,
-  cmd: string[],
-): string[] {
-  const dockerDriverContainer =
-    resolveDockerDriverSandboxContainer(sandboxName);
-  if (dockerDriverContainer) {
-    return ["exec", "--user", "root", dockerDriverContainer, ...cmd];
-  }
-  return kubectlExecArgv(sandboxName, cmd);
-}
 
 function privilegedSandboxExec(sandboxName: string, cmd: string[]): void {
   dockerExecFileSync(privilegedSandboxExecArgv(sandboxName, cmd), {
@@ -1121,8 +1067,52 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
   // shieldsDown === false means explicitly locked by a previous shields-up.
   // undefined (no state file) means fresh sandbox — mutable default, allow shields-up.
   if (state.shieldsDown === false) {
+    // Re-verify the sandbox filesystem matches the declared locked posture.
+    // If a host-root tamper has drifted the protected perms, fall through to
+    // re-apply the lock instead of bailing — `shields status` directs the
+    // operator here for exactly this remediation path.
+    const target = resolveAgentConfig(sandboxName);
+    const verification = verifyShieldsLockState(sandboxName, target, {
+      exec: (cmd: string[]) => privilegedSandboxExecCapture(sandboxName, cmd),
+      assertLegacyLayout: assertNoLegacyStateLayout,
+    });
+    if (verification.ok) {
+      clearTimerMarker(sandboxName);
+      console.log("  Lockdown is already active.");
+      return;
+    }
+
+    console.log(
+      "  Lockdown was declared but the sandbox filesystem drifted; re-locking...",
+    );
+    for (const issue of verification.issues) {
+      console.log(`    - ${issue}`);
+    }
+    killTimer(sandboxName);
+    try {
+      lockAgentConfig(sandboxName, target);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`  ERROR: ${message}`);
+      console.error("  Config remains drifted — manual intervention required.");
+      return failShieldsCommand(message, opts.throwOnError);
+    }
+    saveShieldsState(sandboxName, {
+      shieldsDown: false,
+      shieldsDownAt: null,
+      shieldsDownTimeout: null,
+      shieldsDownReason: null,
+      shieldsDownPolicy: null,
+    });
     clearTimerMarker(sandboxName);
-    console.log("  Lockdown is already active.");
+    appendAuditEntry({
+      action: "shields_up",
+      sandbox: sandboxName,
+      timestamp: new Date().toISOString(),
+      restored_by: "operator",
+      reason: "drift remediation",
+    });
+    console.log(`  Lockdown re-applied for ${sandboxName} after drift.`);
     return;
   }
 

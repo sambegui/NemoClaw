@@ -6,8 +6,16 @@
 // config directory, no legacy state layout, and (when the caller knows
 // chattr was applied) the immutable bit. Returns the list of mismatches
 // so callers can either fail the lock operation or surface drift after a
-// host-root tamper. Stat/lsattr failures are folded into `issues` so the
-// caller can decide whether to treat them as drift.
+// host-root tamper.
+//
+// Failure handling:
+// - `stat` failures are recorded as issues so an unreachable sandbox is
+//   never mistaken for a clean lockdown.
+// - `lsattr` failures are recorded as issues only when `verifyChattr` is
+//   true. Some images do not ship `lsattr`, so without an explicit chattr
+//   request a missing binary is treated as an unavailable check rather
+//   than a tamper signal.
+// - `assertLegacyLayout` failures are recorded as issues.
 
 export type LockTarget = {
   configPath: string;
@@ -17,8 +25,8 @@ export type LockTarget = {
 
 export type VerifyShieldsLockOptions = {
   verifyChattr?: boolean;
-  exec?: (cmd: string[]) => string;
-  assertLegacyLayout?: (sandboxName: string, configDir: string) => void;
+  exec: (cmd: string[]) => string;
+  assertLegacyLayout: (sandboxName: string, configDir: string) => void;
 };
 
 export type VerifyShieldsLockResult = {
@@ -30,21 +38,18 @@ const EXPECTED_FILE_MODE = "444";
 const EXPECTED_DIR_MODE = "755";
 const EXPECTED_OWNER = "root:root";
 
-function noopAssertLegacyLayout(_sandboxName: string, _configDir: string): void {
-  // Production callers replace this with the real legacy-layout assertion;
-  // when omitted, the verifier treats legacy-layout state as "no issue".
-}
-
 export function verifyShieldsLockState(
   sandboxName: string,
   target: LockTarget,
-  options: VerifyShieldsLockOptions = {},
+  options: VerifyShieldsLockOptions,
 ): VerifyShieldsLockResult {
-  if (!options.exec) {
+  if (!options || typeof options.exec !== "function") {
     throw new Error("verifyShieldsLockState requires options.exec");
   }
-  const exec = options.exec;
-  const assertLegacyLayout = options.assertLegacyLayout ?? noopAssertLegacyLayout;
+  if (typeof options.assertLegacyLayout !== "function") {
+    throw new Error("verifyShieldsLockState requires options.assertLegacyLayout");
+  }
+  const { exec, assertLegacyLayout } = options;
   const issues: string[] = [];
   const filesToVerify = [target.configPath, ...(target.sensitiveFiles || [])];
 
@@ -82,8 +87,9 @@ export function verifyShieldsLockState(
         // First whitespace-delimited token is the flags field.
         const [flags] = attrs.trim().split(/\s+/, 1);
         if (!flags.includes("i")) issues.push(`${f} immutable bit not set`);
-      } catch {
-        // lsattr may not be available on all images — skip
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        issues.push(`${f} lsattr failed: ${msg}`);
       }
     }
   }
