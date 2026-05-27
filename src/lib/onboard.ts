@@ -430,6 +430,8 @@ const { applyPreflightGatewayCleanup } =
   require("./onboard/preflight-gateway-cleanup-decision") as typeof import("./onboard/preflight-gateway-cleanup-decision");
 const { verifyGatewayContainerRunning } =
   require("./onboard/gateway-container-running") as typeof import("./onboard/gateway-container-running");
+const { applyHealthyPortReuse } =
+  require("./onboard/gateway-stale-port-reuse") as typeof import("./onboard/gateway-stale-port-reuse");
 const { destroyGatewayWithVolumeCleanup } =
   require("./onboard/gateway-destroy") as typeof import("./onboard/gateway-destroy");
 const {
@@ -2235,12 +2237,9 @@ async function preflight(
       port === GATEWAY_PORT ? dockerDriverGatewayEnv.getGatewayPortCheckOptions() : undefined;
     let portCheck = await checkPortAvailable(port, portCheckOptions);
     if (!portCheck.ok) {
-      if ((port === GATEWAY_PORT || port === DASHBOARD_PORT) && gatewayReuseState === "healthy") {
-        console.log(
-          `  ✓ Port ${port} already owned by healthy ${cliDisplayName()} runtime (${label})`,
-        );
-        continue;
-      }
+      const reuse = await applyHealthyPortReuse({ port, gatewayPort: GATEWAY_PORT, dashboardPort: DASHBOARD_PORT, label, runtimeDisplayName: cliDisplayName(), gatewayName: GATEWAY_NAME, gatewayReuseState, portCheckOptions, supportsLifecycleCommands: gatewayCliSupportsLifecycleCommands(runCaptureOpenshell), destroyGateway, runOpenshell, checkPortAvailable, verifyGatewayContainerRunning });
+      if (reuse === "continue") continue;
+      if (reuse) { ({ gatewayReuseState, portCheck } = reuse); if (portCheck.ok) continue; }
       if (port === GATEWAY_PORT) {
         const dockerGatewayPid = getDockerDriverGatewayPortListenerPid(portCheck);
         if (dockerGatewayPid !== null) {
