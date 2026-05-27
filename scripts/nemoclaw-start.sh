@@ -975,15 +975,6 @@ refresh_openclaw_provider_placeholders() {
   [ -f "$config_file" ] || return 0
 
   local keys="TELEGRAM_BOT_TOKEN DISCORD_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN BRAVE_API_KEY"
-  local has_scoped_placeholder=0
-  local key value
-  for key in $keys; do
-    value="${!key:-}"
-    case "$value" in
-      openshell:resolve:env:*) has_scoped_placeholder=1 ;;
-    esac
-  done
-  [ "$has_scoped_placeholder" -eq 1 ] || return 0
 
   if [ -L "$config_file" ] || [ -L "$hash_file" ]; then
     printf '[SECURITY] Refusing provider placeholder refresh — config or hash path is a symlink\n' >&2
@@ -992,9 +983,11 @@ refresh_openclaw_provider_placeholders() {
 
   prepare_openclaw_config_for_write "$config_file" "$hash_file"
   local _write_rc=0
+  local _placeholder_report=""
 
-  NEMOCLAW_PROVIDER_PLACEHOLDER_KEYS="$keys" \
-    python3 - "$config_file" <<'PYPLACEHOLDERS' || _write_rc=$?
+  _placeholder_report="$(
+    NEMOCLAW_PROVIDER_PLACEHOLDER_KEYS="$keys" \
+      python3 - "$config_file" <<'PYPLACEHOLDERS'
 import json
 import os
 import sys
@@ -1003,22 +996,29 @@ config_file = sys.argv[1]
 prefix = "openshell:resolve:env:"
 keys = os.environ.get("NEMOCLAW_PROVIDER_PLACEHOLDER_KEYS", "").split()
 replacements = {}
+warnings = []
 
 for key in keys:
     value = os.environ.get(key, "")
-    if value.startswith(prefix):
-        replacements[f"{prefix}{key}"] = value
+    if value.startswith(prefix) and value != f"{prefix}{key}":
+        replacements[f"{prefix}{key}"] = (key, value)
 
-if not replacements:
-    sys.exit(0)
+channel_credentials = {
+    "telegram": ("botToken", "TELEGRAM_BOT_TOKEN"),
+    "discord": ("token", "DISCORD_BOT_TOKEN"),
+    }
 
 with open(config_file, encoding="utf-8") as f:
     config = json.load(f)
 
+refreshed = set()
+
 def rewrite(value):
     if isinstance(value, str):
-        for old, new in replacements.items():
-            value = value.replace(old, new)
+        for old, (key, new) in replacements.items():
+            if old in value:
+                value = value.replace(old, new)
+                refreshed.add(key)
         return value
     if isinstance(value, list):
         return [rewrite(item) for item in value]
@@ -1027,22 +1027,62 @@ def rewrite(value):
     return value
 
 updated = rewrite(config)
-if updated == config:
-    sys.exit(0)
 
-with open(config_file, "w", encoding="utf-8") as f:
-    json.dump(updated, f, indent=2)
-    f.write("\n")
+channels = updated.get("channels", {}) if isinstance(updated, dict) else {}
+if isinstance(channels, dict):
+    for channel, (field, env_key) in channel_credentials.items():
+        channel_cfg = channels.get(channel, {})
+        if not isinstance(channel_cfg, dict):
+            continue
+        accounts = channel_cfg.get("accounts", {})
+        if not isinstance(accounts, dict):
+            continue
+        env_value = os.environ.get(env_key, "")
+        for account_id, account in accounts.items():
+            if not isinstance(account, dict):
+                continue
+            token = account.get(field)
+            if not isinstance(token, str) or not token.startswith(prefix):
+                continue
+            label = f"{channel}.{account_id}.{field}"
+            if not env_value:
+                warnings.append(
+                    f"[channels] {label} is an OpenShell placeholder but {env_key} is missing from the runtime environment"
+                )
+            elif not env_value.startswith(prefix):
+                warnings.append(
+                    f"[channels] {label} left unchanged because {env_key} is not an OpenShell placeholder; refusing to write raw credentials to openclaw.json"
+                )
+            elif token != env_value:
+                warnings.append(
+                    f"[channels] {label} placeholder does not match the OpenShell runtime placeholder for {env_key}"
+                )
 
-print("refreshed=" + ",".join(sorted(replacements)))
+if updated != config:
+    with open(config_file, "w", encoding="utf-8") as f:
+        json.dump(updated, f, indent=2)
+        f.write("\n")
+
+if refreshed:
+    print("refreshed=" + ",".join(sorted(refreshed)))
+for warning in warnings:
+    print("warning=" + warning)
 PYPLACEHOLDERS
+  )" || _write_rc=$?
 
   if [ "$_write_rc" -eq 0 ]; then
-    if (cd /sandbox/.openclaw && sha256sum openclaw.json >"$hash_file"); then
-      printf '[config] Refreshed provider placeholders from OpenShell runtime env\n' >&2
-    else
-      _write_rc=$?
+    local _refreshed_keys
+    _refreshed_keys="$(printf '%s\n' "$_placeholder_report" | sed -n 's/^refreshed=//p' | tail -n 1)"
+    if [ -n "$_refreshed_keys" ]; then
+      if (cd /sandbox/.openclaw && sha256sum openclaw.json >"$hash_file"); then
+        printf '[config] Refreshed provider placeholders from OpenShell runtime env: %s\n' "$_refreshed_keys" >&2
+      else
+        _write_rc=$?
+      fi
     fi
+    printf '%s\n' "$_placeholder_report" | sed -n 's/^warning=//p' | while IFS= read -r _warning; do
+      [ -n "$_warning" ] && printf '%s\n' "$_warning" >&2
+    done
   fi
 
   restore_openclaw_config_after_write "$config_file" "$hash_file"
@@ -2344,6 +2384,9 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 
   configure_messaging_channels
+  refresh_openclaw_provider_placeholders
+  ensure_mutable_openclaw_config_hash
+  write_openclaw_config_baseline
   install_telegram_diagnostics
   install_slack_channel_guard
   verify_no_slack_secrets_on_disk
@@ -2464,6 +2507,7 @@ normalize_mutable_config_perms
 apply_model_override
 reconcile_agent_model_with_provider
 apply_cors_override
+configure_messaging_channels
 refresh_openclaw_provider_placeholders
 ensure_mutable_openclaw_config_hash
 if needs_gateway_token_for_current_command; then
@@ -2478,10 +2522,9 @@ write_runtime_shell_env
 ensure_runtime_shell_env_shim
 lock_rc_files "$_SANDBOX_HOME"
 
-# Inject messaging channel config if provider tokens are present.
-# Must run AFTER integrity check (to detect build-time tampering) and
-# BEFORE chattr +i (which locks the config permanently).
-configure_messaging_channels
+# Messaging channel config was announced before placeholder refresh so the
+# baseline captures the same provider placeholders the gateway will use.
+# Install channel-specific preloads before starting OpenClaw.
 install_telegram_diagnostics
 install_slack_channel_guard
 verify_no_slack_secrets_on_disk
