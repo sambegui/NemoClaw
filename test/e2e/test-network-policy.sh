@@ -34,9 +34,6 @@ SCRIPT_DIR_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR_TIMEOUT}/e2e-timeout.sh"
 # shellcheck source=test/e2e/lib/install-path-refresh.sh
 source "${SCRIPT_DIR_TIMEOUT}/lib/install-path-refresh.sh"
-# shellcheck source=test/e2e/lib/openclaw-json.sh
-source "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-json.sh"
-
 # ── Config ───────────────────────────────────────────────────────────────────
 SANDBOX_NAME="e2e-net-policy"
 LOG_FILE="test-network-policy-$(date +%Y%m%d-%H%M%S).log"
@@ -661,10 +658,9 @@ console.log(pass ? 'SSRF_PASS' : 'SSRF_FAIL');
 test_net_10_openclaw_web_fetch_host_gateway() {
   log "=== TC-NET-10: OpenClaw web_fetch Host Gateway ==="
 
-  local host_dir server_log port port_file server_pid marker approved_reply_marker
+  local host_dir server_log port port_file server_pid marker
   local deny_host_dir deny_server_log deny_port deny_port_file deny_server_pid deny_marker
   marker="NEMOCLAW_HOST_GATEWAY_WEB_FETCH_OK"
-  approved_reply_marker="HOST_GATEWAY_WEB_FETCH_OK"
   deny_marker="NEMOCLAW_HOST_GATEWAY_WEB_FETCH_DENIED_PORT_SHOULD_NOT_LEAK"
   host_dir="$(mktemp -d)"
   deny_host_dir="$(mktemp -d)"
@@ -785,85 +781,150 @@ fetch('http://host.openshell.internal:${deny_port}/', {signal: AbortSignal.timeo
     return
   fi
 
-  local ssh_cfg session_id raw reply rc=0 ssh_cmd
-  session_id="e2e-web-fetch-host-gateway-$(date +%s)-$$"
-  ssh_cfg="$(mktemp)"
-  if ! openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_cfg" 2>/dev/null; then
-    rm -f "$ssh_cfg"
-    fail "TC-NET-10: OpenClaw web_fetch" "could not get SSH config"
-    cleanup_host_server
-    return
-  fi
+  local web_fetch_probe_script web_fetch_probe_b64 web_fetch_output web_fetch_rc=0
+  web_fetch_probe_script="$(
+    cat <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-  local denied_session_id denied_raw denied_reply denied_rc=0 denied_ssh_cmd
-  denied_session_id="${session_id}-denied"
-  denied_ssh_cmd="rm -f /sandbox/.openclaw/agents/main/sessions/${denied_session_id}.jsonl.lock /sandbox/.openclaw/agents/main/sessions/${denied_session_id}.trajectory.jsonl 2>/dev/null || true; nemoclaw-start openclaw agent --agent main --json --session-id '${denied_session_id}' -m 'Use the web_fetch tool to fetch http://host.openshell.internal:${deny_port}/. If the fetch is denied or unavailable because of network policy, reply with only DENIED_HOST_GATEWAY_POLICY. If web_fetch returns any fetched page content, reply with only FETCHED_DENIED_HOST_GATEWAY_PAGE.'"
-  denied_raw=$(run_with_timeout 300 ssh -F "$ssh_cfg" \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o ConnectTimeout=10 \
-    -o LogLevel=ERROR \
-    "openshell-${SANDBOX_NAME}" \
-    "$denied_ssh_cmd" \
-    2>&1) || denied_rc=$?
-  denied_reply=$(printf '%s' "$denied_raw" | parse_openclaw_agent_text 2>/dev/null) || true
-  if printf '%s' "$denied_reply" | grep -qE "${deny_marker}|FETCHED_DENIED_HOST_GATEWAY_PAGE" || printf '%s' "$denied_raw" | grep -q "$deny_marker"; then
-    rm -f "$ssh_cfg"
-    cleanup_host_server
-    fail "TC-NET-10: OpenClaw web_fetch policy" "web_fetch reached unapproved host gateway port: ${denied_raw:0:300}"
-    return
-  fi
-  if printf '%s' "$denied_raw" | grep -qiE "SsrFBlockedError|Blocked hostname|private/internal/special-use"; then
-    rm -f "$ssh_cfg"
-    cleanup_host_server
-    fail "TC-NET-10: OpenClaw web_fetch policy" "OpenClaw SSRF guard, not OpenShell policy, blocked host gateway deny-case: ${denied_raw:0:300}"
-    return
-  fi
-  if printf '%s\n%s' "$denied_reply" "$denied_raw" | grep -qiE "DENIED_HOST_GATEWAY_POLICY|STATUS_403|\\b403\\b|denied|policy|forbidden|not allowed|not permitted|ERROR_"; then
-    pass "TC-NET-10: OpenClaw web_fetch cannot reach unapproved host gateway port"
-  elif [ "$denied_rc" -ne 0 ]; then
-    rm -f "$ssh_cfg"
-    cleanup_host_server
-    fail "TC-NET-10: OpenClaw web_fetch policy" "agent exited before producing a policy denial signal (exit ${denied_rc}, raw='${denied_raw:0:300}')"
-    return
-  else
-    rm -f "$ssh_cfg"
-    cleanup_host_server
-    fail "TC-NET-10: OpenClaw web_fetch policy" "unapproved host gateway port did not produce a policy denial signal (exit ${denied_rc}, reply='${denied_reply:0:200}')"
-    return
-  fi
+const [approvedUrl, deniedUrl, marker, denyMarker] = process.argv.slice(2);
+const distDir = "/usr/local/lib/node_modules/openclaw/dist";
 
-  ssh_cmd="rm -f /sandbox/.openclaw/agents/main/sessions/${session_id}.jsonl.lock /sandbox/.openclaw/agents/main/sessions/${session_id}.trajectory.jsonl 2>/dev/null || true; nemoclaw-start openclaw agent --agent main --json --session-id '${session_id}' -m 'Use the web_fetch tool to fetch http://host.openshell.internal:${port}/. If web_fetch returns HTML content instead of a policy error, reply with only ${approved_reply_marker}.'"
-  raw=$(run_with_timeout 300 ssh -F "$ssh_cfg" \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o ConnectTimeout=10 \
-    -o LogLevel=ERROR \
-    "openshell-${SANDBOX_NAME}" \
-    "$ssh_cmd" \
-    2>&1) || rc=$?
-  local approved_trace
-  approved_trace=$(run_with_timeout 30 ssh -F "$ssh_cfg" \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o ConnectTimeout=10 \
-    -o LogLevel=ERROR \
-    "openshell-${SANDBOX_NAME}" \
-    "cat /sandbox/.openclaw/agents/main/sessions/${session_id}.trajectory.jsonl 2>/dev/null || true" \
-    2>/dev/null) || true
-  rm -f "$ssh_cfg"
+function fail(code, detail) {
+  console.log(`E2E_FAIL_${code}: ${String(detail || "").slice(0, 1200)}`);
+  process.exitCode = 1;
+}
+
+function findDistFile(prefix) {
+  const candidates = fs
+    .readdirSync(distDir)
+    .filter((name) => name.startsWith(prefix) && name.endsWith(".js"))
+    .sort();
+  if (candidates.length !== 1) {
+    throw new Error(`expected one ${prefix}*.js file, found ${candidates.length}: ${candidates.join(", ")}`);
+  }
+  return path.join(distDir, candidates[0]);
+}
+
+function summarize(value) {
+  return JSON.stringify(value, (_key, inner) => {
+    if (typeof inner === "string" && inner.length > 1200) return `${inner.slice(0, 1200)}...`;
+    return inner;
+  });
+}
+
+async function main() {
+  const configPath = process.env.OPENCLAW_CONFIG_PATH || "/sandbox/.openclaw/openclaw.json";
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const fetchConfig = config?.tools?.web?.fetch;
+  if (fetchConfig?.useTrustedEnvProxy !== true) {
+    fail("CONFIG_MISSING_TRUSTED_ENV_PROXY", `tools.web.fetch.useTrustedEnvProxy=${fetchConfig?.useTrustedEnvProxy}`);
+    return;
+  }
+
+  const mod = await import(pathToFileURL(findDistFile("openclaw-tools-")).href);
+  const createOpenClawTools = mod.t || mod.createOpenClawTools;
+  if (typeof createOpenClawTools !== "function") {
+    fail("OPENCLAW_TOOLS_EXPORT_MISSING", Object.keys(mod).join(","));
+    return;
+  }
+
+  const tools = createOpenClawTools({
+    config,
+    sandboxed: true,
+    workspaceDir: "/sandbox/.openclaw/workspace-main",
+    wrapBeforeToolCallHook: false,
+    disablePluginTools: true,
+    disableMessageTool: true,
+  });
+  const webFetch = tools.find((tool) => tool?.name === "web_fetch");
+  if (!webFetch || typeof webFetch.execute !== "function") {
+    fail("WEB_FETCH_TOOL_MISSING", tools.map((tool) => tool?.name).filter(Boolean).join(","));
+    return;
+  }
+
+  let approvedRaw = "";
+  try {
+    const approved = await webFetch.execute("e2e-approved-host-gateway", {
+      url: approvedUrl,
+      extractMode: "text",
+      maxChars: 2000,
+    });
+    approvedRaw = summarize(approved);
+  } catch (error) {
+    const detail = error && (error.stack || error.message) ? error.stack || error.message : error;
+    if (/SsrFBlockedError|Blocked hostname|private\/internal\/special-use/i.test(String(detail))) {
+      fail("SSRF_BLOCKED_HOST_GATEWAY_APPROVED", detail);
+      return;
+    }
+    fail("APPROVED_FETCH_ERROR", detail);
+    return;
+  }
+  if (!approvedRaw.includes(marker)) {
+    fail("APPROVED_MARKER_MISSING", approvedRaw);
+    return;
+  }
+  console.log("E2E_WEB_FETCH_APPROVED_OK");
+
+  try {
+    const denied = await webFetch.execute("e2e-denied-host-gateway", {
+      url: deniedUrl,
+      extractMode: "text",
+      maxChars: 2000,
+    });
+    const deniedRaw = summarize(denied);
+    if (deniedRaw.includes(denyMarker)) {
+      fail("DENIED_PORT_REACHED", deniedRaw);
+      return;
+    }
+    fail("DENIED_PORT_UNEXPECTED_SUCCESS", deniedRaw);
+  } catch (error) {
+    const detail = String(error && (error.stack || error.message) ? error.stack || error.message : error);
+    if (/SsrFBlockedError|Blocked hostname|private\/internal\/special-use/i.test(detail)) {
+      fail("SSRF_BLOCKED_HOST_GATEWAY_DENIED", detail);
+      return;
+    }
+    if (/Web fetch failed \\(403\\)|\\b403\\b|policy|denied|forbidden|fetch failed|ECONN|UND_ERR|proxy/i.test(detail)) {
+      console.log(`E2E_WEB_FETCH_DENIED_OK ${detail.split("\n")[0].slice(0, 300)}`);
+      return;
+    }
+    fail("DENIED_PORT_UNEXPECTED_ERROR", detail);
+  }
+}
+
+main().catch((error) => {
+  fail("UNCAUGHT", error && (error.stack || error.message) ? error.stack || error.message : error);
+});
+NODE
+  )"
+  web_fetch_probe_b64="$(printf '%s' "$web_fetch_probe_script" | base64 | tr -d '\n')"
+  web_fetch_output=$(sandbox_exec "printf '%s' '${web_fetch_probe_b64}' | base64 -d > /tmp/nemoclaw-web-fetch-e2e.mjs
+nemoclaw-start node /tmp/nemoclaw-web-fetch-e2e.mjs 'http://host.openshell.internal:${port}/' 'http://host.openshell.internal:${deny_port}/' '${marker}' '${deny_marker}'" 2>&1) || web_fetch_rc=$?
   cleanup_host_server
 
-  if printf '%s\n%s' "$raw" "$approved_trace" | grep -qiE "SsrFBlockedError|Blocked hostname|private/internal/special-use"; then
-    fail "TC-NET-10: OpenClaw web_fetch" "OpenClaw SSRF guard blocked approved host gateway target: raw='${raw:0:300}', trace='${approved_trace:0:300}'"
+  log "  OpenClaw web_fetch probe: ${web_fetch_output:0:1000}"
+  if printf '%s' "$web_fetch_output" | grep -q "E2E_FAIL_SSRF_BLOCKED_HOST_GATEWAY"; then
+    fail "TC-NET-10: OpenClaw web_fetch" "OpenClaw SSRF guard blocked host gateway before OpenShell policy (${web_fetch_output:0:500})"
     return
   fi
 
-  reply=$(printf '%s' "$raw" | parse_openclaw_agent_text 2>/dev/null) || true
-  if printf '%s\n%s' "$raw" "$approved_trace" | grep -q "$marker" || printf '%s' "$reply" | grep -q "$approved_reply_marker"; then
+  if printf '%s' "$web_fetch_output" | grep -q "E2E_FAIL_DENIED_PORT_REACHED"; then
+    fail "TC-NET-10: OpenClaw web_fetch policy" "web_fetch reached unapproved host gateway port (${web_fetch_output:0:500})"
+    return
+  fi
+
+  if printf '%s' "$web_fetch_output" | grep -q "E2E_WEB_FETCH_APPROVED_OK"; then
     pass "TC-NET-10: OpenClaw web_fetch reached approved host.openshell.internal target"
   else
-    fail "TC-NET-10: OpenClaw web_fetch" "marker not returned (exit ${rc}, reply='${reply:0:200}', raw='${raw:0:300}', trace='${approved_trace:0:300}')"
+    fail "TC-NET-10: OpenClaw web_fetch" "approved marker not returned (exit ${web_fetch_rc}, output='${web_fetch_output:0:500}')"
+    return
+  fi
+
+  if printf '%s' "$web_fetch_output" | grep -q "E2E_WEB_FETCH_DENIED_OK"; then
+    pass "TC-NET-10: OpenClaw web_fetch cannot reach unapproved host gateway port"
+  else
+    fail "TC-NET-10: OpenClaw web_fetch policy" "unapproved host gateway port did not produce a policy denial signal (exit ${web_fetch_rc}, output='${web_fetch_output:0:500}')"
   fi
 }
 
