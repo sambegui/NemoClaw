@@ -16,6 +16,7 @@
 #   TC-NET-07: Inference exemption + direct provider blocked
 #   TC-NET-08: Jira per-binary policy enforcement
 #   TC-NET-09: SSRF validation (dangerous IPs rejected)
+#   TC-NET-10: OpenClaw web_fetch can reach approved host gateway target
 #
 # Prerequisites:
 #   - Docker running
@@ -32,6 +33,8 @@ SCRIPT_DIR_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR_TIMEOUT}/e2e-timeout.sh"
 # shellcheck source=test/e2e/lib/install-path-refresh.sh
 source "${SCRIPT_DIR_TIMEOUT}/lib/install-path-refresh.sh"
+# shellcheck source=test/e2e/lib/openclaw-json.sh
+source "${SCRIPT_DIR_TIMEOUT}/lib/openclaw-json.sh"
 
 # ── Config ───────────────────────────────────────────────────────────────────
 SANDBOX_NAME="e2e-net-policy"
@@ -211,6 +214,7 @@ setup_sandbox() {
     NEMOCLAW_NON_INTERACTIVE=1 \
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
     NEMOCLAW_POLICY_TIER="restricted" \
+    NEMOCLAW_WEB_SEARCH_ENABLED=1 \
     NEMOCLAW_RECREATE_SANDBOX=1 \
     run_with_timeout 600 nemoclaw onboard --non-interactive --yes-i-accept-third-party-software \
     2>&1 | tee -a "$LOG_FILE" || {
@@ -606,6 +610,101 @@ console.log(pass ? 'SSRF_PASS' : 'SSRF_FAIL');
   fi
 }
 
+# =============================================================================
+# TC-NET-10: OpenClaw web_fetch host gateway compatibility
+# =============================================================================
+test_net_10_openclaw_web_fetch_host_gateway() {
+  log "=== TC-NET-10: OpenClaw web_fetch Host Gateway ==="
+
+  local host_dir server_log port server_pid marker
+  marker="NEMOCLAW_HOST_GATEWAY_WEB_FETCH_OK"
+  host_dir="$(mktemp -d)"
+  server_log="$host_dir/http.log"
+  printf '<html><body>%s</body></html>\n' "$marker" >"$host_dir/index.html"
+  port="$(
+    python3 - <<'PYPORT'
+import socket
+with socket.socket() as sock:
+    sock.bind(("", 0))
+    print(sock.getsockname()[1])
+PYPORT
+  )"
+
+  (cd "$host_dir" && python3 -m http.server "$port" --bind 0.0.0.0 >"$server_log" 2>&1) &
+  server_pid=$!
+  sleep 1
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    fail "TC-NET-10: Setup" "host HTTP server failed to start ($(cat "$server_log" 2>/dev/null))"
+    rm -rf "$host_dir"
+    return
+  fi
+
+  cleanup_host_server() {
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+    rm -rf "$host_dir"
+  }
+
+  log "  Allowing node/openclaw access to host.openshell.internal:${port}..."
+  if ! openshell policy update "$SANDBOX_NAME" \
+    --add-endpoint "host.openshell.internal:${port}:read-only:rest:enforce" \
+    --binary /usr/bin/node \
+    --binary /usr/local/bin/node \
+    --wait 2>&1 | tee -a "$LOG_FILE"; then
+    fail "TC-NET-10: Setup" "Could not allow host.openshell.internal:${port}"
+    cleanup_host_server
+    return
+  fi
+  sleep 5
+
+  local direct
+  direct=$(sandbox_exec "node -e \"
+fetch('http://host.openshell.internal:${port}/', {signal: AbortSignal.timeout(15000)})
+  .then(async r => console.log('STATUS_' + r.status + ' ' + (await r.text()).slice(0, 120)))
+  .catch(e => console.log('ERROR_' + (e.cause?.code || e.code || e.message)))
+\"" 2>&1) || true
+  log "  Direct Node host-gateway fetch: $direct"
+  if ! echo "$direct" | grep -q "$marker"; then
+    fail "TC-NET-10: Setup" "host gateway policy/proxy probe failed before OpenClaw web_fetch ($direct)"
+    cleanup_host_server
+    return
+  fi
+
+  local ssh_cfg session_id raw reply rc=0 ssh_cmd
+  session_id="e2e-web-fetch-host-gateway-$(date +%s)-$$"
+  ssh_cfg="$(mktemp)"
+  if ! openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_cfg" 2>/dev/null; then
+    rm -f "$ssh_cfg"
+    fail "TC-NET-10: OpenClaw web_fetch" "could not get SSH config"
+    cleanup_host_server
+    return
+  fi
+
+  ssh_cmd="openclaw agent --agent main --json --session-id '${session_id}' -m 'Use the web_fetch tool to fetch http://host.openshell.internal:${port}/. Reply with only ${marker} if the fetched page contains that exact marker.'"
+  raw=$(run_with_timeout 180 ssh -F "$ssh_cfg" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=10 \
+    -o LogLevel=ERROR \
+    "openshell-${SANDBOX_NAME}" \
+    "$ssh_cmd" \
+    2>/dev/null) || rc=$?
+  rm -f "$ssh_cfg"
+  cleanup_host_server
+
+  if printf '%s' "$raw" | grep -qiE "SsrFBlockedError|Blocked hostname|private/internal/special-use"; then
+    fail "TC-NET-10: OpenClaw web_fetch" "OpenClaw SSRF guard blocked approved host gateway target: ${raw:0:300}"
+    return
+  fi
+
+  reply=$(printf '%s' "$raw" | parse_openclaw_agent_text 2>/dev/null) || true
+  if [ "$rc" -eq 0 ] && printf '%s\n%s' "$reply" "$raw" | grep -q "$marker"; then
+    pass "TC-NET-10: OpenClaw web_fetch reached approved host.openshell.internal target"
+  else
+    fail "TC-NET-10: OpenClaw web_fetch" "marker not returned (exit ${rc}, reply='${reply:0:200}')"
+  fi
+}
+
 # ── Teardown ─────────────────────────────────────────────────────────────────
 teardown() {
   # Do not unlink ~/.nemoclaw/onboard.lock: that lock is global and PID-
@@ -659,6 +758,7 @@ main() {
   test_net_05_hot_reload
   test_net_07_inference_exemption
   test_net_09_ssrf_validation
+  test_net_10_openclaw_web_fetch_host_gateway
   test_net_06_permissive_mode # last — opens all egress, affects subsequent tests
 
   trap - EXIT

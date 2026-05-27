@@ -893,6 +893,25 @@ print(account.get('botToken', ''))
     skip "M7: No Telegram botToken to check"
   fi
 
+  # M7b: OpenShell can scope provider placeholders by credential revision
+  # (openshell:resolve:env:v*_TELEGRAM_BOT_TOKEN). OpenClaw must receive that
+  # runtime-scoped placeholder in openclaw.json; leaving the canonical
+  # openshell:resolve:env:TELEGRAM_BOT_TOKEN value in the account config makes
+  # the Telegram bridge start with an unresolved/invalid token.
+  if [ -n "$tg_token" ] && [ -n "$TELEGRAM_PLACEHOLDER" ]; then
+    if [ "$tg_token" = "$TELEGRAM_PLACEHOLDER" ]; then
+      pass "M7b: Telegram botToken matches the OpenShell runtime placeholder"
+    elif [ "$tg_token" = "openshell:resolve:env:TELEGRAM_BOT_TOKEN" ]; then
+      fail "M7b: Telegram botToken stayed canonical instead of using runtime placeholder"
+    else
+      fail "M7b: Telegram botToken placeholder mismatch (config='${tg_token:0:40}...', env='${TELEGRAM_PLACEHOLDER:0:40}...')"
+    fi
+  elif [ -n "$tg_token" ]; then
+    skip "M7b: No Telegram runtime placeholder env to compare"
+  else
+    skip "M7b: No Telegram botToken to compare"
+  fi
+
   # M8: Discord channel exists with a token
   dc_token=$(echo "$channel_json" | python3 -c "
 import json, sys

@@ -615,7 +615,10 @@ describe("generate-openclaw-config.py: config generation", () => {
       provider: "brave",
       apiKey: "openshell:resolve:env:BRAVE_API_KEY",
     });
-    expect(config.tools?.web?.fetch?.enabled).toBe(true);
+    expect(config.tools?.web?.fetch).toEqual({
+      enabled: true,
+      useTrustedEnvProxy: true,
+    });
   });
 
   it("omits web search when env is not set", () => {

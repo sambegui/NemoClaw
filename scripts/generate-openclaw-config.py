@@ -820,7 +820,7 @@ def build_config(env: dict | None = None) -> dict:
                 "provider": "brave",
                 "apiKey": "openshell:resolve:env:BRAVE_API_KEY",
             },
-            "fetch": {"enabled": True},
+            "fetch": {"enabled": True, "useTrustedEnvProxy": True},
         }
 
     return config

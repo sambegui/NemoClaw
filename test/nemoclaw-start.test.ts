@@ -2040,6 +2040,117 @@ describe("Slack secrets-on-disk tripwire (#2085)", () => {
   });
 });
 
+describe("provider placeholder refresh (#4251)", () => {
+  const src = fs.readFileSync(START_SCRIPT, "utf-8");
+
+  function runRefresh(
+    config: unknown,
+    env: Record<string, string> = {},
+  ): { config: any; hash: string; result: ReturnType<typeof spawnSync> } {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-provider-placeholders-"));
+    const openclawDir = path.join(tmpDir, ".openclaw");
+    const configPath = path.join(openclawDir, "openclaw.json");
+    const hashPath = path.join(openclawDir, ".config-hash");
+    const scriptPath = path.join(tmpDir, "run.sh");
+    fs.mkdirSync(openclawDir, { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    const fn = extractShellFunctionFromSource(src, "refresh_openclaw_provider_placeholders").replaceAll(
+      "/sandbox/.openclaw",
+      openclawDir,
+    );
+    fs.writeFileSync(
+      scriptPath,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "prepare_openclaw_config_for_write() { :; }",
+        "restore_openclaw_config_after_write() { :; }",
+        fn,
+        "refresh_openclaw_provider_placeholders",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+    const result = spawnSync("bash", [scriptPath], {
+      encoding: "utf-8",
+      env: { PATH: process.env.PATH || "", ...env },
+      timeout: 5000,
+    });
+    const updatedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const hash = fs.existsSync(hashPath) ? fs.readFileSync(hashPath, "utf-8") : "";
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    return { config: updatedConfig, hash, result };
+  }
+
+  it("rewrites Telegram canonical placeholders to OpenShell runtime-scoped placeholders", () => {
+    const scoped = "openshell:resolve:env:v42_TELEGRAM_BOT_TOKEN";
+    const run = runRefresh(
+      {
+        channels: {
+          telegram: {
+            accounts: {
+              default: {
+                botToken: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+              },
+            },
+          },
+        },
+      },
+      { TELEGRAM_BOT_TOKEN: scoped },
+    );
+
+    expect(run.result.status, run.result.stderr).toBe(0);
+    expect(run.config.channels.telegram.accounts.default.botToken).toBe(scoped);
+    expect(run.hash).toContain("openclaw.json");
+    expect(run.result.stderr).toContain(
+      "Refreshed provider placeholders from OpenShell runtime env: TELEGRAM_BOT_TOKEN",
+    );
+    expect(run.result.stderr).not.toContain("v42_TELEGRAM_BOT_TOKEN");
+  });
+
+  it("does not write raw provider credentials into openclaw.json", () => {
+    const run = runRefresh(
+      {
+        channels: {
+          telegram: {
+            accounts: {
+              default: {
+                botToken: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+              },
+            },
+          },
+        },
+      },
+      { TELEGRAM_BOT_TOKEN: "123456:SECRET" },
+    );
+
+    expect(run.result.status, run.result.stderr).toBe(0);
+    expect(run.config.channels.telegram.accounts.default.botToken).toBe(
+      "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+    );
+    expect(JSON.stringify(run.config)).not.toContain("123456:SECRET");
+    expect(run.result.stderr).toContain("refusing to write raw credentials");
+  });
+
+  it("warns when Telegram is configured but the runtime placeholder env is missing", () => {
+    const run = runRefresh({
+      channels: {
+        telegram: {
+          accounts: {
+            default: {
+              botToken: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+            },
+          },
+        },
+      },
+    });
+
+    expect(run.result.status, run.result.stderr).toBe(0);
+    expect(run.result.stderr).toContain(
+      "telegram.default.botToken is an OpenShell placeholder but TELEGRAM_BOT_TOKEN is missing",
+    );
+  });
+});
+
 describe("Telegram diagnostics (#2766)", () => {
   const src = fs.readFileSync(START_SCRIPT, "utf-8");
   const telegramDiagnosticsScript = startScriptHeredoc(src, "TELEGRAM_DIAGNOSTICS_EOF");
@@ -2231,6 +2342,112 @@ setTimeout(() => {}, 5);
     expect(readinessLines).toHaveLength(1);
     expect(readinessLines[0]).toContain("inference.local");
     expect(readinessLines[0]).not.toContain("SECRET");
+  });
+
+  it("classifies Telegram Bot API auth rejections during startup probes", () => {
+    const run = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `
+const { EventEmitter } = require('node:events');
+const https = require('node:https');
+https.request = function () {
+  const req = new EventEmitter();
+  process.nextTick(() => req.emit('response', { statusCode: 401 }));
+  return req;
+};
+${telegramDiagnosticsScript}
+https.request('https://api.telegram.org/bot123456:SECRET/getMe');
+https.request('https://api.telegram.org/bot123456:SECRET/getWebhookInfo');
+setTimeout(() => {}, 5);
+`,
+      ],
+      { encoding: "utf-8" },
+    );
+
+    expect(run.status).toBe(0);
+    const rejectionLines = run.stderr
+      .split(/\r?\n/)
+      .filter((line) => line.includes("Bot API rejected startup probe"));
+    expect(rejectionLines).toHaveLength(1);
+    expect(rejectionLines[0]).toContain("HTTP 401");
+    expect(rejectionLines[0]).not.toContain("SECRET");
+  });
+
+  it("classifies Telegram Bot API startup probe network failures and redacts token paths", () => {
+    const run = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `
+const { EventEmitter } = require('node:events');
+const https = require('node:https');
+https.request = function () {
+  const req = new EventEmitter();
+  process.nextTick(() => {
+    const err = new Error('connect failed for /bot123456:SECRET/getMe');
+    err.code = 'ECONNRESET';
+    req.emit('error', err);
+  });
+  return req;
+};
+${telegramDiagnosticsScript}
+https.request('https://api.telegram.org/bot123456:SECRET/getMe');
+setTimeout(() => {}, 5);
+`,
+      ],
+      { encoding: "utf-8" },
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.stderr).toContain("Bot API startup probe failed: ECONNRESET");
+    expect(run.stderr).not.toContain("SECRET");
+  });
+
+  it("emits a Telegram credential-placeholder mismatch diagnostic without leaking token values", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-telegram-credential-"));
+    const configPath = path.join(tmpDir, "openclaw.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        channels: {
+          telegram: {
+            accounts: {
+              default: {
+                botToken: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+              },
+            },
+          },
+        },
+      }),
+    );
+    try {
+      const run = spawnSync(
+        process.execPath,
+        [
+          "-e",
+          `
+${telegramDiagnosticsScript}
+setTimeout(() => {}, 5);
+`,
+        ],
+        {
+          encoding: "utf-8",
+          env: {
+            ...process.env,
+            OPENCLAW_CONFIG_PATH: configPath,
+            TELEGRAM_BOT_TOKEN: "openshell:resolve:env:v42_TELEGRAM_BOT_TOKEN",
+          },
+        },
+      );
+
+      expect(run.status).toBe(0);
+      expect(run.stderr).toContain("credential placeholder mismatch");
+      expect(run.stderr).not.toContain("v42_TELEGRAM_BOT_TOKEN");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("emits inference diagnostics only after provider startup and redacts token values", () => {
