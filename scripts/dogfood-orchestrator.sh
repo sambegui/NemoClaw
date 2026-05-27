@@ -275,12 +275,16 @@ $RUN_DIR/activity.md summarizing the verdict.
 EOF
   )
 
-  # Snapshot pre-candidate Brev state so the wrap-up can compare. We
-  # don't gate on it (sweep happens at Phase 7), but it surfaces stragglers
-  # left behind by previous candidates in the per-candidate log.
-  brev ls --json 2>/dev/null \
-    | jq '[.[] | select(.name | startswith("verify-stale-")) | {name, status, instance_type}]' \
-    > "$RUN_DIR/$issue/brev-pre.json" 2>/dev/null || echo "[]" > "$RUN_DIR/$issue/brev-pre.json"
+  # Snapshot pre-candidate Brev state so the wrap-up can compare. We don't
+  # gate on it (sweep happens at Phase 7), but it surfaces stragglers left
+  # behind by previous candidates in the per-candidate log.
+  #
+  # `brev ls --json` is NOT a real CLI flag; the documented piped behavior
+  # is one instance name per line. Filter for our verify-stale- prefix and
+  # save as a newline-separated list (the wrap-up's diff is line-based).
+  brev ls 2>/dev/null | grep '^verify-stale-' \
+    > "$RUN_DIR/$issue/brev-pre.txt" 2>/dev/null \
+    || : > "$RUN_DIR/$issue/brev-pre.txt"
 
   candidate_start_epoch=$(date +%s)
   set +e
@@ -302,9 +306,9 @@ EOF
   # Persist per-candidate cost + timing so the run-summary aggregator picks
   # it up. We write to a sibling cost.json (not metadata.json) so we don't
   # clobber anything the skill writes.
-  brev ls --json 2>/dev/null \
-    | jq '[.[] | select(.name | startswith("verify-stale-")) | {name, status, instance_type}]' \
-    > "$RUN_DIR/$issue/brev-post.json" 2>/dev/null || echo "[]" > "$RUN_DIR/$issue/brev-post.json"
+  brev ls 2>/dev/null | grep '^verify-stale-' \
+    > "$RUN_DIR/$issue/brev-post.txt" 2>/dev/null \
+    || : > "$RUN_DIR/$issue/brev-post.txt"
 
   jq -n \
     --argjson sec "$wallclock_sec" \
@@ -331,9 +335,9 @@ done
 
 info "Phase 7 — straggler sweep"
 
-stragglers=$(brev ls --json 2>/dev/null \
-  | jq -r '.[] | select(.name | startswith("verify-stale-")) | .name' \
-  || true)
+# `brev ls --json` is not a real flag; the documented piped output is one
+# instance name per line. Filter for the skill's verify-stale- prefix.
+stragglers=$(brev ls 2>/dev/null | grep '^verify-stale-' || true)
 
 if [ -n "$stragglers" ]; then
   warn "  found stragglers:"
