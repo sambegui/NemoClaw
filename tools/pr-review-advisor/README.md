@@ -5,15 +5,18 @@
 
 The PR Review Advisor is an SDK-powered, NemoClaw-specific pull request reviewer. It runs as a
 trusted GitHub Actions job, inspects PRs as read-only data, and posts a sticky advisory comment with
-blockers, warnings, suggestions, acceptance coverage, security notes, and test-depth guidance.
+blockers, warnings, suggestions, acceptance coverage, security notes, and code-review follow-up guidance.
 
-It complements CodeRabbit and the E2E Advisor by encoding NemoClaw maintainer review policy:
+It complements the existing PR surfaces by keeping a NemoClaw maintainer code-review lens focused on the patch itself:
 
 - sandbox and workflow security review;
 - acceptance-clause coverage against linked issues;
-- E2E Advisor recommendation verification;
+- previous PR Review Advisor follow-up for code findings;
 - codebase drift, monolith growth, and architecture guardrails;
+- source-of-truth review for fallback, recovery, tolerant parsing, monkeypatching, and other localized workaround behavior;
 - correctness and test-quality checks that CI cannot prove.
+
+It intentionally does not report GitHub mergeability, branch protection, CI status, reviewer state, CodeRabbit state, or E2E pass/fail status; those are handled elsewhere in the PR UI.
 
 ## Workflow
 
@@ -23,9 +26,13 @@ It complements CodeRabbit and the E2E Advisor by encoding NemoClaw maintainer re
 2. Checks out advisor implementation code from trusted `main` into `advisor/`.
 3. Checks out PR content into `pr-workdir/` as inert read-only analysis data.
 4. Installs a pinned Pi SDK package with lifecycle scripts disabled.
-5. Runs `tools/pr-review-advisor/analyze.mts` from the trusted checkout.
-6. Writes artifacts under `artifacts/pr-review-advisor/`.
-7. Posts or updates a sticky PR comment marked by `<!-- nemoclaw-pr-review-advisor -->`.
+5. Waits for repository-required status checks, plus the E2E Advisor recommendation, to leave the pending/in-progress state.
+6. Runs `tools/pr-review-advisor/analyze.mts` from the trusted checkout.
+7. Writes artifacts under `artifacts/pr-review-advisor/`.
+8. Posts or updates a sticky PR comment marked by `<!-- nemoclaw-pr-review-advisor -->`.
+
+The workflow is advisory and must not be configured as a required status check. Making it required can
+create circular wait behavior and defeats the goal of letting it observe settled required-check state.
 
 ## Safety model
 
@@ -36,15 +43,17 @@ It complements CodeRabbit and the E2E Advisor by encoding NemoClaw maintainer re
 - Generated advisor credential config is written under `/tmp`, not uploaded artifacts.
 - The job is limited to upstream `NVIDIA/NemoClaw` PRs when model secrets are in scope.
 - The workflow posts advisory comments only; it does not approve, request changes, merge, push, label, or dispatch E2E.
+- Before model analysis, the workflow deterministically waits for required status checks from repository rulesets. If rulesets cannot be read, it falls back to the configured `PR_REVIEW_ADVISOR_REQUIRED_CHECK_FALLBACK_CONTEXTS` list.
 
 ## Required secret
 
 Configure this repository secret for review analysis:
 
-- `PI_PR_REVIEW_ADVISOR_API_KEY`
+- `PR_REVIEW_ADVISOR_API_KEY`
 
-The analyzer uses the fixed `openai/openai/gpt-5.5` advisor model and also accepts
-`OPENAI_API_KEY` for local runs.
+The workflow also accepts the legacy `PI_PR_REVIEW_ADVISOR_API_KEY` secret as a
+fallback. The analyzer uses the fixed `openai/openai/gpt-5.5` advisor model and
+also accepts `OPENAI_API_KEY` for local runs.
 
 If advisor credentials are unavailable, the advisor writes a low-confidence unavailable result
 instead of failing closed without artifacts.
@@ -63,6 +72,7 @@ If present, this token is used for sticky PR comments. Otherwise the workflow fa
 - `pr-review-advisor-result.json` — parsed advisor response or execution metadata.
 - `pr-review-advisor-final-result.json` — normalized result used for comments.
 - `pr-review-advisor-summary.md` — markdown summary used in the job summary/comment.
+- `pr-review-advisor-detailed-review.md` — expanded acceptance, security, and source-of-truth review details.
 - `pr-review-advisor-session.html` — exported advisor session transcript.
 
 ## Manual run
@@ -76,7 +86,7 @@ node --experimental-strip-types tools/pr-review-advisor/analyze.mts \
 ```
 
 Set `PR_REVIEW_ADVISOR_API_KEY` or `OPENAI_API_KEY` locally, or configure the repository
-`PI_PR_REVIEW_ADVISOR_API_KEY` secret. Run `npm install` first so the Pi SDK dependency is
+`PR_REVIEW_ADVISOR_API_KEY` secret. Run `npm install` first so the Pi SDK dependency is
 available.
 
 ## Output contract
