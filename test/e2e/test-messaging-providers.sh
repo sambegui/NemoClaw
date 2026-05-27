@@ -1033,7 +1033,8 @@ node /tmp/nemoclaw-telegram-diagnostics-e2e.js startup-401 2>&1
 ")
 
     if echo "$telegram_diag_output" | grep -q 'E2E_FAIL_'; then
-      fail "M7c: Telegram diagnostics E2E probe failed (${telegram_diag_output:0:500})"
+      diag_fail_codes=$(printf '%s\n' "$telegram_diag_output" | grep -o 'E2E_FAIL_[A-Z0-9_]*' | sort -u | tr '\n' ' ')
+      fail "M7c: Telegram diagnostics E2E probe failed (${diag_fail_codes:-E2E_FAIL})"
     elif echo "$telegram_diag_output" | grep -q 'E2E_SKIP_NO_TELEGRAM_BOTTOKEN'; then
       skip "M7c: Telegram diagnostics skipped because openclaw.json has no botToken"
       skip "M7d: Telegram diagnostics skipped because openclaw.json has no botToken"
@@ -1043,23 +1044,23 @@ node /tmp/nemoclaw-telegram-diagnostics-e2e.js startup-401 2>&1
       if echo "$telegram_diag_output" | grep -qF '[telegram] [default] credential placeholder configured but TELEGRAM_BOT_TOKEN is missing from runtime env'; then
         pass "M7c: Telegram diagnostics report missing runtime placeholder env"
       else
-        fail "M7c: Telegram diagnostics missing-env breadcrumb absent (${telegram_diag_output:0:500})"
+        fail "M7c: Telegram diagnostics missing-env breadcrumb absent"
       fi
 
       if echo "$telegram_diag_output" | grep -qF '[telegram] [default] credential placeholder mismatch: openclaw.json botToken does not match runtime TELEGRAM_BOT_TOKEN placeholder'; then
         pass "M7d: Telegram diagnostics report scoped placeholder mismatch"
       else
-        fail "M7d: Telegram diagnostics placeholder-mismatch breadcrumb absent (${telegram_diag_output:0:500})"
+        fail "M7d: Telegram diagnostics placeholder-mismatch breadcrumb absent"
       fi
 
       if echo "$telegram_diag_output" | grep -qF '[telegram] [default] Bot API rejected startup probe with HTTP 401; token invalid or credential placeholder unresolved'; then
         pass "M7e: Telegram diagnostics report sanitized startup probe rejection"
       else
-        fail "M7e: Telegram diagnostics startup-probe breadcrumb absent (${telegram_diag_output:0:500})"
+        fail "M7e: Telegram diagnostics startup-probe breadcrumb absent"
       fi
 
       if echo "$telegram_diag_output" | grep -qE 'telegram-diagnostics-invalid-e2e|openshell:resolve:env:'; then
-        fail "M7f: Telegram diagnostics leaked raw token or credential placeholder (${telegram_diag_output:0:500})"
+        fail "M7f: Telegram diagnostics leaked raw token or credential placeholder"
       else
         pass "M7f: Telegram diagnostics breadcrumbs are sanitized"
       fi
