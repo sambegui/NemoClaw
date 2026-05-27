@@ -518,7 +518,7 @@ Add or verify manifests for:
 - Pairing parity cannot be satisfied if allowlist is preconfigured and pairing path is bypassed.
 - WebSocket credential rewrite must be observed through fake gateway capture.
 
-## Phase 8: Credentials, Security Policy, and Shields Parity
+## Phase 8: Credentials, Security Policy, and Shields Parity [COMPLETED: b584ffacf]
 
 ### Audit sections covered
 
@@ -564,7 +564,7 @@ Add or verify manifests for:
 - Network policy parity is not mapped by a single policy-present check.
 - Shields parity is not mapped by status/config consistency alone; up/down/audit/auto-restore behavior must be asserted.
 
-## Phase 9: Sandbox Lifecycle, State, Backup, Snapshot, and Skill Parity
+## Phase 9: Sandbox Lifecycle, State, Backup, Snapshot, and Skill Parity [COMPLETED: b584ffacf]
 
 ### Audit sections covered
 
@@ -614,7 +614,7 @@ Add or verify manifests for:
 - State backup parity requires destroy/recreate/restore, not only backup capture.
 - Sandbox operations parity requires multi-sandbox isolation and recovery assertions.
 
-## Phase 10: Rebuild, Upgrade, Installer Version, and Runtime Edge Parity
+## Phase 10: Rebuild, Upgrade, Installer Version, and Runtime Edge Parity [COMPLETED: b584ffacf]
 
 ### Audit sections covered
 
@@ -667,7 +667,7 @@ Add or verify manifests for:
 - Policy preservation must be asserted in registry, live gateway, and backup manifest where legacy did so.
 - Installer-only parity remains setup/hermetic and is not forced into a product instance manifest.
 
-## Phase 11: Gateway, Dashboard, Device Auth, Crash Loop, Tunnel, and Remote Service Parity
+## Phase 11: Gateway, Dashboard, Device Auth, Crash Loop, Tunnel, and Remote Service Parity [COMPLETED: b584ffacf]
 
 ### Audit sections covered
 
@@ -718,7 +718,7 @@ Add or verify manifests for:
 - Tunnel parity must distinguish NemoClaw faults from Cloudflare transient skips.
 - Crash-loop parity requires repeated kill/recovery and guard-chain checks, not a single recovery probe.
 
-## Phase 12: Clean the House
+## Phase 12: Clean the House [COMPLETED: b584ffacf]
 
 ### Cleanup tasks
 
