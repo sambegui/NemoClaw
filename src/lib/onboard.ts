@@ -3753,6 +3753,12 @@ async function createSandbox(
   if (sandboxProxyPort && isValidProxyPort(sandboxProxyPort)) {
     envArgs.push(formatEnvAssignment("NEMOCLAW_PROXY_PORT", sandboxProxyPort));
   }
+  if (process.env.NEMOCLAW_ALLOW_RESIDUAL_CAPS === "1") {
+    // Runtime-only operator acknowledgement for hosts that cannot grant
+    // CAP_SETPCAP (for example Brev shadecloud). Do not bake this into image
+    // layers; pass it only to the sandbox entrypoint invocation.
+    envArgs.push(formatEnvAssignment("NEMOCLAW_ALLOW_RESIDUAL_CAPS", "1"));
+  }
   if (hermesToolBrokerToken) {
     // Runtime-only: do not bake the per-sandbox broker token into image layers.
     envArgs.push(formatEnvAssignment("TOOL_GATEWAY_USER_TOKEN", hermesToolBrokerToken));

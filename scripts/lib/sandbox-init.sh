@@ -235,7 +235,10 @@ drop_capabilities() {
         --drop=cap_sys_admin,cap_sys_ptrace,cap_net_raw,cap_dac_override,cap_sys_chroot,cap_fsetid,cap_setfcap,cap_mknod,cap_audit_write,cap_net_bind_service \
         -- -c "exec $entrypoint \"\$@\"" -- "$@"
     else
-      report_residual_capabilities
+      # report_residual_capabilities intentionally returns non-zero when
+      # dangerous caps remain. Handle that status explicitly so `set -e`
+      # cannot skip the refusal banner or the opt-in escape hatch.
+      report_residual_capabilities || true
       enforce_residual_capability_policy "CAP_SETPCAP unavailable"
     fi
   elif [ "${NEMOCLAW_CAPS_DROPPED:-}" != "1" ]; then

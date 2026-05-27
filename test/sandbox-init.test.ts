@@ -97,6 +97,33 @@ function pathExists(filePath: string): boolean {
   }
 }
 
+function makeCapSetpcapUnavailableStubs(): string {
+  const stubDir = mkdtempSync(join(tmpdir(), "sandbox-init-capsh-"));
+  writeFileSync(
+    join(stubDir, "capsh"),
+    [
+      "#!/bin/sh",
+      'if [ "${1:-}" = "--has-p=cap_setpcap" ]; then',
+      "  exit 1",
+      "fi",
+      "exit 99",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    join(stubDir, "awk"),
+    [
+      "#!/bin/sh",
+      "# cap_sys_admin (bit 21) + cap_dac_override (bit 1)",
+      "printf '%s\\n' '0000000000200002'",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return stubDir;
+}
+
 function backupTmpArtifacts(paths: string[], backupDir: string): Record<string, string> {
   const backups: Record<string, string> = {};
 
@@ -418,6 +445,62 @@ EOF
       expect(stdout).toContain("capsh not available");
       expect(stdout).toContain("NEMOCLAW_ALLOW_RESIDUAL_CAPS=1 set");
       expect(stdout).toContain("CONTINUED_OK");
+    });
+
+    it("prints the refusal banner when CAP_SETPCAP is unavailable and dangerous caps remain (#4264)", () => {
+      const stubDir = makeCapSetpcapUnavailableStubs();
+      try {
+        const { stdout, stderr } = runWithLib(
+          `
+          drop_capabilities /usr/local/bin/fake-entrypoint
+          echo "SHOULD_NOT_REACH"
+        `,
+          {
+            env: {
+              PATH: `${stubDir}:${process.env.PATH ?? ""}`,
+              NEMOCLAW_CAPS_DROPPED: "",
+              NEMOCLAW_ALLOW_RESIDUAL_CAPS: "",
+            },
+            expectFail: true,
+          },
+        );
+        const combined = `${stdout}\n${stderr}`;
+        expect(combined).toContain("CAP_SETPCAP unavailable");
+        expect(combined).toContain("Residual CapBnd=0000000000200002");
+        expect(combined).toContain(
+          "Dangerous caps remain in bounding set: cap_sys_admin,cap_dac_override",
+        );
+        expect(combined).toContain("Refusing to start sandbox");
+        expect(combined).toContain("NEMOCLAW_ALLOW_RESIDUAL_CAPS=1");
+        expect(combined).not.toContain("SHOULD_NOT_REACH");
+      } finally {
+        rmSync(stubDir, { recursive: true, force: true });
+      }
+    });
+
+    it("honors residual-cap opt-in after CAP_SETPCAP diagnostics under set -e (#4264)", () => {
+      const stubDir = makeCapSetpcapUnavailableStubs();
+      try {
+        const { stdout } = runWithLib(
+          `
+          drop_capabilities /usr/local/bin/fake-entrypoint 2>&1
+          echo "CONTINUED_CAP_SETPCAP_OPT_IN"
+        `,
+          {
+            env: {
+              PATH: `${stubDir}:${process.env.PATH ?? ""}`,
+              NEMOCLAW_CAPS_DROPPED: "",
+              NEMOCLAW_ALLOW_RESIDUAL_CAPS: "1",
+            },
+          },
+        );
+        expect(stdout).toContain("CAP_SETPCAP not available");
+        expect(stdout).toContain("Dangerous caps remain in bounding set");
+        expect(stdout).toContain("NEMOCLAW_ALLOW_RESIDUAL_CAPS=1 set");
+        expect(stdout).toContain("CONTINUED_CAP_SETPCAP_OPT_IN");
+      } finally {
+        rmSync(stubDir, { recursive: true, force: true });
+      }
     });
 
     it("skips when NEMOCLAW_CAPS_DROPPED=1", () => {
