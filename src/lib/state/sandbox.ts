@@ -1010,13 +1010,14 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
       // First, check which declared state dirs actually exist in the sandbox,
       // then additionally discover per-agent `workspace-*` directories produced
       // by multi-agent OpenClaw deployments (see issue #1260) so they get
-      // snapshotted alongside the manifest-declared dirs. `awk '!seen[$0]++'`
-      // dedupes while preserving order.
+      // snapshotted alongside the manifest-declared dirs. The dynamic
+      // workspace probe is optional; no matches must not make the whole dir
+      // check fail.
       const existCheckCmd = stateDirs
         .map((d) => `[ -d ${shellQuote(`${dir}/${d}`)} ] && printf '%s\\n' ${shellQuote(d)}`)
         .join("; ");
-      const workspaceGlobCmd = `for d in ${shellQuote(dir)}/workspace-*/; do [ -d "$d" ] && basename "$d"; done 2>/dev/null`;
-      const fullCheckCmd = `{ ${existCheckCmd}; ${workspaceGlobCmd}; } 2>/dev/null | awk '!seen[$0]++'`;
+      const workspaceGlobCmd = `for d in ${shellQuote(dir)}/workspace-*/; do [ -d "$d" ] || continue; name="\${d%/}"; printf '%s\\n' "\${name##*/}"; done`;
+      const fullCheckCmd = `{ ${existCheckCmd}; ${workspaceGlobCmd}; } 2>/dev/null || true`;
       _log(`Checking existing dirs via gRPC exec: ${fullCheckCmd.substring(0, 100)}...`);
       let existResult: ReturnType<typeof execTextSync>;
       try {
@@ -1041,10 +1042,16 @@ export function backupSandboxState(sandboxName: string, options: BackupOptions =
       _log(
         `Dir check: exit=${existResult.status}, stdout=${(existResult.stdout || "").trim().substring(0, 200)}, stderr=${(existResult.stderr || "").trim().substring(0, 200)}`,
       );
+      const seenExistingDirs = new Set<string>();
       const existingDirs = (existResult.stdout || "")
         .trim()
         .split("\n")
-        .filter((d) => d.length > 0);
+        .map((d) => d.trim())
+        .filter((d) => {
+          if (d.length === 0 || seenExistingDirs.has(d)) return false;
+          seenExistingDirs.add(d);
+          return true;
+        });
       _log(
         `Existing dirs in sandbox: [${existingDirs.join(",")}] (${existingDirs.length}/${stateDirs.length})`,
       );
