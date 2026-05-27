@@ -16,6 +16,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { DASHBOARD_PORT } from "../core/ports";
+import {
+  isWslDockerDesktopRuntime,
+  wslDockerDesktopGpuCompatibilityAction,
+} from "./wsl-docker-desktop-gpu";
+export { isWslDockerDesktopRuntime } from "./wsl-docker-desktop-gpu";
 
 // runner.ts still uses CommonJS-style exports — use require here.
 const { runCapture } = require("../runner");
@@ -809,7 +814,9 @@ export function planHostRemediation(assessment: HostAssessment): RemediationActi
       "nvidia-ctk cdi list   # verify nvidia.com/gpu entries appear",
       "nemoclaw onboard      # or rerun with --no-gpu to skip GPU passthrough",
     ];
-    if (assessment.nvidiaContainerToolkitInstalled) {
+    if (isWslDockerDesktopRuntime(assessment)) {
+      actions.push(wslDockerDesktopGpuCompatibilityAction());
+    } else if (assessment.nvidiaContainerToolkitInstalled) {
       actions.push({
         id: "generate_nvidia_cdi_spec",
         title: "Generate NVIDIA CDI device specs",
