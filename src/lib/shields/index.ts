@@ -16,6 +16,10 @@ const { fork } = require("child_process");
 const { randomBytes } = require("crypto");
 const { run, runCapture, validateName } = require("../runner");
 const { dockerExecFileSync } = require("../adapters/docker/exec");
+const { dockerCapture } = require("../adapters/docker/run");
+const registry = require("../state/registry") as {
+  getSandbox?: (name: string) => { openshellDriver?: string | null } | null;
+};
 const {
   buildPolicyGetCommand,
   buildPolicySetCommand,
@@ -39,9 +43,6 @@ const { resolveNemoclawStateDir } = require("../state/paths");
 const { appendAuditEntry } = require("./audit");
 const { resolveAgentConfig } = require("../sandbox/config");
 const {
-  privilegedSandboxExecArgv,
-}: typeof import("../sandbox/privileged-exec") = require("../sandbox/privileged-exec");
-const {
   buildRuntimePermissivePolicy,
 }: typeof import("./permissive-runtime") = require("./permissive-runtime");
 const { cleanupTempDir } = require("../onboard/temp-files");
@@ -52,15 +53,68 @@ const {
 const STATE_DIR = resolveNemoclawStateDir();
 
 // ---------------------------------------------------------------------------
-// privileged sandbox exec — bypasses the sandbox's Landlock context.
+// privileged sandbox exec — bypasses the sandbox's Landlock context
 //
-// `openshell sandbox exec` runs commands inside the Landlock domain, so it
-// cannot modify read-only paths or change chattr flags. Privileged Docker
-// exec starts a new root process that does NOT inherit the Landlock ruleset.
-// Container resolution + registry-scoped owner matching live in
-// `../sandbox/privileged-exec`; this file just adds the dockerExecFileSync
-// invocation wrapper used by the lock/unlock helpers below.
+// openshell sandbox exec runs commands INSIDE the Landlock domain, so it
+// can't modify read_only paths or change chattr flags. kubectl exec starts
+// a new process in the pod that does NOT inherit the Landlock ruleset.
+// On the legacy gateway we reach kubectl via the K3s container. On the
+// Docker-driver gateway there is no K3s container, so we exec into the
+// sandbox Docker container directly as root.
 // ---------------------------------------------------------------------------
+
+const K3S_CONTAINER = "openshell-cluster-nemoclaw";
+
+function resolveDockerDriverSandboxContainer(
+  sandboxName: string,
+): string | null {
+  try {
+    if (registry.getSandbox?.(sandboxName)?.openshellDriver !== "docker") {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  const prefix = `openshell-${sandboxName}-`;
+  const exact = `openshell-${sandboxName}`;
+  const output = dockerCapture(["ps", "--format", "{{.Names}}"], {
+    ignoreError: true,
+  });
+  return (
+    output
+      .split("\n")
+      .map((line: string) => line.trim())
+      .find((name: string) => name === exact || name.startsWith(prefix)) || null
+  );
+}
+
+function kubectlExecArgv(sandboxName: string, cmd: string[]): string[] {
+  return [
+    "exec",
+    K3S_CONTAINER,
+    "kubectl",
+    "exec",
+    "-n",
+    "openshell",
+    sandboxName,
+    "-c",
+    "agent",
+    "--",
+    ...cmd,
+  ];
+}
+
+function privilegedSandboxExecArgv(
+  sandboxName: string,
+  cmd: string[],
+): string[] {
+  const dockerDriverContainer =
+    resolveDockerDriverSandboxContainer(sandboxName);
+  if (dockerDriverContainer) {
+    return ["exec", "--user", "root", dockerDriverContainer, ...cmd];
+  }
+  return kubectlExecArgv(sandboxName, cmd);
+}
 
 function privilegedSandboxExec(sandboxName: string, cmd: string[]): void {
   dockerExecFileSync(privilegedSandboxExecArgv(sandboxName, cmd), {
@@ -105,11 +159,6 @@ interface ShieldsState {
   shieldsDownReason?: string | null;
   shieldsDownPolicy?: string | null;
   shieldsPolicySnapshotPath?: string | null;
-  // Recorded by the last successful lock to indicate whether `chattr +i`
-  // took effect against the locked files. Best-effort because privileged
-  // exec may lack CAP_LINUX_IMMUTABLE on some runtimes, so status callers
-  // only verify the immutable bit when this flag is true.
-  shieldsChattrApplied?: boolean;
   updatedAt?: string;
 }
 
@@ -296,7 +345,6 @@ function isShieldsState(value: unknown): value is ShieldsState {
     isOptionalNullableString(value.shieldsDownReason) &&
     isOptionalNullableString(value.shieldsDownPolicy) &&
     isOptionalNullableString(value.shieldsPolicySnapshotPath) &&
-    isOptionalBoolean(value.shieldsChattrApplied) &&
     isOptionalString(value.updatedAt)
   );
 }
@@ -455,9 +503,8 @@ function assertNoLegacyStateLayout(
 // user and the gateway UID can write the mutable config tree. Hermes keeps its
 // tighter single-user layout.
 //
-// Note on chattr: best-effort — it may silently fail if the privileged
-// sandbox exec channel lacks CAP_LINUX_IMMUTABLE or if the file was never
-// immutable. That's fine:
+// Note on chattr: best-effort — it may silently fail if kubectl exec
+// lacks CAP_LINUX_IMMUTABLE or if the file was never immutable. That's fine:
 // the file becomes writable through the permissive policy (disables Landlock
 // read_only) + chown/chmod below.
 // ---------------------------------------------------------------------------
@@ -590,17 +637,15 @@ function unlockAgentConfig(
 //   2. UNIX permissions — 444 root:root (mandatory, verified here)
 //   3. chattr +i immutable bit — defense-in-depth (best-effort)
 //
-// Layer 3 is best-effort because the privileged sandbox exec channel may
-// lack CAP_LINUX_IMMUTABLE on some runtimes. Layers 1+2 are sufficient.
-// We still attempt layer 3 in case the runtime environment supports it,
-// and report back whether `chattr +i` actually took effect so callers can
-// persist that signal and verify the immutable bit at status time.
+// Layer 3 is best-effort because kubectl exec may lack
+// CAP_LINUX_IMMUTABLE. Layers 1+2 are sufficient. We still attempt it
+// in case the runtime environment supports it.
 // ---------------------------------------------------------------------------
 
 function lockAgentConfig(
   sandboxName: string,
   target: AgentConfigTarget,
-): { chattrApplied: boolean } {
+): void {
   const errors: string[] = [];
   const filesToLock = [target.configPath, ...(target.sensitiveFiles || [])];
 
@@ -633,9 +678,8 @@ function lockAgentConfig(
     errors.push("chown root:root config dir");
   }
 
-  // Best-effort: the privileged sandbox exec channel may lack
-  // CAP_LINUX_IMMUTABLE. Track the result so verification doesn't require
-  // something that was never there, and so callers can persist the outcome.
+  // Best-effort: kubectl exec may lack CAP_LINUX_IMMUTABLE. Track the
+  // result so verification doesn't require something that was never there.
   let chattrSucceeded = true;
   for (const f of filesToLock) {
     try {
@@ -680,8 +724,6 @@ function lockAgentConfig(
   if (issues.length > 0) {
     throw new Error(`Config not locked: ${issues.join(", ")}`);
   }
-
-  return { chattrApplied: chattrSucceeded };
 }
 
 function rollbackShieldsDown(
@@ -694,11 +736,9 @@ function rollbackShieldsDown(
     ignoreError: true,
   });
   let rollbackLocked = false;
-  let rollbackChattrApplied = false;
   if (rollbackResult.status === 0) {
     try {
-      const { chattrApplied } = lockAgentConfig(sandboxName, target);
-      rollbackChattrApplied = chattrApplied;
+      lockAgentConfig(sandboxName, target);
       rollbackLocked = true;
     } catch {
       console.error(
@@ -715,13 +755,12 @@ function rollbackShieldsDown(
       shieldsDownTimeout: null,
       shieldsDownReason: null,
       shieldsDownPolicy: null,
-      shieldsChattrApplied: rollbackChattrApplied,
     });
     console.error("  Lockdown restored. Config was never left unguarded.");
   } else {
     console.error("  Config remains unlocked — manual intervention required.");
     console.error(
-      `  Re-lock manually via privileged sandbox exec, then run: nemoclaw ${sandboxName} shields up`,
+      `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
     );
   }
 }
@@ -729,7 +768,6 @@ function rollbackShieldsDown(
 interface LockdownActivationResult {
   ok: boolean;
   error?: string;
-  chattrApplied?: boolean;
 }
 
 function activateLockdownFromSnapshot(
@@ -754,12 +792,13 @@ function activateLockdownFromSnapshot(
 
   const target = resolveAgentConfig(sandboxName);
   try {
-    const { chattrApplied } = lockAgentConfig(sandboxName, target);
-    return { ok: true, chattrApplied };
+    lockAgentConfig(sandboxName, target);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, error: message };
   }
+
+  return { ok: true };
 }
 
 function recoverExpiredAutoRestoreInline(
@@ -984,7 +1023,7 @@ function shieldsDown(sandboxName: string, opts: ShieldsDownOpts = {}): void {
 
   // 4. Start auto-restore timer (detached child process), unless skipped.
   //    Pass the absolute restore time, not a relative timeout. Steps 1-2b
-  //    can take minutes (policy apply + privileged chmod), so a relative timeout
+  //    can take minutes (policy apply + kubectl chmod), so a relative timeout
   //    passed at fork time would fire too early.
   if (!opts.skipTimer) {
     const restoreAt = new Date(Date.now() + timeoutSeconds * 1000);
@@ -1082,56 +1121,8 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
   // shieldsDown === false means explicitly locked by a previous shields-up.
   // undefined (no state file) means fresh sandbox — mutable default, allow shields-up.
   if (state.shieldsDown === false) {
-    // Re-verify the sandbox filesystem matches the declared locked posture.
-    // If a host-root tamper has drifted the protected perms, fall through to
-    // re-apply the lock instead of bailing — `shields status` directs the
-    // operator here for exactly this remediation path.
-    const target = resolveAgentConfig(sandboxName);
-    const verification = verifyShieldsLockState(sandboxName, target, {
-      verifyChattr: state.shieldsChattrApplied === true,
-      exec: (cmd: string[]) => privilegedSandboxExecCapture(sandboxName, cmd),
-      assertLegacyLayout: assertNoLegacyStateLayout,
-    });
-    if (verification.ok) {
-      clearTimerMarker(sandboxName);
-      console.log("  Lockdown is already active.");
-      return;
-    }
-
-    console.log(
-      "  Lockdown was declared but the sandbox filesystem drifted; re-locking...",
-    );
-    for (const issue of verification.issues) {
-      console.log(`    - ${issue}`);
-    }
-    killTimer(sandboxName);
-    let driftChattrApplied = false;
-    try {
-      const { chattrApplied } = lockAgentConfig(sandboxName, target);
-      driftChattrApplied = chattrApplied;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`  ERROR: ${message}`);
-      console.error("  Config remains drifted — manual intervention required.");
-      return failShieldsCommand(message, opts.throwOnError);
-    }
-    saveShieldsState(sandboxName, {
-      shieldsDown: false,
-      shieldsDownAt: null,
-      shieldsDownTimeout: null,
-      shieldsDownReason: null,
-      shieldsDownPolicy: null,
-      shieldsChattrApplied: driftChattrApplied,
-    });
     clearTimerMarker(sandboxName);
-    appendAuditEntry({
-      action: "shields_up",
-      sandbox: sandboxName,
-      timestamp: new Date().toISOString(),
-      restored_by: "operator",
-      reason: "drift remediation",
-    });
-    console.log(`  Lockdown re-applied for ${sandboxName} after drift.`);
+    console.log("  Lockdown is already active.");
     return;
   }
 
@@ -1153,7 +1144,6 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
     );
     return failShieldsCommand("Saved policy snapshot is missing", opts.throwOnError);
   }
-  let firstLockChattrApplied = false;
   if (snapshotPath) {
     console.log("  Restoring restrictive policy from snapshot...");
     const activation = activateLockdownFromSnapshot(sandboxName, snapshotPath);
@@ -1163,14 +1153,13 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
         "  Config remains unlocked — manual intervention required.",
       );
       console.error(
-        `  Re-lock manually via privileged sandbox exec, then run: nemoclaw ${sandboxName} shields up`,
+        `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
       return failShieldsCommand(activation.error ?? "unknown restore error", opts.throwOnError);
     }
-    firstLockChattrApplied = activation.chattrApplied === true;
   } else {
     // 2b. Lock config file to read-only.
-    //     Uses privileged sandbox exec to bypass Landlock (same as shields down).
+    //     Uses kubectl exec to bypass Landlock (same as shields down).
     //     Each operation runs independently and the result is verified.
     //     If verification fails, config remains unlocked — we do not lie about state.
     const target = resolveAgentConfig(sandboxName);
@@ -1178,8 +1167,7 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
       `  Locking ${target.agentName} config (${target.configPath})...`,
     );
     try {
-      const { chattrApplied } = lockAgentConfig(sandboxName, target);
-      firstLockChattrApplied = chattrApplied;
+      lockAgentConfig(sandboxName, target);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`  ERROR: ${message}`);
@@ -1187,7 +1175,7 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
         "  Config remains unlocked — manual intervention required.",
       );
       console.error(
-        `  Re-lock manually via privileged sandbox exec, then run: nemoclaw ${sandboxName} shields up`,
+        `  Re-lock manually via kubectl exec, then run: nemoclaw ${sandboxName} shields up`,
       );
       return failShieldsCommand(message, opts.throwOnError);
     }
@@ -1207,7 +1195,6 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
     shieldsDownTimeout: null,
     shieldsDownReason: null,
     shieldsDownPolicy: null,
-    shieldsChattrApplied: firstLockChattrApplied,
     // Keep snapshotPath for forensics — don't clear it
   });
   clearTimerMarker(sandboxName);
@@ -1277,17 +1264,10 @@ function shieldsStatus(
       // Cross-check the sandbox filesystem so a host-root tamper that reverts
       // protected perms back to a sandbox-writable state is surfaced as drift
       // instead of reported as a clean lockdown.
-      //
-      // The immutable bit is only verified when shields state recorded that
-      // `chattr +i` actually took effect at lock time. The privileged exec
-      // channel may lack CAP_LINUX_IMMUTABLE on some runtimes, so without
-      // that signal a missing `i` flag cannot be distinguished from "never
-      // set in the first place" and would surface as a false-positive drift.
       let driftIssues: string[] = [];
       try {
         const target = resolveConfig(sandboxName);
         driftIssues = verify(sandboxName, target, {
-          verifyChattr: state.shieldsChattrApplied === true,
           exec: (cmd: string[]) => privilegedSandboxExecCapture(sandboxName, cmd),
           assertLegacyLayout: assertNoLegacyStateLayout,
         }).issues;
