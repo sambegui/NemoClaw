@@ -117,6 +117,31 @@ function waitForPidExit(pid: number, timeoutMs = 2_000): boolean {
   return !isPidAlive(pid);
 }
 
+function canBindForwardPort(bind: string, port: number): boolean {
+  const host = bind === "0.0.0.0" || bind === "::" ? "127.0.0.1" : bind;
+  const script =
+    "const net=require('node:net');" +
+    "const srv=net.createServer();" +
+    "let done=false;" +
+    "const finish=(code)=>{if(done)return;done=true;process.exit(code);};" +
+    "srv.once('error',()=>finish(1));" +
+    `srv.listen(${port}, ${JSON.stringify(host)}, () => srv.close(() => finish(0)));`;
+  const result = spawnSync(process.execPath, ["-e", script], {
+    stdio: "ignore",
+    timeout: 1_500,
+  });
+  return result.status === 0;
+}
+
+function waitForPortRelease(bind: string, port: number, timeoutMs = 5_000): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (canBindForwardPort(bind, port)) return true;
+    sleepMs(100);
+  }
+  return canBindForwardPort(bind, port);
+}
+
 export function stopForwardBridge(sandboxName: string, port: number | string): boolean {
   const state = readStateFile(statePath(sandboxName, port));
   if (state && isPidAlive(state.pid) && !isTestForwardPid(state.pid)) {
@@ -133,6 +158,7 @@ export function stopForwardBridge(sandboxName: string, port: number | string): b
       }
       waitForPidExit(state.pid, 1_000);
     }
+    waitForPortRelease(state.bind, state.port);
   }
   removeForwardState(sandboxName, port);
   return Boolean(state);
@@ -282,6 +308,8 @@ export function startForwardBridgeDetached(
 }
 
 export const __forwardBridgeTestHooks = {
+  canBindForwardPort,
   probeForwardReady,
+  waitForPortRelease,
   waitForPidExit,
 };

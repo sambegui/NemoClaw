@@ -59,6 +59,9 @@ const {
 }: typeof import("./onboard/web-search-support") = require("./onboard/web-search-support");
 const onboardDashboard: typeof import("./onboard/dashboard") = require("./onboard/dashboard");
 const {
+  forwardStatesAsListOutput,
+}: typeof import("./adapters/openshell/forward-bridge-state") = require("./adapters/openshell/forward-bridge-state");
+const {
   buildGatewayBootstrapSecretsScript,
   createGatewayBootstrapRepairHelpers,
   getGatewayBootstrapRepairPlan,
@@ -2797,7 +2800,7 @@ async function createSandbox(
   }
   const preferredPort =
     controlUiPort ?? envPort ?? persistedPort ?? (agent ? agent.forwardPort : DASHBOARD_PORT);
-  const earlyForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
+  const earlyForwards = forwardStatesAsListOutput();
   const effectivePort = findAvailableDashboardPort(sandboxName, preferredPort, earlyForwards);
   if (effectivePort !== preferredPort) {
     console.warn(`  ! Port ${preferredPort} is taken. Using port ${effectivePort} instead.`);
