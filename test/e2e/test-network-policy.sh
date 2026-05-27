@@ -685,7 +685,7 @@ PYPORT
 
   log "  Allowing node/openclaw access to host.openshell.internal:${port}..."
   local host_gateway_policy
-  host_gateway_policy="$(mktemp)"
+  host_gateway_policy="$(mktemp "${TMPDIR:-/tmp}/nemoclaw-host-gateway-policy.XXXXXX.yaml")"
   cat >"$host_gateway_policy" <<EOF_POLICY
 preset:
   name: e2e-host-gateway-web-fetch

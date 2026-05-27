@@ -951,7 +951,7 @@ function installFakeTelegramHttp(statusCode) {
   function makeFakeRequest(callback) {
     const req = new EventEmitter();
     req.end = () => {
-      process.nextTick(() => {
+      setImmediate(() => {
         const res = new EventEmitter();
         res.statusCode = statusCode;
         if (typeof callback === 'function') callback(res);
@@ -974,7 +974,8 @@ function installFakeTelegramHttp(statusCode) {
       return makeFakeRequest(callback);
     };
     mod.get = function get(...args) {
-      const req = mod.request(...args);
+      const callback = args.find((arg) => typeof arg === 'function');
+      const req = makeFakeRequest(callback);
       req.end();
       return req;
     };
@@ -1016,7 +1017,7 @@ async function main() {
   require(diagnosticsPath);
 
   if (scenario === 'startup-401') {
-    https.get('https://api.telegram.org/bot' + invalidProbeToken + '/getMe');
+    https.request('https://api.telegram.org/bot' + invalidProbeToken + '/getMe').end();
   }
 
   await new Promise((resolve) => setTimeout(resolve, 50));
