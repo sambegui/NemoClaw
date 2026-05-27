@@ -92,20 +92,27 @@ Rules:
 
 ### Required framework extensions
 
-Extend the existing scenario framework in place under `test/e2e/` before porting large script families:
+Extend the active scenario framework in place under the existing `test/e2e/` layout before porting large script families:
 
 ```text
 test/e2e/
-  manifests/                    # Product-facing NemoClawInstance manifests
-  scenarios/
-    contracts/                  # Scenario contract metadata/types
-    fixtures/                   # Fixture setup/teardown implementations
-    runtime-actions/            # Post-onboard operation primitives
-    assertions/                 # Assertion groups and steps
-    parity/                     # Parity inventory status handling
+  nemoclaw_scenarios/
+    scenarios.yaml              # environment/install/runtime/onboarding dimensions and contract references
+    expected-states.yaml        # reusable expected state contracts
+    fixtures/                   # fixture setup/teardown implementations
+    runtime-actions/            # new post-onboard operation primitives, if a shared helper is needed
+    manifests/                  # optional product-facing NemoClawInstance manifests when durable state needs standalone YAML
+  validation_suites/
+    suites.yaml                 # ordered assertion suites and requires_state predicates
+    assert/                     # reusable assertion helpers with stable PASS/FAIL IDs
+    <domain>/                   # domain-specific assertion steps
+  runtime/
+    resolver/                   # contract schema, validation, plan, coverage, and parity inventory logic
+    reports/                    # deterministic report renderers
+  docs/                         # scenario model, migration, and generated parity inventory docs
 ```
 
-Do not create a parallel `test/e2e-scenario/` tree unless the active framework has already moved there before implementation begins.
+Do not create a parallel `test/e2e-scenario/`, `test/e2e/scenarios/`, or workflow-only parity tree unless the active framework has already moved there before implementation begins.
 
 ### Product manifest shape
 
@@ -729,6 +736,9 @@ These gates apply to every phase:
 4. **Evidence gate:** every assertion emits an evidence path and stable assertion ID.
 5. **Secret gate:** no manifest, log, report, or fixture file contains raw secrets.
 6. **Cleanup gate:** fixtures that mutate host or repo state have restore/cleanup logic and tests.
+7. **Inventory completeness gate:** every in-scope `test/e2e/test-*.sh` row from the audit has a parity inventory entry, contract owner, and status; new or renamed legacy scripts discovered during implementation must be added to the inventory or explicitly retired with rationale.
+8. **Phase completion gate:** a phase is complete only when every script/behavior assigned to that phase is `mapped-live`, `mapped-hermetic`, or `retired`; `partial`, `metadata-only`, and `deferred` rows must keep the phase incomplete and must include an owner or follow-up issue.
+9. **Executable assertion gate:** completed scenarios must point to concrete suite steps/assertion modules, not `pendingStep(...)`, TODO stubs, generic health probes, or validation-plan prose.
 
 ## Traceability Matrix
 

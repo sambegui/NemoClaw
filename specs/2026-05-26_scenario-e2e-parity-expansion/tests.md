@@ -16,6 +16,9 @@ Primary test locations:
 - New `test/e2e/scenario-framework-tests/e2e-parity-contracts.test.ts` for no-cheat parity gates.
 - New `test/e2e/scenario-framework-tests/e2e-fixtures-runtime-actions.test.ts` for fixture/action primitives.
 - New domain tests as needed under `test/e2e/scenario-framework-tests/` for onboarding, inference, messaging, security, lifecycle, upgrade, and gateway parity metadata.
+- Existing scenario framework files remain the integration points: `test/e2e/nemoclaw_scenarios/scenarios.yaml`, `test/e2e/nemoclaw_scenarios/expected-states.yaml`, `test/e2e/validation_suites/suites.yaml`, `test/e2e/validation_suites/assert/`, `test/e2e/runtime/resolver/`, `test/e2e/runtime/reports/`, and `test/e2e/docs/`.
+
+Do not create tests around a parallel `test/e2e/scenarios/` tree unless the active framework has moved there first; tests should fail if contract metadata is split away from the current resolver inputs.
 
 ## Cross-Phase Tests Required Everywhere
 
@@ -43,6 +46,21 @@ Primary test locations:
    - **Input**: Docker daemon, `/etc/hosts`, policy, blueprint, or image mutation fixture without cleanup/restore.
    - **Expected**: validation fails.
    - **Covers**: cleanup gate.
+
+6. `test_should_require_inventory_entry_for_every_in_scope_legacy_script`
+   - **Input**: audit list plus current `test/e2e/test-*.sh` files.
+   - **Expected**: validation fails if a script lacks a parity inventory row, owner, and status.
+   - **Covers**: inventory completeness gate.
+
+7. `test_should_keep_phase_incomplete_until_all_assigned_behaviors_are_mapped_or_retired`
+   - **Input**: phase report with any `partial`, `metadata-only`, or `deferred` behavior.
+   - **Expected**: phase completion is false and the report lists owner/follow-up.
+   - **Covers**: phase completion gate.
+
+8. `test_should_reject_pending_steps_todos_and_generic_health_as_completed_assertions`
+   - **Input**: completed parity entry backed by `pendingStep(...)`, TODO/no-op probe, or generic health-only assertion where domain-specific checks are required.
+   - **Expected**: mapped status is rejected.
+   - **Covers**: executable assertion gate.
 
 ## Phase 1: Parity Contract Foundation - Test Guide
 
