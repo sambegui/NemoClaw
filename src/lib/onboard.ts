@@ -337,6 +337,9 @@ const { createWebSearchFlowHelpers }: typeof import("./onboard/web-search-flow")
 const {
   createValidationRecoveryPromptHelpers,
 }: typeof import("./onboard/validation-recovery-prompt") = require("./onboard/validation-recovery-prompt");
+const {
+  createLocalInferenceRouteApplier,
+}: typeof import("./onboard/local-inference-route") = require("./onboard/local-inference-route");
 const { createOpenshellCliHelpers }: typeof import("./onboard/openshell-cli") = require("./onboard/openshell-cli");
 const sandboxGpuPreflight: typeof import("./onboard/sandbox-gpu-preflight") = require("./onboard/sandbox-gpu-preflight");
 const {
@@ -423,8 +426,12 @@ const {
   preflightDashboardPortRangeAvailability,
 } = require("./onboard/dashboard-port") as typeof import("./onboard/dashboard-port");
 const { destroyGatewayForReuse } = require("./onboard/gateway-cleanup") as typeof import("./onboard/gateway-cleanup");
+const { applyPreflightGatewayCleanup } =
+  require("./onboard/preflight-gateway-cleanup-decision") as typeof import("./onboard/preflight-gateway-cleanup-decision");
 const { verifyGatewayContainerRunning } =
   require("./onboard/gateway-container-running") as typeof import("./onboard/gateway-container-running");
+const { applyHealthyPortReuse } =
+  require("./onboard/gateway-stale-port-reuse") as typeof import("./onboard/gateway-stale-port-reuse");
 const { destroyGatewayWithVolumeCleanup } =
   require("./onboard/gateway-destroy") as typeof import("./onboard/gateway-destroy");
 const {
@@ -733,6 +740,16 @@ const { promptValidationRecovery } = createValidationRecoveryPromptHelpers({
     validateNvidiaApiKeyValue(key, credentialEnv ?? undefined),
   getTransportRecoveryMessage: (failure: any) => getTransportRecoveryMessage(failure),
   exitOnboardFromPrompt,
+});
+
+const applyLocalInferenceRoute = createLocalInferenceRouteApplier({
+  runOpenshell,
+  isNonInteractive,
+  promptValidationRecovery,
+  classifyApplyFailure,
+  compactText,
+  redact,
+  localInferenceTimeoutSecs: LOCAL_INFERENCE_TIMEOUT_SECS,
 });
 
 // Provider CRUD — thin wrappers that inject runOpenshell to avoid circular deps.
@@ -2070,11 +2087,11 @@ async function preflight(
 
   ensureOpenshellForOnboard();
 
-  // Clean up stale or unnamed NemoClaw gateway state before checking ports.
-  // A healthy named gateway can be reused later in onboarding, so avoid
-  // tearing it down here. If some other gateway is active but the named
-  // NemoClaw gateway exists, select it before the port checks so onboarding
-  // reuses the user's NemoClaw gateway instead of reporting a false conflict.
+  // Classify gateway state before port checks. Legacy non-Docker-driver
+  // path destroys stale/unnamed gateways here so the port frees up for
+  // checks below; Docker-driver path defers the destructive recreate to
+  // step [2/8] (see applyPreflightGatewayCleanup). If another gateway is
+  // active but the named one exists, select it to avoid false conflicts.
   const gatewaySnapshot = selectNamedGatewayForReuseIfNeeded(getGatewayReuseSnapshot());
   let gatewayReuseState = gatewaySnapshot.gatewayReuseState;
   gatewayReuseState = await refreshDockerDriverGatewayReuseState(gatewayReuseState);
@@ -2143,21 +2160,16 @@ async function preflight(
     }
   }
 
-  if (gatewayReuseState === "stale" || gatewayReuseState === "active-unnamed") {
-    console.log(`  Cleaning up previous ${cliDisplayName()} session...`);
-    if (isLinuxDockerDriverGatewayEnabled()) {
-      retireLegacyGatewayForDockerDriverUpgrade();
-      gatewayReuseState = "missing";
-      console.log("  ✓ Previous session cleaned up");
-    } else {
-      runOpenshell(["forward", "stop", String(DASHBOARD_PORT)], { ignoreError: true });
-      gatewayReuseState = destroyGatewayForReuse(
-        destroyGateway,
-        "  ✓ Previous session cleaned up",
-        "  ! Previous session cleanup failed; leaving registry state intact.",
-      );
-    }
-  }
+  gatewayReuseState = applyPreflightGatewayCleanup({
+    gatewayReuseState,
+    isDockerDriverGatewayEnabled: isLinuxDockerDriverGatewayEnabled(),
+    cliDisplayName: cliDisplayName(),
+    dashboardPort: DASHBOARD_PORT,
+    log: console.log,
+    runOpenshell,
+    destroyGateway,
+    destroyGatewayForReuse,
+  });
 
   // Clean up orphaned Docker containers from interrupted onboard (e.g. Ctrl+C
   // during gateway start). The container may still be running even though
@@ -2225,12 +2237,9 @@ async function preflight(
       port === GATEWAY_PORT ? dockerDriverGatewayEnv.getGatewayPortCheckOptions() : undefined;
     let portCheck = await checkPortAvailable(port, portCheckOptions);
     if (!portCheck.ok) {
-      if ((port === GATEWAY_PORT || port === DASHBOARD_PORT) && gatewayReuseState === "healthy") {
-        console.log(
-          `  ✓ Port ${port} already owned by healthy ${cliDisplayName()} runtime (${label})`,
-        );
-        continue;
-      }
+      const reuse = await applyHealthyPortReuse({ port, gatewayPort: GATEWAY_PORT, dashboardPort: DASHBOARD_PORT, label, runtimeDisplayName: cliDisplayName(), gatewayName: GATEWAY_NAME, gatewayReuseState, portCheckOptions, supportsLifecycleCommands: gatewayCliSupportsLifecycleCommands(runCaptureOpenshell), destroyGateway, runOpenshell, checkPortAvailable, verifyGatewayContainerRunning });
+      if (reuse === "continue") continue;
+      if (reuse) { ({ gatewayReuseState, portCheck } = reuse); if (portCheck.ok) continue; }
       if (port === GATEWAY_PORT) {
         const dockerGatewayPid = getDockerDriverGatewayPortListenerPid(portCheck);
         if (dockerGatewayPid !== null) {
@@ -4100,7 +4109,6 @@ const { readLiveInference, readRecordedProvider, readRecordedNimContainer, readR
 type OllamaModelSelectionOutcome =
   | { outcome: "selected"; model: string }
   | { outcome: "back-to-selection" };
-
 // Pick an Ollama model, pull it if missing, and validate it via the local
 // proxy. Shared by the three Ollama provider branches (running, Windows-host
 // install/start, install-locally). Returns "back-to-selection" so the caller
@@ -4190,6 +4198,7 @@ async function selectAndValidateOllamaModel(
         "  ℹ Using chat completions API (Ollama tool calls require /v1/chat/completions)",
       );
     }
+    localInference.applyOllamaRuntimeContextWindow(selectedModel);
     return { outcome: "selected", model: selectedModel };
   }
 }
@@ -5658,17 +5667,7 @@ async function setupInference(
       console.error(`  ${providerResult.message}`);
       process.exit(providerResult.status || 1);
     }
-    runOpenshell([
-      "inference",
-      "set",
-      "--no-verify",
-      "--provider",
-      "vllm-local",
-      "--model",
-      model,
-      "--timeout",
-      String(LOCAL_INFERENCE_TIMEOUT_SECS),
-    ]);
+    if (await applyLocalInferenceRoute("vllm-local", model)) return { retry: "selection" };
     // Do not mutate ~/.nemoclaw/credentials.json here: local vLLM now uses
     // VLLM_LOCAL_CREDENTIAL_ENV, so any saved OPENAI_API_KEY remains available
     // to unrelated OpenAI-backed sandboxes.
@@ -5740,17 +5739,7 @@ async function setupInference(
       console.error(`  ${providerResult.message}`);
       process.exit(providerResult.status || 1);
     }
-    runOpenshell([
-      "inference",
-      "set",
-      "--no-verify",
-      "--provider",
-      "ollama-local",
-      "--model",
-      model,
-      "--timeout",
-      String(LOCAL_INFERENCE_TIMEOUT_SECS),
-    ]);
+    if (await applyLocalInferenceRoute("ollama-local", model)) return { retry: "selection" };
     console.log(`  Priming Ollama model: ${model}`);
     run(getOllamaWarmupCommand(model), { ignoreError: true });
     const probe = validateOllamaModel(model);
