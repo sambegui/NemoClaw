@@ -1841,9 +1841,9 @@ describe("CLI dispatch", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("Added host alias searxng.local -> 192.168.1.105");
     const log = fs.readFileSync(dockerLog, "utf8").trim().split(/\n/);
-    // Regression for #4317: docker invocation must start with the `exec`
-    // subcommand. Without it, docker parses kubectl's `-n` as a docker flag
-    // and exits 125 ("unknown shorthand flag: 'n' in -n").
+    // The docker invocation must start with the `exec` subcommand. Without
+    // it, docker parses kubectl's `-n` as a docker flag and exits 125
+    // ("unknown shorthand flag: 'n' in -n").
     expect(log[0]).toBe("exec");
     expect(log).toContain("patch");
     expect(log).toContain("--type=json");
