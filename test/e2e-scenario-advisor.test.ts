@@ -35,11 +35,14 @@ describe("E2E scenario advisor", () => {
     expect(result.noScenarioE2eReason).toBeNull();
   });
 
-  it("requires targeted scenario E2E when a validation suite changes", () => {
+  it("recognizes migrated test/e2e-scenario validation suite paths", () => {
     const result = analyze([
-      "test/e2e/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
+      "test/e2e-scenario/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
     ]);
 
+    expect(result.relevantChangedFiles).toEqual([
+      "test/e2e-scenario/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
+    ]);
     expect(result.required).toContainEqual(
       expect.objectContaining({
         id: "ubuntu-repo-docker__cloud-nvidia-openclaw-telegram:messaging-telegram",
@@ -50,10 +53,48 @@ describe("E2E scenario advisor", () => {
     );
   });
 
+  it("requires all known scenarios when typed scenario internals change", () => {
+    const result = analyze(["test/e2e-scenario/scenarios/run.ts"]);
+
+    expect(result.required).toContainEqual(
+      expect.objectContaining({ id: "e2e-scenarios-all" }),
+    );
+    expect(result.required).toContainEqual(
+      expect.objectContaining({
+        scenario: "ubuntu-repo-docker__cloud-nvidia-openclaw",
+      }),
+    );
+    expect(result.required).toContainEqual(
+      expect.objectContaining({
+        scenario: "ubuntu-repo-docker__cloud-nvidia-openclaw-telegram",
+      }),
+    );
+    expect(result.required.length).toBeGreaterThan(7);
+    expect(result.noScenarioE2eReason).toBeNull();
+  });
+
+  it("requires all known scenarios when migrated manifests change", () => {
+    const result = analyze([
+      "test/e2e-scenario/manifests/openclaw-nvidia.yaml",
+    ]);
+
+    expect(result.relevantChangedFiles).toEqual([
+      "test/e2e-scenario/manifests/openclaw-nvidia.yaml",
+    ]);
+    expect(result.required).toContainEqual(
+      expect.objectContaining({ id: "e2e-scenarios-all" }),
+    );
+    expect(result.required).toContainEqual(
+      expect.objectContaining({
+        scenario: "ubuntu-repo-docker__cloud-nvidia-openclaw",
+      }),
+    );
+  });
+
   it("requires all scenario E2E and targeted follow-up when suite metadata changes", () => {
     const result = analyze([
-      "test/e2e/validation_suites/suites.yaml",
-      "test/e2e/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
+      "test/e2e-scenario/validation_suites/suites.yaml",
+      "test/e2e-scenario/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
     ]);
 
     expect(result.required).toContainEqual(
@@ -71,6 +112,18 @@ describe("E2E scenario advisor", () => {
   it("does not recommend scenario E2E for unrelated files", () => {
     const result = analyze(["docs/reference/commands.mdx"]);
 
+    expect(result.required).toEqual([]);
+    expect(result.optional).toEqual([]);
+    expect(result.noScenarioE2eReason).toMatch(/No scenario workflow/);
+  });
+
+  it("does not recommend scenario E2E for legacy test/e2e paths", () => {
+    const result = analyze([
+      "test/e2e/validation_suites/messaging/telegram/00-telegram-injection-safety.sh",
+      "test/e2e/runtime/run-scenario.sh",
+    ]);
+
+    expect(result.relevantChangedFiles).toEqual([]);
     expect(result.required).toEqual([]);
     expect(result.optional).toEqual([]);
     expect(result.noScenarioE2eReason).toMatch(/No scenario workflow/);

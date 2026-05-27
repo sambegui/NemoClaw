@@ -11,6 +11,8 @@ import { parseArgs, writeJson } from "../advisors/io.mts";
 const SCENARIO_WORKFLOW = "e2e-scenarios.yaml";
 const SCENARIO_ALL_WORKFLOW = "e2e-scenarios-all.yaml";
 const DEFAULT_BASELINE_SCENARIO = "ubuntu-repo-cloud-openclaw";
+const SCENARIO_ROOT = "test/e2e-scenario";
+const SCENARIO_DATA_ROOTS = [SCENARIO_ROOT, "test/e2e"];
 const CORE_SCENARIO_IDS = [
   "ubuntu-repo-cloud-openclaw",
   "ubuntu-repo-cloud-hermes",
@@ -104,33 +106,47 @@ export function analyzeScenarioRecommendations({
   const reasons = new Set<string>();
   const relevantChangedFiles = changedFiles.filter(isScenarioRelevantFile);
   let allScenariosRequired = false;
+  let allKnownScenariosRequired = false;
+  const scenarioWorkflowInputs = detectScenarioWorkflowInputs(root);
 
   for (const file of changedFiles) {
+    const scenarioPath = parseScenarioPath(file);
     if (file === ".github/workflows/e2e-scenarios-all.yaml") {
       allScenariosRequired = true;
       reasons.add("the all-scenarios fan-out workflow changed");
     } else if (file === ".github/workflows/e2e-scenarios.yaml") {
       allScenariosRequired = true;
       reasons.add("the reusable single-scenario workflow changed");
-    } else if (file === "test/e2e/nemoclaw_scenarios/scenarios.yaml") {
+    } else if (scenarioPath?.kind === "scenario-catalog") {
       allScenariosRequired = true;
+      allKnownScenariosRequired = true;
       reasons.add("scenario catalog metadata changed");
-    } else if (file === "test/e2e/nemoclaw_scenarios/expected-states.yaml") {
+    } else if (scenarioPath?.kind === "expected-states") {
       allScenariosRequired = true;
+      allKnownScenariosRequired = true;
       reasons.add("expected-state metadata changed");
-    } else if (file === "test/e2e/validation_suites/suites.yaml") {
+    } else if (scenarioPath?.kind === "suite-catalog") {
       allScenariosRequired = true;
+      allKnownScenariosRequired = true;
       reasons.add("suite catalog metadata changed");
-    } else if (
-      file.startsWith("test/e2e/runtime/") ||
-      file.startsWith("test/e2e/nemoclaw_scenarios/helpers/")
-    ) {
+    } else if (scenarioPath?.kind === "shared-runtime") {
       allScenariosRequired = true;
+      allKnownScenariosRequired = true;
       reasons.add("shared scenario runner/runtime code changed");
-    } else if (
-      file.startsWith("test/e2e/nemoclaw_scenarios/onboard/") ||
-      file.startsWith("test/e2e/nemoclaw_scenarios/install/")
-    ) {
+    } else if (scenarioPath?.kind === "typed-scenario-code") {
+      allScenariosRequired = true;
+      allKnownScenariosRequired = true;
+      reasons.add("typed scenario builder/assertion/compiler code changed");
+    } else if (scenarioPath?.kind === "manifest") {
+      allScenariosRequired = true;
+      allKnownScenariosRequired = true;
+      reasons.add("scenario onboarding manifest changed");
+    } else if (scenarioPath?.kind === "onboarding-assertion") {
+      allScenariosRequired = true;
+      allKnownScenariosRequired = true;
+      reasons.add("onboarding assertion changed");
+    } else if (scenarioPath?.kind === "install-onboard-helper") {
+      allScenariosRequired = true;
       directScenarioIds.add(DEFAULT_BASELINE_SCENARIO);
       reasons.add("scenario install/onboard helper code changed");
     }
@@ -148,6 +164,11 @@ export function analyzeScenarioRecommendations({
   for (const suiteId of changedSuiteIds) {
     const matchingScenarios = suiteToScenarios.get(suiteId) || [];
     for (const scenario of matchingScenarios) directScenarioIds.add(scenario);
+  }
+
+  if (allKnownScenariosRequired) {
+    for (const scenario of Object.keys(scenarios))
+      directScenarioIds.add(scenario);
   }
 
   const required: ScenarioRecommendation[] = [];
@@ -176,6 +197,7 @@ export function analyzeScenarioRecommendations({
         scenario,
         suiteFilter,
         reasonForScenario(scenario, changedSuiteIds, reasons),
+        scenarioWorkflowInputs,
       ),
     );
   }
@@ -196,6 +218,7 @@ export function analyzeScenarioRecommendations({
           scenario,
           suiteFilter,
           `Targeted follow-up for changed suite(s): ${suiteFilter || [...changedSuiteIds].sort().join(",")}`,
+          scenarioWorkflowInputs,
           false,
         ),
       );
@@ -216,6 +239,7 @@ export function analyzeScenarioRecommendations({
           specialScenario,
           suiteFilterForScenario(specialScenario, changedSuiteIds, scenarios),
           "Special-runner scenario covers a changed suite but may require scarce hardware/secrets.",
+          scenarioWorkflowInputs,
           false,
         ),
       );
@@ -279,11 +303,11 @@ export function renderScenarioSummary(result: ScenarioAdvisorResult): string {
 }
 
 function loadScenarios(root: string): Record<string, ScenarioEntry> {
-  const filePath = path.join(
+  const filePath = firstExistingScenarioPath(
     root,
-    "test/e2e/nemoclaw_scenarios/scenarios.yaml",
+    "nemoclaw_scenarios/scenarios.yaml",
   );
-  if (!fs.existsSync(filePath)) return {};
+  if (!filePath) return {};
   const text = fs.readFileSync(filePath, "utf8");
   return {
     ...parseScenarioSection(text, "test_plans"),
@@ -292,9 +316,23 @@ function loadScenarios(root: string): Record<string, ScenarioEntry> {
 }
 
 function loadSuiteScriptMap(root: string): Record<string, string[]> {
-  const filePath = path.join(root, "test/e2e/validation_suites/suites.yaml");
-  if (!fs.existsSync(filePath)) return {};
+  const filePath = firstExistingScenarioPath(
+    root,
+    "validation_suites/suites.yaml",
+  );
+  if (!filePath) return {};
   return parseSuiteScripts(fs.readFileSync(filePath, "utf8"));
+}
+
+function firstExistingScenarioPath(
+  root: string,
+  relative: string,
+): string | undefined {
+  for (const scenarioRoot of SCENARIO_DATA_ROOTS) {
+    const filePath = path.join(root, scenarioRoot, relative);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return undefined;
 }
 
 function parseScenarioSection(
@@ -413,10 +451,65 @@ function isScenarioRelevantFile(file: string): boolean {
   return (
     file === ".github/workflows/e2e-scenarios.yaml" ||
     file === ".github/workflows/e2e-scenarios-all.yaml" ||
-    file.startsWith("test/e2e/runtime/") ||
-    file.startsWith("test/e2e/nemoclaw_scenarios/") ||
-    file.startsWith("test/e2e/validation_suites/")
+    parseScenarioPath(file) !== undefined
   );
+}
+
+type ScenarioPathKind =
+  | "scenario-catalog"
+  | "expected-states"
+  | "suite-catalog"
+  | "validation-suite"
+  | "shared-runtime"
+  | "install-onboard-helper"
+  | "typed-scenario-code"
+  | "manifest"
+  | "onboarding-assertion"
+  | "scenario-docs-or-tests";
+
+function parseScenarioPath(
+  file: string,
+): { root: string; relative: string; kind: ScenarioPathKind } | undefined {
+  const scenarioRoot = file.startsWith(`${SCENARIO_ROOT}/`)
+    ? SCENARIO_ROOT
+    : undefined;
+  if (!scenarioRoot) return undefined;
+  const relative = file.slice(scenarioRoot.length + 1);
+
+  if (relative === "nemoclaw_scenarios/scenarios.yaml")
+    return { root: scenarioRoot, relative, kind: "scenario-catalog" };
+  if (relative === "nemoclaw_scenarios/expected-states.yaml")
+    return { root: scenarioRoot, relative, kind: "expected-states" };
+  if (relative === "validation_suites/suites.yaml")
+    return { root: scenarioRoot, relative, kind: "suite-catalog" };
+  if (
+    relative.startsWith("runtime/") ||
+    relative.startsWith("nemoclaw_scenarios/helpers/")
+  ) {
+    return { root: scenarioRoot, relative, kind: "shared-runtime" };
+  }
+  if (
+    relative.startsWith("nemoclaw_scenarios/onboard/") ||
+    relative.startsWith("nemoclaw_scenarios/install/")
+  ) {
+    return { root: scenarioRoot, relative, kind: "install-onboard-helper" };
+  }
+  if (relative.startsWith("validation_suites/"))
+    return { root: scenarioRoot, relative, kind: "validation-suite" };
+  if (relative.startsWith("scenarios/"))
+    return { root: scenarioRoot, relative, kind: "typed-scenario-code" };
+  if (relative.startsWith("manifests/"))
+    return { root: scenarioRoot, relative, kind: "manifest" };
+  if (relative.startsWith("onboarding_assertions/"))
+    return { root: scenarioRoot, relative, kind: "onboarding-assertion" };
+  if (
+    relative.startsWith("framework-tests/") ||
+    relative.startsWith("scenario-framework-tests/") ||
+    relative.startsWith("docs/")
+  ) {
+    return { root: scenarioRoot, relative, kind: "scenario-docs-or-tests" };
+  }
+  return undefined;
 }
 
 function inferSuiteIdsFromPath(
@@ -424,12 +517,9 @@ function inferSuiteIdsFromPath(
   suiteIds: Set<string>,
   suiteScriptMap: Record<string, string[]>,
 ): string[] {
-  if (
-    !file.startsWith("test/e2e/validation_suites/") ||
-    file.endsWith("/suites.yaml")
-  )
-    return [];
-  const relative = file.slice("test/e2e/validation_suites/".length);
+  const scenarioPath = parseScenarioPath(file);
+  if (scenarioPath?.kind !== "validation-suite") return [];
+  const relative = scenarioPath.relative.slice("validation_suites/".length);
   const segments = relative.split("/");
   const candidates = new Set<string>();
   for (let size = Math.min(segments.length, 3); size >= 1; size -= 1) {
@@ -507,15 +597,35 @@ function reasonForScenario(
   return `Scenario \`${scenario}\` exercises the changed scenario E2E surface.${suiteText} ${[...reasons].join("; ")}`.trim();
 }
 
+type ScenarioWorkflowInputs = {
+  scenarioField: "scenario" | "scenarios";
+  supportsSuiteFilter: boolean;
+};
+
+function detectScenarioWorkflowInputs(root: string): ScenarioWorkflowInputs {
+  const workflowPath = path.join(root, ".github/workflows/e2e-scenarios.yaml");
+  const text = fs.existsSync(workflowPath)
+    ? fs.readFileSync(workflowPath, "utf8")
+    : "";
+  return {
+    scenarioField: /^\s{6}scenarios:\s*$/m.test(text)
+      ? "scenarios"
+      : "scenario",
+    supportsSuiteFilter: /^\s{6}suite_filter:\s*$/m.test(text),
+  };
+}
+
 function buildSingleScenarioRecommendation(
   scenario: string,
   suiteFilter: string | undefined,
   reason: string,
+  workflowInputs: ScenarioWorkflowInputs,
   required = true,
 ): ScenarioRecommendation {
-  const suitePart = suiteFilter
-    ? ` --field suite_filter=${shellQuote(suiteFilter)}`
-    : "";
+  const suitePart =
+    suiteFilter && workflowInputs.supportsSuiteFilter
+      ? ` --field suite_filter=${shellQuote(suiteFilter)}`
+      : "";
   return {
     id: suiteFilter ? `${scenario}:${suiteFilter}` : scenario,
     workflow: SCENARIO_WORKFLOW,
@@ -523,7 +633,7 @@ function buildSingleScenarioRecommendation(
     suiteFilter,
     required,
     reason,
-    dispatchCommand: `gh workflow run e2e-scenarios.yaml --ref <pr-head-ref> --field scenario=${shellQuote(scenario)}${suitePart}`,
+    dispatchCommand: `gh workflow run e2e-scenarios.yaml --ref <pr-head-ref> --field ${workflowInputs.scenarioField}=${shellQuote(scenario)}${suitePart}`,
   };
 }
 
