@@ -128,6 +128,8 @@ suites:
       script: messaging/common/02-no-secret-leak.sh
     - id: messaging-bridge-reachable
       script: messaging/common/03-bridge-reachable.sh
+    - id: messaging-openclaw-channel-state
+      script: messaging/common/04-openclaw-channel-state.sh
     - id: telegram-injection-safety
       script: messaging/telegram/00-telegram-injection-safety.sh
     - id: telegram-injection-payload-classes
@@ -143,6 +145,8 @@ suites:
       script: messaging/common/02-no-secret-leak.sh
     - id: messaging-bridge-reachable
       script: messaging/common/03-bridge-reachable.sh
+    - id: messaging-openclaw-channel-state
+      script: messaging/common/04-openclaw-channel-state.sh
     - id: discord-gateway-path
       script: messaging/discord/00-discord-gateway-path.sh
   messaging-slack:
@@ -156,6 +160,8 @@ suites:
       script: messaging/common/02-no-secret-leak.sh
     - id: messaging-bridge-reachable
       script: messaging/common/03-bridge-reachable.sh
+    - id: messaging-openclaw-channel-state
+      script: messaging/common/04-openclaw-channel-state.sh
     - id: slack-provider-state
       script: messaging/slack/00-slack-provider-state.sh
   security-shields:

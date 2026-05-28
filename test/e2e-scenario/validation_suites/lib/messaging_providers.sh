@@ -52,6 +52,17 @@ e2e_messaging_provider_name() {
   e2e_messaging_channel
 }
 
+e2e_messaging_openclaw_channel_id() {
+  local provider
+  provider="$(e2e_messaging_provider_name)"
+  case "${provider}" in
+    slack-bot | slack-app) printf 'slack\n' ;;
+    whatsapp-qr) printf 'whatsapp\n' ;;
+    telegram | discord) printf '%s\n' "${provider}" ;;
+    *) e2e_fail "expected-state.messaging.openclaw-channel unsupported provider: ${provider}" ;;
+  esac
+}
+
 e2e_messaging_agent_config_path() {
   local agent
   agent="$(e2e_context_get E2E_AGENT)"
@@ -171,6 +182,72 @@ e2e_messaging_assert_provider_attached() {
     return 0
   fi
   e2e_fail "expected-state.messaging.${provider}.provider-attached missing provider evidence in config surface"
+}
+
+e2e_messaging_assert_openclaw_channel_state() {
+  local agent channel content config_state runtime_json runtime_state sandbox_name
+  agent="$(e2e_context_get E2E_AGENT)"
+  channel="$(e2e_messaging_openclaw_channel_id)"
+  if [[ "${agent}" != "openclaw" ]]; then
+    e2e_pass "expected-state.messaging.${channel}.openclaw-enabled skipped for ${agent}"
+    e2e_pass "expected-state.messaging.${channel}.runtime-discovery skipped for ${agent}"
+    return 0
+  fi
+  if [[ -n "${E2E_DRY_RUN:-}" ]]; then
+    e2e_pass "expected-state.messaging.${channel}.openclaw-enabled dry-run"
+    e2e_pass "expected-state.messaging.${channel}.runtime-discovery dry-run"
+    return 0
+  fi
+
+  content="$(e2e_messaging_read_config_surface)"
+  config_state="$(printf '%s\n' "${content}" | CHANNEL="${channel}" python3 -c '
+import json
+import os
+import sys
+try:
+    cfg = json.load(sys.stdin)
+    channel = os.environ["CHANNEL"]
+    ch = cfg.get("channels", {}).get(channel, {})
+    plugin = cfg.get("plugins", {}).get("entries", {}).get(channel, {})
+    print("yes" if ch.get("enabled") is True and plugin.get("enabled") is True else "no")
+except Exception as exc:
+    print("error %s" % exc)
+' 2>/dev/null || true)"
+  if [[ "${config_state}" != "yes" ]]; then
+    e2e_fail "expected-state.messaging.${channel}.openclaw-enabled missing channels.${channel}.enabled or plugins.entries.${channel}.enabled (${config_state})"
+  fi
+  e2e_pass "expected-state.messaging.${channel}.openclaw-enabled channel and plugin enabled"
+
+  sandbox_name="$(e2e_context_get E2E_SANDBOX_NAME)"
+  runtime_json="$(openshell sandbox exec --name "${sandbox_name}" -- timeout 45 openclaw channels list --all --json --no-color 2>/dev/null || true)"
+  runtime_state="$(printf '%s\n' "${runtime_json}" | CHANNEL="${channel}" python3 -c '
+import json
+import os
+import sys
+try:
+    data = json.load(sys.stdin)
+    channel = os.environ["CHANNEL"]
+    entry = data.get("chat", {}).get(channel, {})
+    accounts = entry.get("accounts", [])
+    if isinstance(accounts, dict):
+        account_ids = list(accounts.keys())
+    else:
+        account_ids = [
+            item if isinstance(item, str) else item.get("accountId") or item.get("id") or item.get("name")
+            for item in accounts
+            if isinstance(item, (str, dict))
+        ]
+    if entry.get("installed") is True and entry.get("origin") == "configured" and "default" in account_ids:
+        print("yes")
+    else:
+        print("no installed=%s origin=%s accounts=%s" % (entry.get("installed"), entry.get("origin"), account_ids))
+except Exception as exc:
+    print("error %s" % exc)
+' 2>/dev/null || true)"
+  if [[ "${runtime_state}" != "yes" ]]; then
+    e2e_fail "expected-state.messaging.${channel}.runtime-discovery OpenClaw did not report ${channel} installed/configured (${runtime_state}; output=${runtime_json:0:300})"
+  fi
+  e2e_pass "expected-state.messaging.${channel}.runtime-discovery OpenClaw reports ${channel} installed and configured"
 }
 
 e2e_messaging_assert_literal_payload() {

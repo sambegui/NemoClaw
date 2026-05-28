@@ -87,8 +87,11 @@ describe("Issue #3810 messaging suite wiring", () => {
         "messaging-placeholder-configured",
         "messaging-no-secret-leak",
         "messaging-bridge-reachable",
+        "telegram.runtime-discovery",
         "telegram-injection-safety",
+        "discord.runtime-discovery",
         "discord-gateway-path",
+        "slack.openclaw-enabled",
         "slack-provider-state",
         "slack.runtime-discovery",
       ]) {
