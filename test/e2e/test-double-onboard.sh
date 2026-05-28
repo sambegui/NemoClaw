@@ -69,6 +69,8 @@ dump_diagnostics() {
   openshell sandbox list 2>&1 | sed 's/^/    /' || true
   info "openshell forward list:"
   openshell forward list 2>&1 | sed 's/^/    /' || true
+  info "NemoClaw gRPC forward state:"
+  dump_grpc_forward_state | sed 's/^/    /'
   for sandbox_name in "${SANDBOX_A:-}" "${SANDBOX_B:-}"; do
     [ -n "$sandbox_name" ] || continue
     info "${sandbox_name} /etc/resolv.conf:"
@@ -306,6 +308,7 @@ run_nemoclaw() {
 stop_forward_if_set() {
   local port="${1:-}"
   if [ -n "$port" ]; then
+    stop_grpc_forward_for_port "$port" "" 2>/dev/null || true
     openshell forward stop "$port" 2>/dev/null || true
   fi
 }
@@ -357,24 +360,116 @@ PY
 forward_owner_for_port() {
   local port="$1"
 
-  FORWARD_OUTPUT="$forward_output" python3 - "$port" <<'PY'
+  python3 - "$port" <<'PY'
+import glob
+import json
 import os
-import re
 import sys
 
-target = sys.argv[1]
-clean = re.sub(r"\x1b\[[0-9;]*m", "", os.environ.get("FORWARD_OUTPUT", ""))
+target = int(sys.argv[1])
+state_dir = os.path.join(os.path.expanduser("~"), ".nemoclaw", "forwards")
 
-for line in clean.splitlines():
-    parts = line.strip().split()
-    if len(parts) < 5 or parts[0].lower() == "sandbox":
+for path in glob.glob(os.path.join(state_dir, "*.json")):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        if int(state.get("port", -1)) != target:
+            continue
+        pid = int(state.get("pid", 0) or 0)
+        if pid <= 0:
+            continue
+        os.kill(pid, 0)
+    except OSError:
         continue
-    status = " ".join(parts[4:]).lower()
-    if parts[2] == target and "running" in status:
-        print(parts[0])
-        sys.exit(0)
+    except Exception:
+        continue
+    print(state.get("sandboxName", ""))
+    sys.exit(0)
 
 sys.exit(1)
+PY
+}
+
+dump_grpc_forward_state() {
+  python3 <<'PY'
+import glob
+import json
+import os
+
+state_dir = os.path.join(os.path.expanduser("~"), ".nemoclaw", "forwards")
+paths = sorted(glob.glob(os.path.join(state_dir, "*.json")))
+if not paths:
+    print("No NemoClaw gRPC forwards.")
+for path in paths:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        print(
+            f"{state.get('sandboxName', '<unknown>')} "
+            f"{state.get('bind', '<bind>')} {state.get('port', '<port>')} "
+            f"{state.get('pid', '<pid>')} -> "
+            f"{state.get('targetHost', '<target>')}:{state.get('targetPort', '<targetPort>')}"
+        )
+    except Exception as exc:
+        print(f"{path}: unreadable ({exc})")
+PY
+}
+
+stop_grpc_forward_for_port() {
+  local port="$1"
+  local expected_owner="${2:-}"
+
+  python3 - "$port" "$expected_owner" <<'PY'
+import glob
+import json
+import os
+import signal
+import sys
+import time
+
+target = int(sys.argv[1])
+expected_owner = sys.argv[2]
+state_dir = os.path.join(os.path.expanduser("~"), ".nemoclaw", "forwards")
+stopped = False
+
+for path in glob.glob(os.path.join(state_dir, "*.json")):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        if int(state.get("port", -1)) != target:
+            continue
+        if expected_owner and state.get("sandboxName") != expected_owner:
+            continue
+        pid = int(state.get("pid", 0) or 0)
+    except Exception:
+        continue
+
+    if pid > 0:
+        for sig, wait_seconds in ((signal.SIGTERM, 2.0), (signal.SIGKILL, 1.0)):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                break
+            deadline = time.time() + wait_seconds
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    break
+                time.sleep(0.1)
+            else:
+                continue
+            break
+
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    stopped = True
+
+sys.exit(0 if stopped else 1)
 PY
 }
 
@@ -650,6 +745,7 @@ fi
 
 if [ -n "$port_a" ] && [ -n "$port_b" ] && [ "$port_a" != "$port_b" ]; then
   info "Stopping '$SANDBOX_B' dashboard forward to verify stored-port recovery..."
+  stop_grpc_forward_for_port "$port_b" "$SANDBOX_B" 2>/dev/null || true
   openshell forward stop "$port_b" 2>/dev/null || true
 
   PROBE_LOG="$(mktemp)"
@@ -677,7 +773,6 @@ if [ -n "$port_a" ] && [ -n "$port_b" ] && [ "$port_a" != "$port_b" ]; then
     dump_diagnostics "probe-only dashboard forward recovery"
   fi
 
-  forward_output="$(openshell forward list 2>&1 || true)"
   owner_a="$(forward_owner_for_port "$port_a" 2>/dev/null || true)"
   owner_b="$(forward_owner_for_port "$port_b" 2>/dev/null || true)"
 
@@ -685,16 +780,16 @@ if [ -n "$port_a" ] && [ -n "$port_b" ] && [ "$port_a" != "$port_b" ]; then
     pass "Second sandbox dashboard forward restored on its recorded port"
   else
     fail "Second sandbox dashboard forward owner mismatch on port $port_b (owner=${owner_b:-missing})"
-    info "Observed forward list:"
-    printf '%s\n' "$forward_output" | sed 's/^/    /'
+    info "Observed NemoClaw gRPC forward state:"
+    dump_grpc_forward_state | sed 's/^/    /'
   fi
 
   if [ "$owner_a" = "$SANDBOX_A" ]; then
     pass "First sandbox dashboard forward kept its recorded port"
   else
     fail "First sandbox dashboard forward owner mismatch on port $port_a (owner=${owner_a:-missing})"
-    info "Observed forward list:"
-    printf '%s\n' "$forward_output" | sed 's/^/    /'
+    info "Observed NemoClaw gRPC forward state:"
+    dump_grpc_forward_state | sed 's/^/    /'
   fi
 fi
 
