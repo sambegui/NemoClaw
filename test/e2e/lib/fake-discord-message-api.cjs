@@ -32,8 +32,16 @@ function record(event) {
 
 function tokenFromAuthorization(value) {
   const raw = String(value || "");
-  const match = /^Bot\s+(.+)$/i.exec(raw);
-  return match ? match[1] : raw;
+  if (raw.length < 4 || raw.slice(0, 3).toLowerCase() !== "bot") return raw;
+  const next = raw.charCodeAt(3);
+  if (next !== 0x20 && next !== 0x09) return raw;
+  let index = 4;
+  while (index < raw.length) {
+    const code = raw.charCodeAt(index);
+    if (code !== 0x20 && code !== 0x09) break;
+    index += 1;
+  }
+  return raw.slice(index);
 }
 
 function tokenLooksPlaceholder(value) {
