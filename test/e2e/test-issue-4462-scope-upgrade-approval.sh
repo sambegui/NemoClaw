@@ -516,13 +516,37 @@ wait_for_auto_pair_watcher_inactive() {
   for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     output=$(sandbox_exec_sh_script 20 '
 set -u
+find_auto_pair_pids() {
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    [ "$pid" = "$$" ] && continue
+    [ -r "$proc/cmdline" ] || continue
+    cmd="$(tr "\000" " " <"$proc/cmdline" 2>/dev/null || true)"
+    case "$cmd" in
+      *"python3 -"*)
+        fd1="$(readlink "$proc/fd/1" 2>/dev/null || true)"
+        fd2="$(readlink "$proc/fd/2" 2>/dev/null || true)"
+        case "${fd1} ${fd2}" in
+          *"/tmp/auto-pair.log"*) printf "%s\n" "$pid" ;;
+        esac
+        ;;
+    esac
+  done | sort -u
+}
 if [ -r /tmp/auto-pair.log ]; then
   if grep -F "[auto-pair] watcher deadline reached" /tmp/auto-pair.log >/dev/null; then
     echo "__AUTO_PAIR_WATCHER__=deadline-reached"
     tail -20 /tmp/auto-pair.log
     exit 0
   fi
+  pids="$(find_auto_pair_pids)"
+  if [ -z "$pids" ]; then
+    echo "__AUTO_PAIR_WATCHER__=inactive"
+    tail -20 /tmp/auto-pair.log || true
+    exit 0
+  fi
   echo "__AUTO_PAIR_WATCHER__=still-waiting"
+  printf "__AUTO_PAIR_PIDS__=%s\n" "$(printf "%s" "$pids" | tr "\n" " ")"
   tail -20 /tmp/auto-pair.log || true
 else
   echo "__AUTO_PAIR_WATCHER__=missing-log"
@@ -537,6 +561,53 @@ exit 1
     fi
     sleep 2
   done
+  output=$(sandbox_exec_sh_script 30 '
+set -u
+find_auto_pair_pids() {
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    [ "$pid" = "$$" ] && continue
+    [ -r "$proc/cmdline" ] || continue
+    cmd="$(tr "\000" " " <"$proc/cmdline" 2>/dev/null || true)"
+    case "$cmd" in
+      *"python3 -"*)
+        fd1="$(readlink "$proc/fd/1" 2>/dev/null || true)"
+        fd2="$(readlink "$proc/fd/2" 2>/dev/null || true)"
+        case "${fd1} ${fd2}" in
+          *"/tmp/auto-pair.log"*) printf "%s\n" "$pid" ;;
+        esac
+        ;;
+    esac
+  done | sort -u
+}
+pids="$(find_auto_pair_pids)"
+if [ -z "$pids" ]; then
+  echo "__AUTO_PAIR_WATCHER__=inactive-before-stop"
+  exit 0
+fi
+printf "__AUTO_PAIR_STOPPING_PIDS__=%s\n" "$(printf "%s" "$pids" | tr "\n" " ")"
+kill $pids 2>/dev/null || true
+sleep 2
+remaining="$(find_auto_pair_pids)"
+if [ -n "$remaining" ]; then
+  printf "__AUTO_PAIR_KILLING_PIDS__=%s\n" "$(printf "%s" "$remaining" | tr "\n" " ")"
+  kill -KILL $remaining 2>/dev/null || true
+  sleep 1
+fi
+remaining="$(find_auto_pair_pids)"
+if [ -n "$remaining" ]; then
+  printf "__AUTO_PAIR_WATCHER__=still-active pids=%s\n" "$(printf "%s" "$remaining" | tr "\n" " ")"
+  exit 1
+fi
+echo "__AUTO_PAIR_WATCHER__=stopped"
+tail -20 /tmp/auto-pair.log 2>/dev/null || true
+' 2>&1)
+  rc=$?
+  printf '=== auto-pair watcher forced stop rc=%s ===\n%s\n' "$rc" "$output" >>"$STATE_LOG"
+  if [ "$rc" -eq 0 ]; then
+    pass "auto-pair watcher is inactive before legacy scope-upgrade trigger"
+    return 0
+  fi
   fail "auto-pair watcher was still active before legacy scope-upgrade trigger: ${output:0:500}"
   return 1
 }
