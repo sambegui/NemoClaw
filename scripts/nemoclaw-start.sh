@@ -1435,6 +1435,14 @@ ALLOWED_MODES = {'webchat', 'cli'}
 
 RUN_TIMEOUT_SECS = _env_seconds('NEMOCLAW_AUTO_PAIR_RUN_TIMEOUT_SECS', 10)
 
+# Workaround boundary (NemoClaw#4462): OpenClaw owns the gateway/device
+# approval semantics. In OpenClaw 2026.5.x, a gateway-pinned
+# `openclaw devices approve <scope-upgrade>` can request the upgraded scopes
+# for its own connection and return the same pending-scope error it is trying
+# to resolve. List calls must stay gateway-pinned so we inspect the live
+# gateway, but approval calls temporarily remove OPENCLAW_GATEWAY_URL to use
+# OpenClaw's local pairing fallback. Remove this when OpenClaw approve can
+# complete scope upgrades through the gateway using only operator.pairing.
 def run(*args, strip_gateway_url=False):
     # Bound every openclaw CLI invocation so a wedged child cannot pin
     # the watcher beyond DEADLINE (CodeRabbit #4292): subprocess.run with
@@ -1760,6 +1768,10 @@ PROXYEOF
     cat <<'GUARDENVEOF'
 # nemoclaw-configure-guard begin
 openclaw() {
+  # NemoClaw#4462: keep user-initiated device approval usable from an
+  # interactive sandbox shell until upstream OpenClaw can approve scope
+  # upgrades through the gateway without requesting the upgraded scopes for
+  # the approval command itself. Other commands keep OPENCLAW_GATEWAY_URL.
   if [ "${1:-}" = "devices" ] && [ "${2:-}" = "approve" ]; then
     ( unset OPENCLAW_GATEWAY_URL; command openclaw "$@" )
     return $?

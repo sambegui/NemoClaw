@@ -617,6 +617,13 @@ function ensureSandboxInferenceRouteOrExit(
 // as the startup watcher — `openclaw-control-ui` clients plus `webchat`/`cli`
 // modes. Unknown clients are ignored, not approved.
 //
+// Workaround boundary (NemoClaw#4462): OpenClaw owns device-pairing approval
+// semantics. In OpenClaw 2026.5.x, a gateway-pinned `devices approve` for a
+// scope-upgrade can request the upgraded scopes for its own connection and
+// return the pending-scope failure it is trying to resolve. Remove this local
+// fallback path when OpenClaw approve can complete scope upgrades through the
+// gateway using only operator.pairing.
+//
 // Failure modes (timeout, sandbox-exec errors, missing openclaw, gateway
 // unreachable) are swallowed: the connect flow must not be blocked by a
 // best-effort approval. Internal timeouts (2s list + 1s x MAX_APPROVALS
