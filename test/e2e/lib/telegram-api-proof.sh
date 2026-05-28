@@ -92,58 +92,179 @@ run_openclaw_telegram_mock_send() {
   local target="$2"
   local message="$3"
   local host="${FAKE_TELEGRAM_API_HOST:-host.openshell.internal}"
-  local api_root target_b64 message_b64
-  api_root="http://${host}:${port}"
+  local target_b64 message_b64
   target_b64=$(printf '%s' "$target" | base64 | tr -d '\n')
   message_b64=$(printf '%s' "$message" | base64 | tr -d '\n')
 
-  sandbox_exec_stdin "FAKE_TELEGRAM_API_ROOT='$api_root' OPENCLAW_MESSAGE_TARGET_B64='$target_b64' OPENCLAW_MESSAGE_TEXT_B64='$message_b64' bash -s" <<'SH'
-decode_b64() {
-  printf '%s' "$1" | base64 -d
+  sandbox_exec_stdin "FAKE_TELEGRAM_API_HOST='$host' FAKE_TELEGRAM_API_PORT='$port' OPENCLAW_MESSAGE_TARGET_B64='$target_b64' OPENCLAW_MESSAGE_TEXT_B64='$message_b64' node --preserve-symlinks --input-type=module - 2>&1" <<'NODE'
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+function decodeBase64(value) {
+  return Buffer.from(value || "", "base64").toString("utf8");
 }
 
-target="$(decode_b64 "$OPENCLAW_MESSAGE_TARGET_B64")"
-message="$(decode_b64 "$OPENCLAW_MESSAGE_TEXT_B64")"
-mock_config="$(mktemp /tmp/nemoclaw-openclaw-telegram-mock.XXXXXX.json)"
+function addPathWalk(candidates, seen, start) {
+  if (!start) return;
+  let current = path.resolve(start);
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (!seen.has(current)) {
+      seen.add(current);
+      candidates.push(path.join(current, "node_modules/openclaw/dist/extensions/telegram/test-api.js"));
+      candidates.push(path.join(current, "dist/extensions/telegram/test-api.js"));
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+}
 
-FAKE_TELEGRAM_API_ROOT="$FAKE_TELEGRAM_API_ROOT" MOCK_CONFIG="$mock_config" python3 - <<'PY'
-import json
-import os
-import sys
+function resolveTelegramTestApiPath() {
+  const require = createRequire(import.meta.url);
+  const candidates = [];
+  const seen = new Set();
+  const add = (candidate) => {
+    if (candidate && !seen.has(candidate)) {
+      seen.add(candidate);
+      candidates.push(candidate);
+    }
+  };
 
-source = "/sandbox/.openclaw/openclaw.json"
-target = os.environ["MOCK_CONFIG"]
-api_root = os.environ["FAKE_TELEGRAM_API_ROOT"]
+  for (const base of [process.cwd(), "/sandbox", "/usr/local/lib/node_modules", "/tmp/npm-global/lib/node_modules"]) {
+    try {
+      add(path.join(path.dirname(require.resolve("openclaw/package.json", { paths: [base] })), "dist/extensions/telegram/test-api.js"));
+    } catch {}
+  }
 
-with open(source, "r", encoding="utf-8") as fh:
-    cfg = json.load(fh)
+  try {
+    const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+    add(path.join(globalRoot, "openclaw/dist/extensions/telegram/test-api.js"));
+  } catch {}
 
-accounts = cfg.setdefault("channels", {}).setdefault("telegram", {}).setdefault("accounts", {})
-if not isinstance(accounts, dict) or not accounts:
-    print("missing telegram account in openclaw.json", file=sys.stderr)
-    sys.exit(2)
+  try {
+    const openclawBin = execFileSync("sh", ["-lc", "command -v openclaw || true"], { encoding: "utf8" }).trim();
+    if (openclawBin) {
+      const realBin = execFileSync("readlink", ["-f", openclawBin], { encoding: "utf8" }).trim();
+      addPathWalk(candidates, seen, path.dirname(realBin));
+    }
+  } catch {}
 
-account = accounts.get("default")
-if not isinstance(account, dict):
-    first_key = next(iter(accounts))
-    account = accounts[first_key]
-    if not isinstance(account, dict):
-        print("telegram account is not an object", file=sys.stderr)
-        sys.exit(2)
+  try {
+    const searchRoots = ["/usr/local", "/tmp/npm-global", "/sandbox"].filter((root) => fs.existsSync(root));
+    if (searchRoots.length) {
+      const discovered = execFileSync("find", [
+        ...searchRoots,
+        "-path",
+        "*/node_modules/openclaw/dist/extensions/telegram/test-api.js",
+        "-print",
+        "-quit",
+      ], { encoding: "utf8" }).trim();
+      add(discovered);
+    }
+  } catch {}
 
-account["apiRoot"] = api_root
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
-with open(target, "w", encoding="utf-8") as fh:
-    json.dump(cfg, fh)
-PY
+function requestFakeTelegram(endpoint, fields, token) {
+  const payload = JSON.stringify(fields);
+  const options = {
+    hostname: process.env.FAKE_TELEGRAM_API_HOST || "host.openshell.internal",
+    port: Number(process.env.FAKE_TELEGRAM_API_PORT),
+    path: `/bot${token}/${endpoint}`,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(payload),
+      "User-Agent": "nemoclaw-openclaw-telegram-plugin-e2e",
+    },
+  };
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, (res) => {
+      let responseBody = "";
+      res.on("data", (chunk) => {
+        responseBody += chunk;
+      });
+      res.on("end", () => {
+        let parsed = {};
+        try {
+          parsed = responseBody ? JSON.parse(responseBody) : {};
+        } catch (error) {
+          reject(new Error(`invalid JSON from fake Telegram: ${error.message}: ${responseBody}`));
+          return;
+        }
+        if (res.statusCode < 200 || res.statusCode >= 300 || parsed.ok !== true) {
+          reject(new Error(`fake Telegram ${endpoint} failed: HTTP ${res.statusCode} ${JSON.stringify(parsed)}`));
+          return;
+        }
+        resolve(parsed.result);
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(30000, () => {
+      req.destroy(new Error("fake Telegram message API timed out"));
+    });
+    req.write(payload);
+    req.end();
+  });
+}
 
-set +e
-OPENCLAW_CONFIG_PATH="$mock_config" OPENCLAW_NO_COLOR=1 \
-  openclaw message send --channel telegram --target "$target" --message "$message" --json
-rc=$?
-rm -f "$mock_config"
-echo "__OPENCLAW_MESSAGE_SEND_EXIT__:$rc"
-SH
+async function main() {
+  const testApiPath = resolveTelegramTestApiPath();
+  if (!testApiPath) throw new Error("could not find installed OpenClaw Telegram test-api.js");
+
+  const { sendMessageTelegram } = await import(pathToFileURL(testApiPath).href);
+  if (typeof sendMessageTelegram !== "function") {
+    throw new Error("installed Telegram test API does not export sendMessageTelegram");
+  }
+
+  const cfg = JSON.parse(fs.readFileSync("/sandbox/.openclaw/openclaw.json", "utf8"));
+  const account = cfg.channels?.telegram?.accounts?.default;
+  if (!account?.botToken) throw new Error("missing channels.telegram.accounts.default.botToken in openclaw.json");
+
+  const target = decodeBase64(process.env.OPENCLAW_MESSAGE_TARGET_B64);
+  const text = decodeBase64(process.env.OPENCLAW_MESSAGE_TEXT_B64);
+  const token = account.botToken;
+  const api = {
+    sendMessage: (chatId, body, params = {}) => requestFakeTelegram("sendMessage", {
+      chat_id: chatId,
+      text: body,
+      ...params,
+    }, token),
+  };
+
+  const result = await sendMessageTelegram(target, text, {
+    cfg,
+    token,
+    accountId: "default",
+    api,
+  });
+
+  console.log(JSON.stringify({
+    ok: true,
+    proof: "openclaw-telegram-runtime-send",
+    chatId: result.chatId ?? target,
+    messageId: result.messageId ?? null,
+  }));
+}
+
+main()
+  .then(() => {
+    console.log("__OPENCLAW_MESSAGE_SEND_EXIT__:0");
+  })
+  .catch((error) => {
+    console.error(error.stack || error.message || String(error));
+    console.log("__OPENCLAW_MESSAGE_SEND_EXIT__:1");
+    process.exit(1);
+  });
+NODE
 }
 
 check_fake_telegram_capture_send() {

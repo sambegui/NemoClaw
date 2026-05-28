@@ -2453,9 +2453,9 @@ else
       tg_mock_capture=$(check_fake_telegram_capture_send "$TELEGRAM_TOKEN" "$telegram_mock_chat_id" "$telegram_mock_text" || true)
 
       if [ "$tg_mock_send_exit" = "0" ] && [ "$tg_mock_capture" = "OK" ]; then
-        pass "M19: Telegram openclaw message send succeeded through plugin against host mock"
+        pass "M19: Telegram installed OpenClaw send helper posted through host mock"
       elif [ "$tg_mock_send_exit" != "0" ]; then
-        fail "M19: Telegram OpenClaw mock message send failed: ${tg_mock_send_result:0:300}"
+        fail "M19: Telegram OpenClaw mock helper send failed: ${tg_mock_send_result:0:300}"
       else
         fail "M19: Fake Telegram did not capture the expected rewritten message: ${tg_mock_capture:0:300}"
       fi
