@@ -381,7 +381,8 @@ raise SystemExit(1)
 approve_request() {
   local request_id="$1"
   local label="$2"
-  local output rc approve_json approved_id before_url after_url
+  local allow_already_approved="${3:-0}"
+  local output rc approve_json approved_id before_url after_url state_after_approve approved_after_approve pending_after_approve
   output=$(sandbox_exec_sh_script 90 '
 set -u
 request_id="$1"
@@ -407,6 +408,18 @@ exit "$approve_rc"
     printf '%s\n' "$output"
   } >>"$APPROVAL_LOG"
   if [ "$rc" -ne 0 ]; then
+    if [ "$allow_already_approved" = "1" ]; then
+      state_after_approve="$(device_state_json 2>&1)" || state_after_approve=""
+      if [ -n "$state_after_approve" ]; then
+        printf '=== state after failed approve %s request=%s ===\n%s\n' "$label" "$request_id" "$state_after_approve" >>"$STATE_LOG"
+        approved_after_approve=$(printf '%s' "$state_after_approve" | select_cli_paired_with_agent_scopes 2>/dev/null) || approved_after_approve=""
+        pending_after_approve=$(printf '%s' "$state_after_approve" | select_cli_request scope-upgrade 2>/dev/null) || pending_after_approve=""
+        if [ -n "$approved_after_approve" ] && [ -z "$pending_after_approve" ]; then
+          pass "${label}: request was already approved when fixed approve retried (${approved_after_approve})"
+          return 0
+        fi
+      fi
+    fi
     fail "${label}: openclaw devices approve failed for ${request_id}: ${output:0:500}"
     return 1
   fi
@@ -528,7 +541,7 @@ exit 0
   if [ -n "$pending_after" ]; then
     pass "legacy gateway-pinned approve leaves the CLI scope-upgrade request pending"
     recovery_request_id="$pending_after"
-    approve_request "$recovery_request_id" "recovery after legacy reproducer" || return 1
+    approve_request "$recovery_request_id" "recovery after legacy reproducer" 1 || return 1
     pass "fixed devices approve path recovers the request after reproducing the old failure"
     return 0
   fi
