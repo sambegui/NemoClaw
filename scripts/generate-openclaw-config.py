@@ -35,7 +35,8 @@ Environment variables:
     NEMOCLAW_DISABLE_DEVICE_AUTH        Set to "1" to force-disable device auth
     NEMOCLAW_PROXY_HOST                 Egress proxy host (default: 10.200.0.1)
     NEMOCLAW_PROXY_PORT                 Egress proxy port (default: 3128)
-    NEMOCLAW_OPENCLAW_MANAGED_PROXY     Set to "0" to defer OpenClaw managed proxy config
+    NEMOCLAW_DISCORD_PROXY_PORT         Loopback proxy port for Discord (default: 3128)
+    OPENSHELL_LOOPBACK_PROXY_URL        OpenShell-managed sandbox loopback proxy URL
     NEMOCLAW_WEB_SEARCH_ENABLED         Set to "1" to enable web search tools
 """
 
@@ -58,7 +59,6 @@ MODEL_SETUP_EFFECT_KEYS = {
 DEFAULT_DASHBOARD_PORT = 18789
 MIN_DASHBOARD_PORT = 1024
 MAX_DASHBOARD_PORT = 65535
-FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 def _coerce_positive_int(env: dict, name: str, default: int) -> int:
@@ -95,11 +95,22 @@ def _normalize_url_for_parse(raw_url: str) -> str:
     return raw_url
 
 
-def _truthy_env_default(env: dict, name: str, default: bool) -> bool:
-    raw = env.get(name)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() not in FALSE_VALUES
+def _valid_loopback_http_proxy_url(raw_url: str) -> str:
+    value = (raw_url or "").strip()
+    if not value:
+        return ""
+    try:
+        normalized = _normalize_url_for_parse(value)
+        parsed = urlparse(normalized)
+        port = parsed.port
+    except ValueError:
+        return ""
+    if parsed.scheme != "http" or not parsed.hostname or not is_loopback(parsed.hostname):
+        return ""
+    hostname = parsed.hostname.lower()
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    port_suffix = f":{port}" if port is not None else ""
+    return f"http://{host}{port_suffix}"
 
 
 def _validate_dashboard_port(raw: str, env_name: str) -> int:
@@ -368,11 +379,15 @@ def build_config(env: dict | None = None) -> dict:
     proxy_host = env.get("NEMOCLAW_PROXY_HOST") or "10.200.0.1"
     proxy_port = env.get("NEMOCLAW_PROXY_PORT") or "3128"
     proxy_url = f"http://{proxy_host}:{proxy_port}"
-    emit_openclaw_managed_proxy = _truthy_env_default(
-        env,
-        "NEMOCLAW_OPENCLAW_MANAGED_PROXY",
-        True,
+    # OpenClaw's Discord channel accepts only loopback proxy URLs for REST and
+    # gateway traffic. Prefer OpenShell's managed loopback listener when
+    # present; keep NemoClaw's temporary loopback bridge as a compatibility
+    # fallback for older OpenShell releases.
+    openshell_loopback_proxy_url = _valid_loopback_http_proxy_url(
+        env.get("OPENSHELL_LOOPBACK_PROXY_URL") or ""
     )
+    discord_proxy_port = env.get("NEMOCLAW_DISCORD_PROXY_PORT") or proxy_port
+    discord_proxy_url = openshell_loopback_proxy_url or f"http://127.0.0.1:{discord_proxy_port}"
     model = env["NEMOCLAW_MODEL"]
     raw_chat_ui_url = env.get("CHAT_UI_URL") or ""
     chat_ui_url = raw_chat_ui_url or f"http://127.0.0.1:{DEFAULT_DASHBOARD_PORT}"
@@ -528,7 +543,9 @@ def build_config(env: dict | None = None) -> dict:
         }
         if ch == "slack":
             account["appToken"] = _placeholder(ch, "SLACK_APP_TOKEN")
-        if ch == "telegram":
+        if ch == "discord":
+            account["proxy"] = discord_proxy_url
+        elif ch == "telegram":
             account["proxy"] = proxy_url
         if ch == "telegram":
             account["groupPolicy"] = "open"
@@ -737,13 +754,6 @@ def build_config(env: dict | None = None) -> dict:
             "auth": {"token": ""},
         },
     }
-
-    if emit_openclaw_managed_proxy:
-        config["proxy"] = {
-            "enabled": True,
-            "proxyUrl": proxy_url,
-            "loopbackMode": "proxy",
-        }
 
     if env.get("NEMOCLAW_WEB_SEARCH_ENABLED", "") == "1":
         config["tools"] = {
