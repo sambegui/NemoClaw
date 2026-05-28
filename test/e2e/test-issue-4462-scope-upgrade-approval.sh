@@ -904,7 +904,7 @@ if [ "$TEST_MODE" != "approval" ]; then
 fi
 
 if [ -n "$scope_request_id" ]; then
-  approve_request "$scope_request_id" "CLI scope upgrade" || exit 1
+  approve_request "$scope_request_id" "CLI scope upgrade" 1 || exit 1
 else
   info "Skipping manual scope-upgrade approval because the auto-pair watcher already granted it"
 fi
