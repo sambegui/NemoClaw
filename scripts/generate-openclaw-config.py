@@ -713,6 +713,10 @@ def build_config(env: dict | None = None) -> dict:
         # registered an accountId under channels.openclaw-weixin.accounts.
         "openclaw-weixin": {"enabled": True},
     }
+    # Messaging channel plugins are enabled only when the channel was selected
+    # during onboard. The live messaging-providers nightly then proves the
+    # selected plugins are discoverable through OpenClaw, keep host credentials
+    # out of sandbox env/files, and use the OpenShell proxy/L7 rewrite path.
     plugin_entries.update(
         {ch: {"enabled": True} for ch in ("discord", "slack", "telegram", "whatsapp") if ch in _ch_cfg}
     )

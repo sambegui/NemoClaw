@@ -187,6 +187,71 @@ except Exception:
   fi
 }
 
+summarize_openclaw_config_activation() {
+  CHANNEL_JSON="$channel_json" PLUGIN_ENTRIES_JSON="$plugin_entries_json" python3 -c '
+import json
+import os
+
+channels_to_check = ("telegram", "discord", "slack", "whatsapp")
+try:
+    channels = json.loads(os.environ.get("CHANNEL_JSON", "{}"))
+    entries = json.loads(os.environ.get("PLUGIN_ENTRIES_JSON", "{}"))
+except json.JSONDecodeError as exc:
+    print("parse_error=%s" % exc.msg)
+    raise SystemExit(0)
+
+summary = []
+for channel in channels_to_check:
+    channel_entry = channels.get(channel, {})
+    plugin_entry = entries.get(channel, {})
+    summary.append(
+        "%s:channel=%s,plugin=%s"
+        % (
+            channel,
+            isinstance(channel_entry, dict) and channel_entry.get("enabled") is True,
+            isinstance(plugin_entry, dict) and plugin_entry.get("enabled") is True,
+        )
+    )
+print("; ".join(summary))
+' 2>/dev/null || printf 'unavailable'
+}
+
+summarize_openclaw_runtime_channels() {
+  printf '%s\n' "$openclaw_channels_list_json" | python3 -c '
+import json
+import sys
+
+channels_to_check = ("telegram", "discord", "slack", "whatsapp")
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print("parse_error=%s" % exc.msg)
+    raise SystemExit(0)
+
+chat = data.get("chat") if isinstance(data, dict) else None
+if not isinstance(chat, dict):
+    print("missing_chat")
+    raise SystemExit(0)
+
+summary = []
+for channel in channels_to_check:
+    entry = chat.get(channel)
+    if not isinstance(entry, dict):
+        summary.append("%s:missing" % channel)
+        continue
+    accounts = entry.get("accounts")
+    if isinstance(accounts, list):
+        account_ids = [str(item) for item in accounts if isinstance(item, str)]
+    else:
+        account_ids = ["<%s>" % type(accounts).__name__]
+    summary.append(
+        "%s:installed=%s,origin=%s,accounts=%s"
+        % (channel, entry.get("installed"), entry.get("origin"), ",".join(account_ids))
+    )
+print("; ".join(summary))
+' 2>/dev/null || printf 'unavailable'
+}
+
 assert_openclaw_runtime_channel() {
   local assertion_id="$1"
   local channel="$2"
@@ -203,37 +268,52 @@ channel = os.environ["CHANNEL"]
 expected = os.environ.get("ACCOUNT", "")
 try:
     data = json.load(sys.stdin)
-    entry = data.get("chat", {}).get(channel, {})
-    accounts = entry.get("accounts", [])
-    account_ids = []
-    if isinstance(accounts, dict):
-        account_ids = [str(key) for key in accounts.keys()]
-    elif isinstance(accounts, list):
-        for item in accounts:
-            if isinstance(item, str):
-                account_ids.append(item)
-            elif isinstance(item, dict):
-                value = item.get("accountId") or item.get("id") or item.get("name")
-                if value:
-                    account_ids.append(str(value))
-    installed = entry.get("installed") is True
-    configured = entry.get("origin") == "configured"
-    account_ok = not expected or expected in account_ids
-    if installed and configured and account_ok:
-        print("yes")
-    else:
-        print(
-            "no installed=%s origin=%s accounts=%s"
-            % (entry.get("installed"), entry.get("origin"), account_ids)
-        )
-except Exception as exc:
-    print("error %s" % exc)
+except json.JSONDecodeError as exc:
+    print("error invalid_json=%s" % exc.msg)
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print("no top_level_type=%s" % type(data).__name__)
+    raise SystemExit(0)
+
+chat = data.get("chat")
+if not isinstance(chat, dict):
+    print("no missing_chat")
+    raise SystemExit(0)
+
+entry = chat.get(channel)
+if not isinstance(entry, dict):
+    print("no missing_channel")
+    raise SystemExit(0)
+
+# OpenClaw `channels list --all --json` currently reports configured account
+# ids as a list of strings, for example: {"chat":{"slack":{"accounts":["default"]}}}.
+# Keep this strict so schema drift fails loudly instead of hiding a discovery
+# regression behind a permissive compatibility parser.
+accounts = entry.get("accounts")
+if not isinstance(accounts, list) or any(not isinstance(item, str) for item in accounts):
+    print(
+        "no installed=%s origin=%s accounts_shape=%s"
+        % (entry.get("installed"), entry.get("origin"), type(accounts).__name__)
+    )
+    raise SystemExit(0)
+
+installed = entry.get("installed") is True
+configured = entry.get("origin") == "configured"
+account_ok = not expected or expected in accounts
+if installed and configured and account_ok:
+    print("yes")
+else:
+    print(
+        "no installed=%s origin=%s accounts=%s"
+        % (entry.get("installed"), entry.get("origin"), accounts)
+    )
 ' 2>/dev/null || true)
 
   if [ "$runtime_state" = "yes" ]; then
     pass "${assertion_id}: OpenClaw channels list reports ${label} installed and configured"
   else
-    fail "${assertion_id}: OpenClaw channels list did not report ${label} installed/configured (${runtime_state}; output=${openclaw_channels_list_json:0:300})"
+    fail "${assertion_id}: OpenClaw channels list did not report ${label} installed/configured (${runtime_state}; summary=${openclaw_channels_summary:-unavailable})"
   fi
 }
 
@@ -961,15 +1041,20 @@ except Exception as e:
 if [ -z "$channel_json" ] || echo "$channel_json" | grep -q '"error"'; then
   fail "M6: Could not read openclaw.json channels (${channel_json:0:200})"
 else
-  info "Channel config: ${channel_json:0:300}"
+  info "OpenClaw channel activation summary: $(summarize_openclaw_config_activation)"
 
   assert_openclaw_config_activation "M6a" "telegram" "Telegram"
   assert_openclaw_config_activation "M6b" "discord" "Discord"
   assert_openclaw_config_activation "M6c" "slack" "Slack"
   assert_openclaw_config_activation "M6d" "whatsapp" "WhatsApp"
 
+  # This live nightly check intentionally uses OpenClaw's real runtime surface:
+  # config activation alone is not enough if the CLI still treats the channel as
+  # unavailable. Log only derived state; raw channel JSON may grow token/session
+  # fields in future OpenClaw releases.
   openclaw_channels_list_json=$(sandbox_exec "timeout 45 openclaw channels list --all --json --no-color 2>/dev/null" 2>/dev/null || true)
-  info "OpenClaw channels list JSON: ${openclaw_channels_list_json:0:500}"
+  openclaw_channels_summary="$(summarize_openclaw_runtime_channels)"
+  info "OpenClaw channels list summary: ${openclaw_channels_summary}"
   assert_openclaw_runtime_channel "M6e" "telegram" "Telegram" "default"
   assert_openclaw_runtime_channel "M6f" "discord" "Discord" "default"
   assert_openclaw_runtime_channel "M6g" "slack" "Slack" "default"
