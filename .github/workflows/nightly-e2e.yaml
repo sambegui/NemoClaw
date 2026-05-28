@@ -402,9 +402,9 @@ jobs:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
   # ── OpenClaw Scope-Upgrade Approval E2E (#4462) ────────────────
-  # Positive proof: in a real sandbox, approve a pending CLI scope upgrade
-  # through the proxy-env guard, then confirm openclaw agent still uses the
-  # gateway path rather than embedded fallback.
+  # Positive proof: in a real sandbox, accept either a visible pending CLI
+  # scope upgrade or the fixed watcher's immediate approval, then confirm
+  # openclaw agent still uses the gateway path rather than embedded fallback.
   issue-4462-scope-upgrade-approval-e2e:
     if: >-
       github.repository == 'NVIDIA/NemoClaw' && (github.event_name != 'workflow_dispatch' ||
@@ -428,9 +428,9 @@ jobs:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
   # ── OpenClaw Scope-Upgrade Deadlock Reproducer (#4462) ──────────
-  # Negative proof: in a real sandbox, force the old gateway-pinned approve
-  # path and verify the CLI scope-upgrade remains pending; then recover through
-  # the fixed proxy-env guard so the job can finish cleanly.
+  # Negative proof: in a real sandbox, wait for the fixed watcher to exit,
+  # force the old gateway-pinned approve path, verify the CLI scope-upgrade
+  # remains pending, then recover through the fixed proxy-env guard.
   issue-4462-scope-upgrade-deadlock-repro-e2e:
     if: >-
       github.repository == 'NVIDIA/NemoClaw' && (github.event_name != 'workflow_dispatch' ||
@@ -447,7 +447,7 @@ jobs:
         /tmp/nemoclaw-issue-4462-scope-upgrade-repro-approval.log
         /tmp/nemoclaw-issue-4462-scope-upgrade-repro-agent.log
         /tmp/nemoclaw-issue-4462-scope-upgrade-repro-state.log
-      env_json: '{"NEMOCLAW_4462_AGENT_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-agent.log","NEMOCLAW_4462_APPROVAL_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-approval.log","NEMOCLAW_4462_INSTALL_LOG":"/tmp/nemoclaw-e2e-issue-4462-scope-upgrade-repro-install.log","NEMOCLAW_4462_MODE":"legacy-repro","NEMOCLAW_4462_STATE_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-state.log","NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE":"1","NEMOCLAW_AUTO_PAIR_DEADLINE_SECS":"30","NEMOCLAW_AUTO_PAIR_FAST_DEADLINE_SECS":"3","NEMOCLAW_AUTO_PAIR_SLOW_INTERVAL_SECS":"600","NEMOCLAW_NON_INTERACTIVE":"1","NEMOCLAW_RECREATE_SANDBOX":"1","NEMOCLAW_SANDBOX_NAME":"e2e-issue-4462-scope-upgrade-repro"}'
+      env_json: '{"NEMOCLAW_4462_AGENT_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-agent.log","NEMOCLAW_4462_APPROVAL_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-approval.log","NEMOCLAW_4462_AUTO_PAIR_DEADLINE_SECS":"12","NEMOCLAW_4462_AUTO_PAIR_FAST_DEADLINE_SECS":"1","NEMOCLAW_4462_AUTO_PAIR_RUN_TIMEOUT_SECS":"2","NEMOCLAW_4462_AUTO_PAIR_SLOW_INTERVAL_SECS":"1","NEMOCLAW_4462_INSTALL_LOG":"/tmp/nemoclaw-e2e-issue-4462-scope-upgrade-repro-install.log","NEMOCLAW_4462_MODE":"legacy-repro","NEMOCLAW_4462_STATE_LOG":"/tmp/nemoclaw-issue-4462-scope-upgrade-repro-state.log","NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE":"1","NEMOCLAW_NON_INTERACTIVE":"1","NEMOCLAW_RECREATE_SANDBOX":"1","NEMOCLAW_SANDBOX_NAME":"e2e-issue-4462-scope-upgrade-repro"}'
       nvidia_api_key: true
       github_token: true
     secrets:
