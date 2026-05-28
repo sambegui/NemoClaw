@@ -19,11 +19,12 @@
 #   3. Credential isolation — real tokens never appear in sandbox env,
 #      process list, or filesystem
 #   4. Config patching — openclaw.json channels use placeholder values
-#   5. Telegram diagnostics — startup/credential breadcrumbs stay sanitized
-#   6. Network reachability — Node.js can reach messaging APIs through proxy
-#   7. Native Discord gateway path — WebSocket L7 path is tested hermetically
-#   8. L7 proxy rewriting — placeholder is rewritten to real token at egress
-#   9. WhatsApp QR-only parity — channel add/rebuild applies policy, bakes
+#   5. OpenClaw runtime discovery — channels list as installed/configured
+#   6. Telegram diagnostics — startup/credential breadcrumbs stay sanitized
+#   7. Network reachability — Node.js can reach messaging APIs through proxy
+#   8. Native Discord gateway path — WebSocket L7 path is tested hermetically
+#   9. L7 proxy rewriting — placeholder is rewritten to real token at egress
+#  10. WhatsApp QR-only parity — channel add/rebuild applies policy, bakes
 #      openclaw.json, creates no providers, and leaks no token placeholders
 #
 # Uses fake tokens by default (no external accounts needed). With fake tokens,
@@ -148,6 +149,92 @@ registry_array_contains() {
   local value
   value="$(registry_field "$field")"
   printf '%s' "$value" | grep -Fq "\"${item}\""
+}
+
+assert_openclaw_config_activation() {
+  local assertion_id="$1"
+  local channel="$2"
+  local label="$3"
+  local channel_enabled plugin_enabled
+
+  channel_enabled=$(printf '%s\n' "$channel_json" | CHANNEL="$channel" python3 -c '
+import json
+import os
+import sys
+try:
+    channels = json.load(sys.stdin)
+    entry = channels.get(os.environ["CHANNEL"], {})
+    print("true" if isinstance(entry, dict) and entry.get("enabled") is True else "false")
+except Exception:
+    print("error")
+' 2>/dev/null || true)
+  plugin_enabled=$(printf '%s\n' "$plugin_entries_json" | CHANNEL="$channel" python3 -c '
+import json
+import os
+import sys
+try:
+    entries = json.load(sys.stdin)
+    entry = entries.get(os.environ["CHANNEL"], {})
+    print("true" if isinstance(entry, dict) and entry.get("enabled") is True else "false")
+except Exception:
+    print("error")
+' 2>/dev/null || true)
+
+  if [ "$channel_enabled" = "true" ] && [ "$plugin_enabled" = "true" ]; then
+    pass "${assertion_id}: ${label} channel and plugin are explicitly enabled in openclaw.json"
+  else
+    fail "${assertion_id}: ${label} OpenClaw activation missing (channels.${channel}.enabled=${channel_enabled}, plugins.entries.${channel}.enabled=${plugin_enabled})"
+  fi
+}
+
+assert_openclaw_runtime_channel() {
+  local assertion_id="$1"
+  local channel="$2"
+  local label="$3"
+  local expected_account="${4:-default}"
+  local runtime_state
+
+  runtime_state=$(printf '%s\n' "$openclaw_channels_list_json" | CHANNEL="$channel" ACCOUNT="$expected_account" python3 -c '
+import json
+import os
+import sys
+
+channel = os.environ["CHANNEL"]
+expected = os.environ.get("ACCOUNT", "")
+try:
+    data = json.load(sys.stdin)
+    entry = data.get("chat", {}).get(channel, {})
+    accounts = entry.get("accounts", [])
+    account_ids = []
+    if isinstance(accounts, dict):
+        account_ids = [str(key) for key in accounts.keys()]
+    elif isinstance(accounts, list):
+        for item in accounts:
+            if isinstance(item, str):
+                account_ids.append(item)
+            elif isinstance(item, dict):
+                value = item.get("accountId") or item.get("id") or item.get("name")
+                if value:
+                    account_ids.append(str(value))
+    installed = entry.get("installed") is True
+    configured = entry.get("origin") == "configured"
+    account_ok = not expected or expected in account_ids
+    if installed and configured and account_ok:
+        print("yes")
+    else:
+        print(
+            "no installed=%s origin=%s accounts=%s"
+            % (entry.get("installed"), entry.get("origin"), account_ids)
+        )
+except Exception as exc:
+    print("error %s" % exc)
+' 2>/dev/null || true)
+
+  if [ "$runtime_state" = "yes" ]; then
+    pass "${assertion_id}: OpenClaw channels list reports ${label} installed and configured"
+  else
+    fail "${assertion_id}: OpenClaw channels list did not report ${label} installed/configured (${runtime_state}; output=${openclaw_channels_list_json:0:300})"
+  fi
 }
 
 # shellcheck source=test/e2e/lib/sandbox-teardown.sh
@@ -861,11 +948,32 @@ try:
 except Exception as e:
     print(json.dumps({'error': str(e)}))
 \"" 2>/dev/null || true)
+plugin_entries_json=$(sandbox_exec "python3 -c \"
+import json
+try:
+    cfg = json.load(open('/sandbox/.openclaw/openclaw.json'))
+    entries = cfg.get('plugins', {}).get('entries', {})
+    print(json.dumps(entries))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+\"" 2>/dev/null || true)
 
 if [ -z "$channel_json" ] || echo "$channel_json" | grep -q '"error"'; then
   fail "M6: Could not read openclaw.json channels (${channel_json:0:200})"
 else
   info "Channel config: ${channel_json:0:300}"
+
+  assert_openclaw_config_activation "M6a" "telegram" "Telegram"
+  assert_openclaw_config_activation "M6b" "discord" "Discord"
+  assert_openclaw_config_activation "M6c" "slack" "Slack"
+  assert_openclaw_config_activation "M6d" "whatsapp" "WhatsApp"
+
+  openclaw_channels_list_json=$(sandbox_exec "timeout 45 openclaw channels list --all --json --no-color 2>/dev/null" 2>/dev/null || true)
+  info "OpenClaw channels list JSON: ${openclaw_channels_list_json:0:500}"
+  assert_openclaw_runtime_channel "M6e" "telegram" "Telegram" "default"
+  assert_openclaw_runtime_channel "M6f" "discord" "Discord" "default"
+  assert_openclaw_runtime_channel "M6g" "slack" "Slack" "default"
+  assert_openclaw_runtime_channel "M6h" "whatsapp" "WhatsApp" "default"
 
   # M6: Telegram channel exists with a bot token
   # Note: non-root sandboxes cannot patch openclaw.json (chmod 444, root-owned).
