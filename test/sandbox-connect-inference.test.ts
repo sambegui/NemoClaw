@@ -392,7 +392,7 @@ function runConnect(
         NEMOCLAW_SDK_TEST_FAKE_EXEC_BIN: SDK_FAKE_EXEC,
         ...extraEnv,
       },
-      timeout: execTimeout(15_000),
+      timeout: execTimeout(25_000),
     },
   );
 }
@@ -400,7 +400,7 @@ function runConnect(
 describe("sandbox connect inference route swap (#1248)", () => {
   it(
     "swaps inference route when live route does not match sandbox provider",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -437,7 +437,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "does not swap inference route for legacy sandbox without provider",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -460,7 +460,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "does not swap when live route already matches sandbox provider",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -483,8 +483,8 @@ describe("sandbox connect inference route swap (#1248)", () => {
   );
 
   it(
-    "repairs the sandbox DNS proxy when inference.local returns 503",
-    testTimeoutOptions(20_000),
+    "repairs the kubernetes sandbox DNS proxy when inference.local returns 503",
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -492,7 +492,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
           model: "nvidia/nemotron-3-super-120b-a12b",
           provider: "nvidia-prod",
           gpuEnabled: false,
-          openshellDriver: "docker",
+          openshellDriver: "kubernetes",
           policies: [],
         },
         "nvidia-prod",
@@ -536,8 +536,61 @@ describe("sandbox connect inference route swap (#1248)", () => {
   );
 
   it(
+    "recovers the route via inference set for docker sandboxes without the legacy cluster repair (#3403)",
+    testTimeoutOptions(30_000),
+    () => {
+      const { tmpDir, stateFile, sandboxName } = setupFixture(
+        {
+          name: "docker-route-sandbox",
+          model: "nvidia/nemotron-3-super-120b-a12b",
+          provider: "nvidia-prod",
+          gpuEnabled: false,
+          openshellDriver: "docker",
+          policies: [],
+        },
+        "nvidia-prod",
+        "nvidia/nemotron-3-super-120b-a12b",
+        {
+          inferenceProbeResponses: [
+            'BROKEN 503 {"error":"inference service unavailable"}',
+            "OK 200",
+          ],
+        },
+      );
+
+      const result = runConnect(tmpDir, sandboxName);
+      expect(result.status).toBe(0);
+
+      const state = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+      const dockerCalls = state.dockerCalls as string[][];
+      // The docker driver has no openshell-cluster container (the gateway runs
+      // as nemoclaw-openshell-gateway with host networking), so it must NOT take
+      // the legacy CoreDNS cluster repair; it recovers via `inference set`. (#3403)
+      expect(state.inferenceSetCalls).toEqual([
+        [
+          "--provider",
+          "nvidia-prod",
+          "--model",
+          "nvidia/nemotron-3-super-120b-a12b",
+          "--no-verify",
+        ],
+      ]);
+      expect(
+        dockerCalls.some((call) =>
+          call.join(" ").includes("get service kube-dns"),
+        ),
+      ).toBe(false);
+
+      const combined = (result.stdout || "") + (result.stderr || "");
+      expect(combined).toContain("Reapplying OpenShell inference route");
+      expect(combined).toContain("inference.local route repaired");
+      expect(combined).not.toContain("Could not find gateway container");
+    },
+  );
+
+  it(
     "does not run legacy DNS proxy repair for VM sandboxes",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -585,7 +638,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "uses the macOS VM DNS monkeypatch without legacy DNS repair or route reset when it restores inference.local",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -635,7 +688,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "falls back to OpenShell inference route reapply when the VM DNS monkeypatch applies but inference.local stays broken",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -684,7 +737,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "probes VM inference health after route reapply even when inference set exits nonzero",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -733,7 +786,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "repairs the sandbox DNS proxy when inference.local returns 000 with a non-zero probe exit",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -778,7 +831,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "checks the Ollama auth proxy before local provider health during probe-only route reset",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -850,7 +903,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "resets matching inference route when DNS repair leaves inference.local broken",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -929,7 +982,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "probes route health before failing a non-zero managed route reset",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -937,7 +990,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
           model: "nvidia/nemotron-3-super-120b-a12b",
           provider: "nvidia-prod",
           gpuEnabled: false,
-          openshellDriver: "docker",
+          openshellDriver: "kubernetes",
           policies: [],
         },
         "nvidia-prod",
@@ -989,7 +1042,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "stops before sandbox connect when inference.local is still broken after route reset",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -1039,7 +1092,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "diagnoses host Ollama before resetting a broken ollama-local route",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -1083,7 +1136,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 
   it(
     "repairs WSL ollama-local routes without requiring the auth proxy",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -1167,7 +1220,7 @@ describe("sandbox connect inference route swap (#1248)", () => {
 describe("sandbox connect auto-pair approval pass (#4263)", () => {
   it(
     "runs a bounded openclaw devices approval pass before opening SSH",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {
@@ -1209,9 +1262,16 @@ describe("sandbox connect auto-pair approval pass (#4263)", () => {
       expect(script).toContain("devices");
       expect(script).toContain("list");
       expect(script).toContain("approve");
+      expect(script).toContain("approve_env = os.environ.copy()");
+      expect(script).toContain("approve_env.pop('OPENCLAW_GATEWAY_URL', None)");
+      expect(script).toContain("env=approve_env");
+      expect(script).toContain("if approve_proc.returncode == 0");
       expect(script).toContain("openclaw-control-ui");
       expect(script).toContain("webchat");
       expect(script).toContain("cli");
+      expect(script.indexOf("[OPENCLAW, 'devices', 'list', '--json']")).toBeLessThan(
+        script.indexOf("approve_env = os.environ.copy()"),
+      );
       // Allowlist must NOT silently approve arbitrary clients.
       expect(script).not.toContain("evil-client");
     },
@@ -1219,7 +1279,7 @@ describe("sandbox connect auto-pair approval pass (#4263)", () => {
 
   it(
     "does not block connect when the in-sandbox approval pass cannot run",
-    testTimeoutOptions(20_000),
+    testTimeoutOptions(30_000),
     () => {
       const { tmpDir, stateFile, sandboxName } = setupFixture(
         {

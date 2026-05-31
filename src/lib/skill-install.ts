@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Skill install logic for `nemoclaw <sandbox> skill install <path>`.
+// Skill install/remove logic for `nemoclaw <sandbox> skill install <path>`
+// and `nemoclaw <sandbox> skill remove <name>`.
 // Validates a local SKILL.md, uploads it to the sandbox via OpenShell SDK, and
 // performs agent-specific post-install steps (session refresh for
 // OpenClaw). Non-OpenClaw agents get a "restart gateway" hint until a
@@ -13,8 +14,22 @@ import path from "node:path";
 // yaml is a production dependency (used by policies.ts, onboard.ts)
 import YAML from "yaml";
 
-import { execInputStreamSync, execTextSync } from "./adapters/openshell/grpc";
 import { isRecord } from "./core/json-types";
+import { validateSkillName } from "./skill-name";
+import { shellQuote, sshExec } from "./skill-remote";
+import type { SshContext, SshResult } from "./skill-remote";
+
+export { validateSkillName } from "./skill-name";
+export {
+  checkExisting,
+  type RemoveResult,
+  removeSkill,
+  shellQuote,
+  sshExec,
+  type SshContext,
+  type SshResult,
+  verifyRemove,
+} from "./skill-remote";
 
 // ── Frontmatter parsing ──────────────────────────────────────────
 
@@ -67,9 +82,9 @@ export function parseFrontmatter(content: string): SkillFrontmatter {
     throw new Error("SKILL.md frontmatter is missing required 'name' field");
   }
 
-  if (!/^[A-Za-z0-9._-]+$/.test(nameValue)) {
+  if (!validateSkillName(nameValue)) {
     throw new Error(
-      `SKILL.md name '${nameValue}' contains invalid characters. Only [A-Za-z0-9._-] allowed.`,
+      `SKILL.md name '${nameValue}' is invalid. Use [A-Za-z0-9._-] and do not use '.' or '..'.`,
     );
   }
 
@@ -81,6 +96,8 @@ export function parseFrontmatter(content: string): SkillFrontmatter {
 export interface SkillPaths {
   /** Upload target directory for the skill */
   uploadDir: string;
+  /** OpenClaw-only mirror directory under the remote home dir, or null */
+  mirrorDir: string | null;
   /** OpenClaw-only: session index to clear, or null */
   sessionFile: string | null;
   /** Whether the agent is OpenClaw (drives refresh behavior) */
@@ -105,18 +122,13 @@ export function resolveSkillPaths(
 
   return {
     uploadDir,
+    mirrorDir: isOpenClaw ? `$HOME/.openclaw/skills/${skillName}` : null,
     sessionFile: isOpenClaw ? `${dir}/agents/main/sessions/sessions.json` : null,
     isOpenClaw,
   };
 }
 
 // ── Shell safety ─────────────────────────────────────────────────
-
-// Re-export shellQuote from runner.ts — a repo-wide test enforces
-// a single definition lives in runner.ts.
-const { shellQuote } = require("./runner");
-
-export { shellQuote };
 
 const SAFE_PATH_RE = /^[A-Za-z0-9._\-/]+$/;
 
@@ -131,52 +143,7 @@ export function validateRelativePath(rel: string): boolean {
   return segments.every((s) => s !== "" && s !== ".." && s !== ".");
 }
 
-// ── Sandbox gRPC exec helpers ────────────────────────────────────
-
-export interface SshContext {
-  /** @deprecated retained for test fixtures that still construct the old SSH context shape. */
-  configFile?: string;
-  sandboxName: string;
-}
-
-export interface SshResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Run a command in the sandbox with optional stdin content.
- */
-export function sshExec(
-  ctx: SshContext,
-  command: string,
-  opts: { input?: string | Buffer; timeout?: number } = {},
-): SshResult | null {
-  try {
-    const timeoutMs = opts.timeout ?? 30_000;
-    const result =
-      opts.input === undefined
-        ? execTextSync(ctx.sandboxName, ["sh", "-c", command], { timeoutMs })
-        : (() => {
-            const streamed = execInputStreamSync(ctx.sandboxName, ["sh", "-c", command], opts.input, {
-              timeoutMs,
-            });
-            return {
-              status: streamed.status,
-              stdout: streamed.stdout.toString("utf-8"),
-              stderr: streamed.stderr.toString("utf-8"),
-            };
-          })();
-    return {
-      status: result.status,
-      stdout: result.stdout.trim(),
-      stderr: result.stderr.trim(),
-    };
-  } catch {
-    return null;
-  }
-}
+// ── Upload helpers ───────────────────────────────────────────────
 
 /**
  * Upload a file to the sandbox by piping its content through gRPC stdin.
@@ -288,15 +255,6 @@ export function postInstall(
   }
 
   return { success: true, messages };
-}
-
-/**
- * Check whether a skill already exists on the sandbox at the upload path.
- */
-export function checkExisting(ctx: SshContext, paths: SkillPaths): boolean {
-  const target = shellQuote(`${paths.uploadDir}/SKILL.md`);
-  const result = sshExec(ctx, `test -f ${target} && echo EXISTS`);
-  return result !== null && result.stdout === "EXISTS";
 }
 
 /**

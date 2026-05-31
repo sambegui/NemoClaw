@@ -12,6 +12,8 @@ const PRODUCTION_TARGETS = [
   "src/lib/actions/sandbox",
   "src/lib/state/sandbox.ts",
   "src/lib/skill-install.ts",
+  "src/lib/skill-remote.ts",
+  "src/lib/onboard/agent-fixed-forward.ts",
   "src/lib/onboard/dashboard.ts",
   "src/lib/onboard/dashboard-access.ts",
   "src/lib/onboard/sandbox-verification-exec.ts",

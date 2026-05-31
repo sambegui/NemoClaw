@@ -135,6 +135,52 @@ describe("onboard dashboard helpers", () => {
     }
   });
 
+  it("starts a fixed extra agent forward without stopping other sandboxes", () => {
+    const originalHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-agent-fixed-forward-"));
+    process.env.HOME = home;
+    const runOpenshell = vi.fn((_args: string[], _opts?: Record<string, unknown>) => ({
+      status: 0,
+    }));
+    const runCaptureOpenshell = vi.fn(() => "hermes-sandbox 127.0.0.1 9119 123 running");
+    const openshellArgv = vi.fn((args: string[]) => [process.execPath, "-e", "", ...args]);
+    const helpers = createOnboardDashboardHelpers({
+      runOpenshell,
+      runCaptureOpenshell,
+      openshellArgv,
+      cliName: () => "nemohermes",
+      agentProductName: () => "NemoHermes",
+      getProviderLabel: (provider: string) => provider,
+      note: vi.fn(),
+      isWsl: () => false,
+      redact: (value: unknown) => String(value),
+      sleep: vi.fn(),
+      printAgentDashboardUi: vi.fn(),
+    });
+
+    vi.stubEnv("NEMOCLAW_DASHBOARD_BIND", "0.0.0.0");
+    try {
+      expect(helpers.ensureAgentFixedForward("hermes-sandbox", 9119, "Hermes dashboard")).toBe(
+        true,
+      );
+      expect(listForwardStates()).toMatchObject([
+        {
+          sandboxName: "hermes-sandbox",
+          bind: "0.0.0.0",
+          port: 9119,
+          targetPort: 9119,
+        },
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+      process.env.HOME = originalHome;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+    expect(runOpenshell).not.toHaveBeenCalled();
+    expect(runCaptureOpenshell).not.toHaveBeenCalled();
+    expect(openshellArgv).not.toHaveBeenCalled();
+  });
+
   it("prints the dashboard-url command instead of raw gateway-token guidance", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const nimStatus = vi.fn(() => ({ running: false, container: "nemoclaw-nim-test" }));

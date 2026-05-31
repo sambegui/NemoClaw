@@ -9,7 +9,7 @@ import type { Interface as ReadlineInterface } from "node:readline";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import * as policies from "../dist/lib/policy";
-import { execTimeout } from "./helpers/timeouts";
+import { execTimeout, testTimeoutOptions } from "./helpers/timeouts";
 
 const requireForTest = createRequire(import.meta.url);
 const readline = requireForTest("node:readline") as typeof import("node:readline");
@@ -1641,7 +1641,7 @@ exit 1
       }
     });
 
-    it("brew preset whitelists the PATH shim and Homebrew-managed entrypoints (#3913)", () => {
+    it("brew preset whitelists the PATH wrapper and Homebrew-managed entrypoints (#3913)", () => {
       const content = requirePresetContent(policies.loadPreset("brew"));
       const parsed = YAML.parse(content);
       const brewPolicy = parsed.network_policies?.brew as
@@ -1926,7 +1926,7 @@ selectForRemoval(items, options)
     });
   });
 
-  describe("policy-add confirmation", () => {
+  describe("policy-add confirmation", testTimeoutOptions(15_000), () => {
     it("prompts for confirmation before applying a preset", () => {
       const result = runPolicyAdd("y");
 

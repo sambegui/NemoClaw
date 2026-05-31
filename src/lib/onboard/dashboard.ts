@@ -1,19 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AgentDefinition } from "../agent/defs";
-import * as agentRuntime from "../agent/runtime";
-import { DASHBOARD_PORT } from "../core/ports";
-import { buildChain, buildControlUiUrls } from "../dashboard/contract";
-import * as nim from "../inference/nim";
-import { runCapture as defaultRunCapture } from "../runner";
-import * as registry from "../state/registry";
-import * as dashboardAccess from "./dashboard-access";
-import {
-  findAvailableDashboardPort,
-  getOccupiedPorts,
-  isLiveForwardStatus,
-} from "./dashboard-port";
 import { OPENSHELL_PROBE_TIMEOUT_MS } from "../adapters/openshell/timeouts";
 import { execBinaryStreamSync } from "../adapters/openshell/grpc";
 import {
@@ -22,6 +9,20 @@ import {
   stopAllForwardBridges,
   stopForwardBridge,
 } from "../adapters/openshell/forward-bridge-state";
+import type { AgentDefinition } from "../agent/defs";
+import * as agentRuntime from "../agent/runtime";
+import { DASHBOARD_PORT } from "../core/ports";
+import { buildChain, buildControlUiUrls } from "../dashboard/contract";
+import * as nim from "../inference/nim";
+import { runCapture as defaultRunCapture } from "../runner";
+import * as registry from "../state/registry";
+import { ensureAgentFixedForward as ensureFixedAgentForward } from "./agent-fixed-forward";
+import * as dashboardAccess from "./dashboard-access";
+import {
+  findAvailableDashboardPort,
+  getOccupiedPorts,
+  isLiveForwardStatus,
+} from "./dashboard-port";
 import {
   getProtectedDashboardPortsForSandbox,
   stopStaleDashboardListeners,
@@ -77,6 +78,7 @@ export interface OnboardDashboardHelpers {
     sandboxName: string,
     agent: { forwardPort?: number | null },
   ): number;
+  ensureAgentFixedForward(sandboxName: string, port: number, label: string): boolean;
   fetchGatewayAuthTokenFromSandbox(sandboxName: string): string | null;
   getDashboardForwardPort(
     chatUiUrl?: string,
@@ -360,6 +362,10 @@ export function createOnboardDashboardHelpers(deps: OnboardDashboardDeps): Onboa
     return actualAgentDashboardPort;
   }
 
+  function ensureAgentFixedForward(sandboxName: string, port: number, label: string): boolean {
+    return ensureFixedAgentForward(deps, sandboxName, port, label);
+  }
+
   function fetchGatewayAuthTokenFromSandbox(sandboxName: string): string | null {
     try {
       const result = execBinaryStreamSync(
@@ -470,6 +476,7 @@ export function createOnboardDashboardHelpers(deps: OnboardDashboardDeps): Onboa
     buildOrphanedSandboxRollbackMessage,
     ensureDashboardForward,
     ensureAgentDashboardForward,
+    ensureAgentFixedForward,
     fetchGatewayAuthTokenFromSandbox,
     getDashboardForwardPort,
     getDashboardForwardTarget,

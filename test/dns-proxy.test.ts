@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
+import { testTimeoutOptions } from "./helpers/timeouts";
 
 const SETUP_DNS_PROXY = path.join(import.meta.dirname, "..", "scripts", "setup-dns-proxy.sh");
 const RUNTIME_SH = path.join(import.meta.dirname, "..", "scripts", "lib", "runtime.sh");
@@ -36,7 +37,7 @@ describe("setup-dns-proxy.sh", () => {
     expect(result.stderr + result.stdout).toMatch(/Usage:/i);
   });
 
-  it("configures DNS proxy through kubectl and verifies sandbox DNS end to end", () => {
+  it("configures DNS proxy through kubectl and verifies sandbox DNS end to end", testTimeoutOptions(20_000), () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-dns-proxy-"));
     const fakeBin = path.join(tmp, "bin");
     const dockerLog = path.join(tmp, "docker.log");

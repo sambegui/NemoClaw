@@ -1,14 +1,25 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  checkAndRecoverSandboxProcesses,
   classifyForwardHealthWithReachability,
   classifySandboxForwardHealth,
   resolveSandboxDashboardPort,
   type SandboxForwardListEntry,
 } from "../dist/lib/actions/sandbox/process-recovery.js";
+
+const requireDist = createRequire(import.meta.url);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("resolveSandboxDashboardPort", () => {
   it("uses the recorded OpenClaw dashboard port for multi-sandbox recovery", () => {
@@ -141,5 +152,67 @@ describe("classifyForwardHealthWithReachability", () => {
         () => true,
       ),
     ).toBe("occupied");
+  });
+});
+
+describe("checkAndRecoverSandboxProcesses", () => {
+  it("re-establishes a missing dashboard forward through tracked SDK state", () => {
+    const agentRuntime = requireDist("../dist/lib/agent/runtime.js");
+    const registry = requireDist("../dist/lib/state/registry.js");
+    const forwardHealth = requireDist("../dist/lib/actions/sandbox/forward-health.js");
+    const forwardBridge = requireDist("../dist/lib/adapters/openshell/forward-bridge-state.js");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-sdk-forward-recovery-"));
+    const fakeExec = path.join(dir, "fake-sdk-exec.cjs");
+    const previousHome = process.env.HOME;
+    const previousTransport = process.env.NEMOCLAW_SDK_TEST_TRANSPORT;
+    const previousFakeExec = process.env.NEMOCLAW_SDK_TEST_FAKE_EXEC_BIN;
+    fs.writeFileSync(
+      fakeExec,
+      [
+        "#!/usr/bin/env node",
+        "process.stdout.write(JSON.stringify({",
+        "  status: 0,",
+        "  stdout: '__NEMOCLAW_SANDBOX_EXEC_STARTED__\\nRUNNING\\n',",
+        "  stderr: ''",
+        "}));",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    try {
+      process.env.HOME = dir;
+      process.env.NEMOCLAW_SDK_TEST_TRANSPORT = "1";
+      process.env.NEMOCLAW_SDK_TEST_FAKE_EXEC_BIN = fakeExec;
+      vi.spyOn(agentRuntime, "getSessionAgent").mockReturnValue(null);
+      vi.spyOn(registry, "getSandbox").mockReturnValue({
+        name: "beta",
+        agent: "openclaw",
+        dashboardPort: 18789,
+      });
+      vi.spyOn(forwardHealth, "isLocalForwardReachable").mockReturnValue(false);
+
+      expect(checkAndRecoverSandboxProcesses("beta", { quiet: true })).toEqual({
+        checked: true,
+        wasRunning: true,
+        recovered: false,
+        forwardRecovered: true,
+      });
+      expect(forwardBridge.listForwardStates()).toMatchObject([
+        {
+          sandboxName: "beta",
+          bind: "127.0.0.1",
+          port: 18789,
+          targetPort: 18789,
+        },
+      ]);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousTransport === undefined) delete process.env.NEMOCLAW_SDK_TEST_TRANSPORT;
+      else process.env.NEMOCLAW_SDK_TEST_TRANSPORT = previousTransport;
+      if (previousFakeExec === undefined) delete process.env.NEMOCLAW_SDK_TEST_FAKE_EXEC_BIN;
+      else process.env.NEMOCLAW_SDK_TEST_FAKE_EXEC_BIN = previousFakeExec;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
