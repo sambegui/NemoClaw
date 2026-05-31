@@ -147,6 +147,44 @@ sys.exit(1)
 PY
 }
 
+nemoclaw_forward_state_list() {
+  python3 <<'PY'
+import json
+import os
+
+state_dir = os.path.join(os.path.expanduser("~"), ".nemoclaw", "forwards")
+print("SANDBOX BIND PORT PID STATUS")
+try:
+    names = sorted(os.listdir(state_dir))
+except OSError:
+    raise SystemExit(0)
+
+for name in names:
+    if not name.endswith(".json"):
+        continue
+    try:
+        with open(os.path.join(state_dir, name), encoding="utf-8") as fh:
+            state = json.load(fh)
+    except Exception:
+        continue
+    sandbox = state.get("sandboxName")
+    bind = state.get("bind")
+    port = state.get("port")
+    pid = state.get("pid")
+    if not isinstance(sandbox, str) or not isinstance(bind, str):
+        continue
+    if not isinstance(port, int) or not isinstance(pid, int) or pid <= 0:
+        continue
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        continue
+    except PermissionError:
+        pass
+    print(f"{sandbox} {bind} {port} {pid} running")
+PY
+}
+
 # Determine repo root
 if [ -d /workspace ] && [ -f /workspace/install.sh ]; then
   REPO="/workspace"
@@ -534,18 +572,22 @@ PY
     fail "Registry did not record Hermes dashboard metadata: ${registry_check:0:240}"
   fi
 
-  forward_list=$(openshell forward list 2>&1 || true)
-  if forward_list_has_running_port "$SANDBOX_NAME" "8642" "$forward_list"; then
-    pass "OpenShell forward list shows Hermes API port 8642 running"
+  forward_state_list=$(nemoclaw_forward_state_list 2>&1 || true)
+  if forward_list_has_running_port "$SANDBOX_NAME" "8642" "$forward_state_list"; then
+    pass "NemoClaw forward state shows Hermes API port 8642 running"
   else
-    fail "OpenShell forward list does not show Hermes API port 8642 running"
-    info "forward list: ${forward_list:0:300}"
+    fail "NemoClaw forward state does not show Hermes API port 8642 running"
+    info "NemoClaw forward state: ${forward_state_list:0:300}"
+    legacy_forward_list=$(openshell forward list 2>&1 || true)
+    info "OpenShell forward list: ${legacy_forward_list:0:300}"
   fi
-  if forward_list_has_running_port "$SANDBOX_NAME" "$HERMES_DASHBOARD_PORT" "$forward_list"; then
-    pass "OpenShell forward list shows Hermes dashboard port ${HERMES_DASHBOARD_PORT} running"
+  if forward_list_has_running_port "$SANDBOX_NAME" "$HERMES_DASHBOARD_PORT" "$forward_state_list"; then
+    pass "NemoClaw forward state shows Hermes dashboard port ${HERMES_DASHBOARD_PORT} running"
   else
-    fail "OpenShell forward list does not show Hermes dashboard port ${HERMES_DASHBOARD_PORT} running"
-    info "forward list: ${forward_list:0:300}"
+    fail "NemoClaw forward state does not show Hermes dashboard port ${HERMES_DASHBOARD_PORT} running"
+    info "NemoClaw forward state: ${forward_state_list:0:300}"
+    legacy_forward_list=$(openshell forward list 2>&1 || true)
+    info "OpenShell forward list: ${legacy_forward_list:0:300}"
   fi
 
   dashboard_body="$(mktemp)"

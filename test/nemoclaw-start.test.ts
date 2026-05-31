@@ -926,6 +926,37 @@ describe("nemoclaw-start configure guard behavior", () => {
     }
   });
 
+  it("#4462: retries replacement scope-upgrade request ids from devices approve", () => {
+    const setup = writeProxyEnvWithGuard();
+    try {
+      fs.writeFileSync(
+        path.join(setup.fakeBin, "openclaw"),
+        `#!/usr/bin/env bash
+printf 'ARGS=%s URL=%s\\n' "$*" "\${OPENCLAW_GATEWAY_URL-unset}" >> ${JSON.stringify(setup.commandLog)}
+if [ "\${1:-}" = "devices" ] && [ "\${2:-}" = "approve" ] && [ "\${3:-}" = "request-1" ]; then
+  printf 'gateway connect failed: GatewayClientRequestError: scope upgrade pending approval (requestId: request-2)\\n'
+  printf 'unknown requestId\\n'
+  exit 1
+fi
+printf '{"requestId":"%s"}\\n' "\${3:-}"
+exit 0
+`,
+        { mode: 0o755 },
+      );
+
+      const result = runGuardedOpenclaw(setup, ["devices", "approve", "request-1", "--json"]);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('"requestId":"request-2"');
+      expect(fs.readFileSync(setup.commandLog, "utf-8").trim().split("\n")).toEqual([
+        "ARGS=devices approve request-1 --json URL=unset",
+        "ARGS=devices approve request-2 --json URL=unset",
+      ]);
+    } finally {
+      fs.rmSync(setup.tmpDir, { recursive: true, force: true });
+    }
+  });
+
   // #2592 reported the guard did not fire for `openclaw channels add telegram`
   // and `openclaw channels remove telegram` from inside the sandbox. The
   // existing test above only exercises `add slack`. Lock in coverage for every

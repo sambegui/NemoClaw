@@ -1869,7 +1869,30 @@ openclaw() {
   # upgrades through the gateway without requesting the upgraded scopes for
   # the approval command itself. Other commands keep OPENCLAW_GATEWAY_URL.
   if [ "${1:-}" = "devices" ] && [ "${2:-}" = "approve" ]; then
-    ( unset OPENCLAW_GATEWAY_URL; command openclaw "$@" )
+    (
+      _nemoclaw_approve_request_id="${3:-}"
+      unset OPENCLAW_GATEWAY_URL
+      _nemoclaw_approve_output="$(command openclaw "$@" 2>&1)"
+      _nemoclaw_approve_rc=$?
+      if [ "$_nemoclaw_approve_rc" -ne 0 ] && [ -n "$_nemoclaw_approve_request_id" ]; then
+        _nemoclaw_replacement_request_id="$(
+          printf '%s\n' "$_nemoclaw_approve_output" \
+            | sed -nE 's/.*scope upgrade pending approval \(requestId: ([A-Za-z0-9_-]+)\).*/\1/p' \
+            | tail -1
+        )"
+        if [ -n "$_nemoclaw_replacement_request_id" ] \
+          && [ "$_nemoclaw_replacement_request_id" != "$_nemoclaw_approve_request_id" ] \
+          && printf '%s\n' "$_nemoclaw_approve_output" | grep -Fq "unknown requestId"; then
+          shift 3
+          command openclaw devices approve "$_nemoclaw_replacement_request_id" "$@"
+          exit $?
+        fi
+      fi
+      if [ -n "$_nemoclaw_approve_output" ]; then
+        printf '%s\n' "$_nemoclaw_approve_output"
+      fi
+      exit "$_nemoclaw_approve_rc"
+    )
     return $?
   fi
   case "$1" in

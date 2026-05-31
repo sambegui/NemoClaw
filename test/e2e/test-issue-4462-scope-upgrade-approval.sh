@@ -432,6 +432,18 @@ exit "$approve_rc"
   fi
   approved_id=$(printf '%s' "$approve_json" | json_field requestId)
   if [ "$approved_id" != "$request_id" ]; then
+    if [ "$allow_already_approved" = "1" ] && [ -n "$approved_id" ]; then
+      state_after_approve="$(device_state_json 2>&1)" || state_after_approve=""
+      if [ -n "$state_after_approve" ]; then
+        printf '=== state after replacement approve %s request=%s approved=%s ===\n%s\n' "$label" "$request_id" "$approved_id" "$state_after_approve" >>"$STATE_LOG"
+        approved_after_approve=$(printf '%s' "$state_after_approve" | select_cli_paired_with_agent_scopes 2>/dev/null) || approved_after_approve=""
+        pending_after_approve=$(printf '%s' "$state_after_approve" | select_cli_request scope-upgrade 2>/dev/null) || pending_after_approve=""
+        if [ -n "$approved_after_approve" ] && [ -z "$pending_after_approve" ]; then
+          pass "${label}: openclaw devices approve ${request_id} --json succeeded via replacement request ${approved_id}"
+          return 0
+        fi
+      fi
+    fi
     fail "${label}: approve returned requestId=${approved_id:-empty}, expected ${request_id}"
     return 1
   fi
