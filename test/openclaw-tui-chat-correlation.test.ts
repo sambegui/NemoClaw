@@ -530,25 +530,30 @@ function looksLikeEventCaptureFailure(repro: LiveIssue2603Trace): boolean {
   if (repro.error || !Array.isArray(repro.sentRuns) || !Array.isArray(repro.events)) return false;
 
   const analysis = analyzeIssue2603Trace(repro);
+  // Widen to cover partial missing-reply scenarios (not just the zero-event
+  // capture race): the LLM may time out on one of the rapid-fire prompts without
+  // producing any correlation/duplication defects.  Retrying once is cheap and
+  // avoids flaking the nightly for a transient LLM non-response.
   return (
     repro.sentRuns.length === 3 &&
-    analysis.chatEvents.length === 0 &&
+    analysis.missingReplies.length > 0 &&
     analysis.emptyFinalsForSubmittedRuns.length === 0 &&
     analysis.duplicateReplies.length === 0 &&
-    analysis.uncorrelatedReplies.length === 0 &&
-    analysis.missingReplies.length === repro.sentRuns.length
+    analysis.uncorrelatedReplies.length === 0
   );
 }
 
-// The zero-chat-events failure is an observability race at the live repro boundary:
-// OpenClaw accepts the chat.send requests, but this websocket client captures no
-// chat stream events before assertions. The source boundary is the pinned
-// OpenClaw 2026.5.x gateway/websocket runtime inside the sandbox, so this
-// NemoClaw-side E2E can only keep the #2603/#3145 correlation assertions stable
-// while preserving signal for real empty-final, duplicate-turn, and
+// The missing-reply failure is an observability race at the live repro boundary:
+// OpenClaw accepts the chat.send requests, but this websocket client may capture
+// no or only partial chat stream events before assertions. This can manifest as
+// zero events (complete capture failure) or as some replies arriving while others
+// time out (partial capture failure / LLM non-response). The source boundary is
+// the pinned OpenClaw 2026.5.x gateway/websocket runtime inside the sandbox, so
+// this NemoClaw-side E2E can only keep the #2603/#3145 correlation assertions
+// stable while preserving signal for real empty-final, duplicate-turn, and
 // uncorrelated-reply regressions. Remove this retry when OpenClaw exposes a
 // deterministic chat subscription/readiness acknowledgement or the 10x nightly
-// sweep no longer shows the zero-event capture signature without this guard.
+// sweep no longer shows the missing-reply capture signature without this guard.
 function runLiveIssue2603ReproWithEventCaptureRetry(sandboxName: string): LiveIssue2603Run {
   const attempts: LiveIssue2603Trace[] = [];
   let repro = runLiveIssue2603Repro(sandboxName);
@@ -556,7 +561,7 @@ function runLiveIssue2603ReproWithEventCaptureRetry(sandboxName: string): LiveIs
 
   if (looksLikeEventCaptureFailure(repro)) {
     console.warn(
-      "ISSUE2603_RETRY captured zero chat events after accepted sends; retrying with a fresh session",
+      "ISSUE2603_RETRY missing replies without correlation bugs; retrying with a fresh session",
     );
     repro = runLiveIssue2603Repro(sandboxName);
     attempts.push(repro);
@@ -647,7 +652,8 @@ describe("OpenClaw TUI chat correlation regression (#2603)", () => {
     expect(analysis.uncorrelatedReplies).toEqual([]);
   });
 
-  it("only retries the live repro when no chat events were captured", () => {
+  it("retries the live repro when replies are missing without correlation bugs", () => {
+    // Zero events — all replies missing (complete capture failure)
     expect(
       looksLikeEventCaptureFailure({
         sentRuns: capturedIssue2603Trace.sentRuns,
@@ -656,6 +662,7 @@ describe("OpenClaw TUI chat correlation regression (#2603)", () => {
       }),
     ).toBe(true);
 
+    // Partial events — some replies arrived, others timed out (partial capture / LLM non-response)
     expect(
       looksLikeEventCaptureFailure({
         sentRuns: capturedIssue2603Trace.sentRuns,
@@ -670,7 +677,7 @@ describe("OpenClaw TUI chat correlation regression (#2603)", () => {
         ],
         historyMessages: [],
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it.runIf(process.env[LIVE_REPRO_ENV] === "1")(
