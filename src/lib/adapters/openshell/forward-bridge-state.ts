@@ -36,10 +36,12 @@ function stateDir(): string {
   return path.join(process.env.HOME || os.homedir(), ".nemoclaw", "forwards");
 }
 
+function safeStateComponent(value: number | string): string {
+  return String(value).replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
 function statePath(sandboxName: string, port: number | string): string {
-  const safeSandbox = sandboxName.replace(/[^A-Za-z0-9._-]/g, "_");
-  const safePort = String(port).replace(/[^A-Za-z0-9._-]/g, "_");
-  return path.join(stateDir(), `${safeSandbox}-${safePort}.json`);
+  return path.join(stateDir(), `${safeStateComponent(sandboxName)}-${safeStateComponent(port)}.json`);
 }
 
 function ensureStateDir(): void {
@@ -222,6 +224,19 @@ function probeForwardReady(bind: string, port: number): boolean {
   return result.status === 0;
 }
 
+function readDiagnosticFromFd(fd: number): string {
+  try {
+    const stat = fs.fstatSync(fd);
+    const length = Math.min(stat.size, 64 * 1024);
+    if (length <= 0) return "";
+    const buffer = Buffer.alloc(length);
+    const bytes = fs.readSync(fd, buffer, 0, length, Math.max(0, stat.size - length));
+    return buffer.toString("utf-8", 0, bytes).trim();
+  } catch {
+    return "";
+  }
+}
+
 export function startForwardBridgeDetached(
   sandboxName: string,
   options: ForwardBridgeStartOptions,
@@ -247,9 +262,9 @@ export function startForwardBridgeDetached(
   ensureStateDir();
   const diagnosticPath = path.join(
     stateDir(),
-    `${sandboxName.replace(/[^A-Za-z0-9._-]/g, "_")}-${options.port}.log`,
+    `${safeStateComponent(sandboxName)}-${safeStateComponent(options.port)}.log`,
   );
-  const out = fs.openSync(diagnosticPath, "w", 0o600);
+  const out = fs.openSync(diagnosticPath, "w+", 0o600);
   const child = spawn(
     command,
     [
@@ -265,23 +280,19 @@ export function startForwardBridgeDetached(
     { detached: true, stdio: ["ignore", out, out], env: process.env },
   );
   child.unref();
-  fs.closeSync(out);
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = getForwardState(sandboxName, options.port);
     if (state && state.pid === child.pid && probeForwardReady(state.bind, state.port)) {
+      fs.closeSync(out);
       return { ok: true, state, diagnostic: "" };
     }
     sleepMs(250);
   }
 
-  let diagnostic = "";
-  try {
-    diagnostic = fs.readFileSync(diagnosticPath, "utf-8").trim();
-  } catch {
-    /* ignore */
-  }
+  const diagnostic = readDiagnosticFromFd(out);
+  fs.closeSync(out);
   try {
     if (child.pid) process.kill(child.pid, "SIGTERM");
   } catch {

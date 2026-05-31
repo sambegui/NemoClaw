@@ -64,7 +64,6 @@ export interface SandboxGrpcClientOptions extends GatewayMetadataOptions {
   gateway?: ResolvedGatewayMetadata;
 }
 
-const DEFAULT_SDK_TIMEOUT_MS = 30_000;
 const MAX_SYNC_STDIO_BUFFER = 512 * 1024 * 1024;
 
 type OpenShellClientConstructor = typeof import("@openshell/sdk").OpenShellClient;
