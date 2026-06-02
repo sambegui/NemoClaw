@@ -1924,6 +1924,24 @@ _CIAO_GUARD_SOURCE="/usr/local/lib/nemoclaw/preloads/ciao-network-guard.js"
 emit_sandbox_sourced_file "$_CIAO_GUARD_SCRIPT" <"$_CIAO_GUARD_SOURCE"
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_CIAO_GUARD_SCRIPT"
 
+# Google identity signing-cert fetch fix (NemoClaw#4687).
+# The @openclaw/googlechat plugin verifies inbound webhook JWTs by fetching
+# Google's signing certificates through OpenClaw's SSRF guard, which pins a
+# per-request undici dispatcher / http.Agent. That per-request dispatcher
+# bypasses NemoClaw's proxy routing (the http.request() hook above and the
+# host's global dispatcher), so the cert fetch fails with HTTPS_PROXY set
+# (L7 proxy 403) and unset (fetch failed) alike — rejecting every Google
+# Chat message. The preload wraps fetch() and, only for the read-only Google
+# identity / signing-cert endpoints, strips the per-request dispatcher so the
+# request uses the host's global dispatcher (the working path). Narrow
+# carve-out: the global dispatcher still enforces the sandbox network policy.
+_GOOGLE_CERT_FIX_SCRIPT="/tmp/nemoclaw-googleapis-cert-fetch-fix.js"
+_GOOGLE_CERT_FIX_SOURCE="/usr/local/lib/nemoclaw/preloads/googleapis-cert-fetch-fix.js"
+if [ -f "$_GOOGLE_CERT_FIX_SOURCE" ]; then
+  emit_sandbox_sourced_file "$_GOOGLE_CERT_FIX_SCRIPT" <"$_GOOGLE_CERT_FIX_SOURCE"
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_GOOGLE_CERT_FIX_SCRIPT"
+fi
+
 # WebSocket CONNECT tunnel fix (NemoClaw#1570).
 # The `ws` library calls https.request() for wss:// WebSocket upgrades.
 # EnvHttpProxyAgent (NODE_USE_ENV_PROXY=1) sends a forward proxy request
