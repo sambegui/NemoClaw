@@ -129,6 +129,9 @@ navigation:
       - page: "CLI Selection Guide"
         path: reference/cli-selection-guide.mdx
         slug: cli-selection-guide
+      - page: "Enterprise Readiness"
+        path: reference/enterprise-readiness.mdx
+        slug: enterprise-readiness
       - page: "Network Policies"
         path: reference/network-policies.mdx
         slug: network-policies

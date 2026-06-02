@@ -1,0 +1,147 @@
+---
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: "NemoClaw Enterprise Readiness and Admin Capability Guidance"
+sidebar-title: "Enterprise Readiness"
+description: "Support boundaries, known limitations, and admin/control-plane capability states for enterprise NemoClaw evaluations."
+description-agent: "Classifies NemoClaw support boundaries, known limitations, and admin/control-plane capabilities by current support state. Use when answering enterprise readiness questions, scoping an evaluation, or preparing field/customer guidance about what NemoClaw supports today."
+keywords: ["nemoclaw enterprise readiness", "nemoclaw admin capabilities", "nemoclaw support boundaries", "nemoclaw control plane"]
+content:
+  type: "reference"
+---
+This page gives field teams and enterprise evaluators a consistent answer for what NemoClaw supports today, what requires manual or admin handling, what is owned by a partner or platform, and what is roadmap-only.
+It exists so that individual bug fixes do not become the only source of truth for broader support-boundary questions.
+
+<Warning title="Status of this guidance">
+
+NemoClaw is in active development and interfaces may change without notice.
+Treat every entry below as the current state at the time of review, not a forward-looking product commitment.
+Confirm the classification with the owner listed in [Ownership and Review](#ownership-and-review) before reusing this guidance in a customer-facing commitment.
+</Warning>
+
+## How to Read the Support States
+
+Each capability is classified by one support state.
+
+| Support state | Meaning |
+|---|---|
+| Supported today | Works through documented NemoClaw or OpenShell commands. Safe to commit for the current release. |
+| Manual or admin-handled | Achievable today, but requires an operator to run steps by hand. No automated or centralized control plane. |
+| Partner or platform-owned | Provided and supported by an external layer such as OpenShell, Brev, or the inference provider, not by NemoClaw itself. |
+| Roadmap-only | Not available today. Describe as a direction, never as a current capability. |
+| Out of scope | NemoClaw does not intend to provide this. Point to the owning system instead. |
+
+Use the wording in the [Recommended Field Wording](#recommended-field-wording) column when you describe a capability to an evaluator.
+Do not present a roadmap-only or out-of-scope item as a current product commitment.
+
+## Support Boundaries at a Glance
+
+The following table covers the support-boundary questions that come up most often during enterprise evaluation.
+
+| Capability | Support state | Recommended field wording |
+|---|---|---|
+| Network egress approval | Supported today | Operators approve or deny outbound requests interactively and persist them as policy. |
+| Network policy configuration | Supported today | Per-sandbox egress is deny-by-default and customizable through policy files and presets. |
+| Centralized policy management across many sandboxes | Manual or admin-handled | Each sandbox carries its own policy; apply shared policy by reusing the same preset files per sandbox. |
+| Model and provider switching | Manual or admin-handled | Switch providers by re-running onboarding or rebuilding the sandbox; the choice is baked at build time. |
+| Multiple concurrent sandboxes | Supported today | Run several sandboxes on one host, each with its own dashboard port and tunnel. |
+| Multi-agent stability under one credential | Manual or admin-handled | One messaging bot token supports one active consumer; give each sandbox its own token. |
+| Per-sandbox monitoring and logs | Supported today | Inspect health, status, and gateway logs per sandbox. |
+| Fleet-wide monitoring and dashboards | Roadmap-only | Aggregate monitoring across many sandboxes is not built in today. |
+| Upgrade path | Supported today | Upgrade NemoClaw, then rebuild each sandbox; rebuild backs up and restores workspace state. |
+| Audit trail | Manual or admin-handled | Gateway logs record blocked and allowed requests per sandbox; there is no centralized audit store. |
+| Identity integration (SSO, RBAC) | Roadmap-only | NemoClaw does not provide SSO or role-based access control today. |
+| Inference quotas and rate limits | Partner or platform-owned | Quotas are enforced by the inference provider, not by NemoClaw. |
+| Remote GPU hosting | Partner or platform-owned | Remote hosting runs on infrastructure such as Brev; use the installer and onboard flow. |
+
+## Known Limitations and Workarounds
+
+These are the active limitations most likely to block an enterprise evaluation, with the recommended next step for each.
+
+### Egress Approval Requires an Operator
+
+NemoClaw enforces deny-by-default egress and surfaces blocked requests for interactive approval.
+There is no unattended auto-approval path, which is intentional for the security model.
+
+Workaround: pre-stage the endpoints an evaluation needs as policy presets so the agent does not stall on first use.
+See [Customize the Network Policy](/network-policy/customize-network-policy) and [Approve or Deny Network Requests](/network-policy/approve-network-requests).
+
+### Model and Provider Switching Is Build-Time
+
+The inference provider, model, and several related settings are baked into the sandbox image at build time.
+Changing them inside a running sandbox does not persist across a rebuild.
+
+Workaround: switch providers by re-running `nemoclaw onboard` or rebuilding the sandbox.
+See [Switch Inference Providers](/inference/switch-inference-providers) and the runtime notes in [Troubleshooting](/reference/troubleshooting).
+
+### One Bot Token Drives One Sandbox
+
+Messaging bot tokens for Telegram, Discord, and Slack allow a single active consumer.
+Two sandboxes sharing one token will repeatedly disconnect each other, and neither delivers messages reliably.
+
+Workaround: give each sandbox its own bot token.
+See the messaging conflict guidance in [Troubleshooting](/reference/troubleshooting).
+
+### Upgrades Are Per-Sandbox Rebuilds
+
+NemoClaw pins the agent version into the sandbox image, so upgrades happen by rebuilding rather than updating in place.
+There is no fleet-wide rolling upgrade.
+
+Workaround: upgrade NemoClaw, then run `nemoclaw <name> rebuild` for each sandbox.
+Rebuild backs up workspace state, recreates the sandbox, and restores state.
+See [Manage Sandbox Lifecycle](/manage-sandboxes/lifecycle) and [Back Up and Restore](/manage-sandboxes/backup-restore).
+
+### Remote Hosting Reliability Depends on the Platform
+
+Remote GPU hosting runs on external infrastructure, and its availability and reliability are owned by that platform.
+The legacy `nemoclaw deploy` wrapper for Brev is deprecated in favor of the installer and onboard flow.
+
+Workaround: use the supported installer plus onboard path for remote hosts.
+See [Deploy to Remote GPU Instances](/deployment/deploy-to-remote-gpu).
+
+## Admin and Control-Plane Capabilities
+
+This table classifies admin and control-plane expectations so evaluators can distinguish current support from direction.
+
+| Admin capability | Support state | Notes |
+|---|---|---|
+| Per-sandbox policy administration | Supported today | Add, remove, and modify endpoints with policy files and presets. |
+| Centralized multi-sandbox control plane | Roadmap-only | No single console manages many sandboxes today. |
+| Role-based access control | Roadmap-only | Access is governed by host and gateway access, not by in-product roles. |
+| Single sign-on and identity provider integration | Roadmap-only | Not provided today. |
+| Centralized credential vaulting | Manual or admin-handled | Credentials are stored locally with restricted permissions; integrate your own vault around onboarding. |
+| Fleet-wide audit aggregation | Roadmap-only | Audit data exists per sandbox in gateway logs; aggregation is not built in. |
+| Quota and billing enforcement | Out of scope | Owned by the inference provider and hosting platform. |
+| Platform isolation and network namespacing | Partner or platform-owned | Enforced by OpenShell, configured through NemoClaw. |
+
+For the configurable security controls behind these boundaries, see [Security Best Practices](/security/best-practices) and [Credential Storage](/security/credential-storage).
+
+## Recommended Field Wording
+
+Use these phrasings when an evaluator asks where NemoClaw stands.
+
+- For supported capabilities: "NemoClaw supports this today through documented commands."
+- For manual capabilities: "This is achievable today, but an operator runs the steps; there is no automated control plane yet."
+- For partner-owned capabilities: "This is provided by the underlying platform, not by NemoClaw directly."
+- For roadmap-only capabilities: "This is a direction we are exploring, not a capability you can rely on today."
+- For out-of-scope capabilities: "NemoClaw does not provide this; it is handled by the owning system."
+
+Do not soften a roadmap-only answer into an implied commitment.
+When a concrete engineering fix is already tracked, link the relevant issue in the [NemoClaw issue tracker](https://github.com/NVIDIA/NemoClaw/issues) so the evaluator can follow progress.
+
+## Ownership and Review
+
+This guidance is maintained by the NemoClaw product and engineering owners for the active evaluation window.
+Keep it current as limitations are resolved or capabilities change support state.
+
+- Review this page before reusing it in any customer-facing commitment.
+- When a limitation is fixed, move the capability to the correct support state and link the issue or pull request that resolved it.
+- When a roadmap-only item ships, update both the support-boundary and admin-capability tables in the same change.
+
+## Related Topics
+
+- [Security Best Practices](/security/best-practices)
+- [Customize the Network Policy](/network-policy/customize-network-policy)
+- [Switch Inference Providers](/inference/switch-inference-providers)
+- [Monitor Sandbox Activity](/monitoring/monitor-sandbox-activity)
+- [Troubleshooting](/reference/troubleshooting)
