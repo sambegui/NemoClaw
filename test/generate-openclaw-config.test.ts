@@ -927,6 +927,16 @@ describe("generate-openclaw-config.mts: config generation", () => {
     expect(config.agents.defaults.thinkingDefault).toBe("off");
   });
 
+  // ─── workspace skills discovery (#4709) ──────────────────────────────────
+  // `openclaw skills install <path>` writes workspace skills to
+  // /sandbox/.openclaw/workspace/skills, but `openclaw skills list` only
+  // enumerates bundled skills plus skills.load.extraDirs. Register the
+  // default workspace skills directory so installed skills appear in the list.
+  it("registers the default workspace skills directory in skills.load.extraDirs", () => {
+    const config = runConfigScript();
+    expect(config.skills.load.extraDirs).toContain("/sandbox/.openclaw/workspace/skills");
+  });
+
   // ─── agents.list bake ─────────────────────────────────────────────────────
   // Even with no NEMOCLAW_EXTRA_AGENTS_JSON_B64 set, agents.list must exist
   // with the canonical main entry pinned as default. Otherwise a wholesale

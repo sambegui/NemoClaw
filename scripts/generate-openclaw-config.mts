@@ -477,6 +477,15 @@ const AGENT_ID_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 // path is migrated away on start, so it cannot host live agent state.
 const AGENT_DATA_ROOT = "/sandbox/.openclaw";
 
+// `openclaw skills install <path>` drops workspace skills into the default
+// agent workspace at <workspace>/skills (e.g. /sandbox/.openclaw/workspace/skills).
+// The agent loads these at runtime, but `openclaw skills list` only enumerates
+// bundled skills plus the directories registered in skills.load.extraDirs, so
+// workspace-installed skills are usable yet invisible in the list. Register the
+// default workspace skills directory so they surface in `openclaw skills list`.
+// See https://github.com/NVIDIA/NemoClaw/issues/4709.
+const DEFAULT_WORKSPACE_SKILLS_DIR = `${AGENT_DATA_ROOT}/workspace/skills`;
+
 // Per-agent paths must land in the canonical sandbox layout the runtime
 // startup script provisions and the sandbox isolation policy expects:
 //   workspace -> /sandbox/.openclaw/workspace-<agent-id>
@@ -983,6 +992,7 @@ export function buildConfig(env: Env = process.env): JsonObject {
     agents: { defaults: agentDefaults, list: buildAgentsList(extraAgents) },
     models: { mode: "merge", providers },
     channels: { defaults: {}, ...channelConfig },
+    skills: { load: { extraDirs: [DEFAULT_WORKSPACE_SKILLS_DIR] } },
     tools: openclawTools,
     update: { checkOnStart: false },
     plugins,
