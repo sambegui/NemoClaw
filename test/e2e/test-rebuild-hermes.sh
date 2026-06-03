@@ -154,14 +154,25 @@ info "Phase 2: Building Hermes base image with ${OLD_HERMES_VERSION}..."
 
 OLD_BASE_TAG="nemoclaw-hermes-old-base:e2e-rebuild"
 
-docker build \
-  --build-arg "HERMES_VERSION=${OLD_HERMES_VERSION}" \
-  --build-arg "HERMES_TARBALL_SHA256=${OLD_HERMES_TARBALL_SHA256}" \
-  --build-arg "HERMES_UV_EXTRAS=messaging" \
-  -f "${REPO_ROOT}/agents/hermes/Dockerfile.base" \
-  -t "${OLD_BASE_TAG}" \
-  "${REPO_ROOT}" \
-  || fail "Failed to build old Hermes base image"
+# Retry docker build up to 3 times — transient Docker Hub registry timeouts
+# (e.g. dial tcp …:443: i/o timeout) are common on GitHub-hosted runners and
+# should not fail the entire E2E run.
+_build_old_base_ok=0
+for _attempt in 1 2 3; do
+  if docker build \
+    --build-arg "HERMES_VERSION=${OLD_HERMES_VERSION}" \
+    --build-arg "HERMES_TARBALL_SHA256=${OLD_HERMES_TARBALL_SHA256}" \
+    --build-arg "HERMES_UV_EXTRAS=messaging" \
+    -f "${REPO_ROOT}/agents/hermes/Dockerfile.base" \
+    -t "${OLD_BASE_TAG}" \
+    "${REPO_ROOT}"; then
+    _build_old_base_ok=1
+    break
+  fi
+  info "docker build attempt ${_attempt}/3 failed; retrying in $((10 * _attempt))s..."
+  sleep "$((10 * _attempt))"
+done
+[ "$_build_old_base_ok" = "1" ] || fail "Failed to build old Hermes base image after 3 attempts"
 
 pass "Old Hermes base image built (${OLD_HERMES_VERSION})"
 
@@ -289,11 +300,19 @@ if [ "${STALE_BASE_REBUILD}" = "1" ]; then
 else
   info "Phase 5: Building current Hermes base image..."
 
-  docker build \
-    -f "${REPO_ROOT}/agents/hermes/Dockerfile.base" \
-    -t "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest" \
-    "${REPO_ROOT}" \
-    || fail "Failed to build current Hermes base image"
+  _build_cur_base_ok=0
+  for _attempt in 1 2 3; do
+    if docker build \
+      -f "${REPO_ROOT}/agents/hermes/Dockerfile.base" \
+      -t "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest" \
+      "${REPO_ROOT}"; then
+      _build_cur_base_ok=1
+      break
+    fi
+    info "docker build attempt ${_attempt}/3 failed; retrying in $((10 * _attempt))s..."
+    sleep "$((10 * _attempt))"
+  done
+  [ "$_build_cur_base_ok" = "1" ] || fail "Failed to build current Hermes base image after 3 attempts"
 
   pass "Current Hermes base image built"
 fi
