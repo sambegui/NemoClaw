@@ -2675,7 +2675,7 @@ exit 1
         env: { HOME: tmp, PATH: TEST_SYSTEM_PATH },
       },
     );
-    expect(r.stdout.trim()).toBe("0.1.0");
+    expect(r.stdout.trim()).toBe("0.0.57");
   });
 
   it("installer_version_for_display: hides the placeholder default", () => {

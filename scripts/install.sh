@@ -45,7 +45,7 @@ resolve_repo_root() {
   fi
   printf "%s\n" "$base"
 }
-DEFAULT_NEMOCLAW_VERSION="0.1.0"
+DEFAULT_NEMOCLAW_VERSION="0.0.57"
 DEFAULT_INSTALL_REF="lkg"
 TOTAL_STEPS=3
 

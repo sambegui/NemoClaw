@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-version: "0.1.0"
+version: "0.0.57"
 min_openshell_version: "0.0.44"
 max_openshell_version: "0.0.44"
 min_openclaw_version: "2026.3.11"
