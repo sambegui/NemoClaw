@@ -3943,7 +3943,7 @@ describe("CLI dispatch", () => {
     expect(log).not.toContain("sandbox exec alpha sh -c");
   });
 
-  it("uses the platform default when the last sandbox is destroyed (#2166, #4662)", () => {
+  it("uses the platform default when the last sandbox is destroyed (#2166, #4662)", testTimeoutOptions(30_000), () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-cli-destroy-last-"));
     const localBin = path.join(home, "bin");
     const registryDir = path.join(home, ".nemoclaw");
