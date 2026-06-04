@@ -44,6 +44,7 @@ _URL_SAFETY_PATCH_ATTR = "_nemoclaw_broker_url_safety_patch_installed"
 _BROWSER_CDP_TUNNEL_PATCH_ATTR = "_nemoclaw_browser_use_cdp_tunnel_patch_installed"
 _BROWSER_SESSION_STATE_PATCH_ATTR = "_nemoclaw_browser_use_session_state_patch_installed"
 _MESSAGING_RESPONSE_PATCH_ATTR = "_nemoclaw_messaging_response_patch_installed"
+_TERMINAL_SECRET_SCRUB_PATCH_ATTR = "_nemoclaw_terminal_secret_scrub_patch_installed"
 _BROWSER_USE_CDP_TUNNELS = {}
 
 _TOOL_GATEWAY_URL_ENV = {
@@ -106,6 +107,19 @@ _RAW_MESSAGING_TARGET_RE = re.compile(
     flags=re.IGNORECASE | re.DOTALL,
 )
 
+# Env var name suffixes that indicate a secret value.
+# Values for matching vars are collected at plugin load and scrubbed from chat
+# responses so terminal tool output cannot echo a UUID-format token to Slack.
+# Ref: https://github.com/NVIDIA/NemoClaw/issues/4770
+_SECRET_ENV_NAME_RE = re.compile(
+    r"(?:_TOKEN|_KEY|_SECRET|_PASSWORD|_CREDENTIAL)$",
+    re.IGNORECASE,
+)
+
+# Populated in register() by _collect_secret_env_values(). frozenset of
+# plaintext secret values to scrub from chat responses and tool results.
+_cached_secret_values: frozenset = frozenset()
+
 _BROKER_ALWAYS_BLOCKED_HOSTNAMES = {
     "localhost",
     "metadata.google.internal",
@@ -125,6 +139,58 @@ _BROKER_ALWAYS_BLOCKED_IPS = {
     ipaddress.ip_address("100.100.100.200"),
 }
 _BROKER_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _collect_secret_env_values():
+    """Return a frozenset of values from secret-named env vars.
+
+    Reads os.environ and the Hermes .env files. Only values of 8+ characters
+    are included to skip short placeholders like "0" or "none".
+    """
+    values = set()
+
+    for name, val in os.environ.items():
+        if _SECRET_ENV_NAME_RE.search(name) and len(val) >= 8:
+            values.add(val)
+
+    env_paths = []
+    hermes_home = os.getenv("HERMES_HOME")
+    if hermes_home:
+        env_paths.append(os.path.join(hermes_home, ".env"))
+    env_paths.extend(
+        [
+            "/sandbox/.hermes-data/.env",
+            "/sandbox/.hermes/.env",
+            os.path.expanduser("~/.hermes/.env"),
+        ],
+    )
+    for env_path in env_paths:
+        if not env_path or not os.path.exists(env_path):
+            continue
+        try:
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#") or "=" not in stripped:
+                        continue
+                    name, _, raw_val = stripped.partition("=")
+                    val = raw_val.strip().strip('"').strip("'")
+                    if _SECRET_ENV_NAME_RE.search(name.strip()) and len(val) >= 8:
+                        values.add(val)
+        except Exception:
+            continue
+
+    return frozenset(values)
+
+
+def _scrub_env_secret_values(text):
+    """Replace known secret env var values in text with <redacted>."""
+    if not isinstance(text, str) or not _cached_secret_values:
+        return text
+    for val in _cached_secret_values:
+        if val in text:
+            text = text.replace(val, "<redacted>")
+    return text
 
 
 def _get_env_value(key, default=None):
@@ -1139,6 +1205,53 @@ def _normalize_raw_messaging_tool_response(response, current_platform=None):
     return message if message else response
 
 
+def _install_terminal_output_scrubber():
+    """Scrub secret env var values from Hermes terminal tool stdout.
+
+    Patches the terminal tool's execution entry point so that any value
+    matching a known secret env var is replaced with <redacted> before the
+    output reaches the LLM context or is persisted to memory. This is a
+    defense-in-depth layer; the primary guard is _strip_think_blocks scrubbing
+    chat responses. Silently no-ops on Hermes builds where the module layout
+    differs.
+    """
+    try:
+        module = __import__("tools.terminal_tool", fromlist=["execute_terminal"])
+    except Exception:
+        return False
+
+    for attr_name in ("execute_terminal", "run_command", "run_terminal", "_execute", "execute"):
+        func = getattr(module, attr_name, None)
+        if func is None or not callable(func):
+            continue
+        patch_attr = f"{_TERMINAL_SECRET_SCRUB_PATCH_ATTR}_{attr_name}"
+        if getattr(module, patch_attr, False):
+            return True
+
+        original = func
+
+        def _make_scrubbing_wrapper(orig):
+            def wrapper(*args, **kwargs):
+                result = orig(*args, **kwargs)
+                if isinstance(result, str):
+                    return _scrub_env_secret_values(result)
+                if isinstance(result, dict):
+                    scrubbed = dict(result)
+                    for key in ("stdout", "output", "result", "text", "content"):
+                        if key in scrubbed and isinstance(scrubbed[key], str):
+                            scrubbed[key] = _scrub_env_secret_values(scrubbed[key])
+                    return scrubbed
+                return result
+
+            return wrapper
+
+        setattr(module, attr_name, _make_scrubbing_wrapper(original))
+        setattr(module, patch_attr, True)
+        return True
+
+    return False
+
+
 def _install_messaging_response_patch():
     """Prevent raw messaging pseudo-tool calls from leaking as final text."""
     try:
@@ -1159,9 +1272,11 @@ def _install_messaging_response_patch():
         original_func = raw_original.__func__
 
         def _strip_think_blocks(content):
-            return _normalize_raw_messaging_tool_response(
-                original_func(content),
-                current_platform=_get_current_messaging_platform(),
+            return _scrub_env_secret_values(
+                _normalize_raw_messaging_tool_response(
+                    original_func(content),
+                    current_platform=_get_current_messaging_platform(),
+                )
             )
 
         agent_cls._strip_think_blocks = staticmethod(_strip_think_blocks)
@@ -1169,17 +1284,21 @@ def _install_messaging_response_patch():
         original_func = raw_original.__func__
 
         def _strip_think_blocks(cls, content):
-            return _normalize_raw_messaging_tool_response(
-                original_func(cls, content),
-                current_platform=_get_current_messaging_platform(),
+            return _scrub_env_secret_values(
+                _normalize_raw_messaging_tool_response(
+                    original_func(cls, content),
+                    current_platform=_get_current_messaging_platform(),
+                )
             )
 
         agent_cls._strip_think_blocks = classmethod(_strip_think_blocks)
     else:
         def _strip_think_blocks(self, content):
-            return _normalize_raw_messaging_tool_response(
-                original(self, content),
-                current_platform=_get_current_messaging_platform(),
+            return _scrub_env_secret_values(
+                _normalize_raw_messaging_tool_response(
+                    original(self, content),
+                    current_platform=_get_current_messaging_platform(),
+                )
             )
 
         agent_cls._strip_think_blocks = _strip_think_blocks
@@ -1245,6 +1364,11 @@ def _build_nemoclaw_agent_context(platform=None):
         + "nemoclaw_reload_skills, transcribe_audio."
     )
 
+    secret_policy_line = (
+        "- Secret policy: environment variables whose names end in _TOKEN, _KEY, "
+        "_SECRET, _PASSWORD, or _CREDENTIAL hold secrets. Never echo, print, or "
+        "include their values in responses or memory — use <redacted> instead."
+    )
     lines = [
         "NemoClaw runtime context:",
         agent_identity_line,
@@ -1257,6 +1381,7 @@ def _build_nemoclaw_agent_context(platform=None):
         f"- Managed Nous tool broker: {broker_state}; configured services: "
         f"{service_text}. Raw Nous OAuth tokens are host-managed by NemoClaw "
         "and should not be expected inside the sandbox.",
+        secret_policy_line,
         platform_line,
     ]
     if reply_line:
@@ -1376,8 +1501,30 @@ def _handle_reload_skills(tool_input=None, context=None, **_kwargs):
 
 def register(ctx):
     """Register NemoClaw tools and hooks with Hermes."""
+    global _cached_secret_values
+    _cached_secret_values = _collect_secret_env_values()
+
     _install_nous_tool_broker_patch()
     _install_messaging_response_patch()
+    _install_terminal_output_scrubber()
+
+    # Scrub secret env var values from terminal tool results before the LLM
+    # sees them. Silently ignored on Hermes builds that don't expose this hook.
+    try:
+        def _on_tool_result(**kwargs):
+            tool_name = str(kwargs.get("tool_name") or "").lower()
+            if tool_name != "terminal":
+                return None
+            result = kwargs.get("result")
+            if isinstance(result, str):
+                scrubbed = _scrub_env_secret_values(result)
+                if scrubbed is not result:
+                    return {"result": scrubbed}
+            return None
+
+        ctx.register_hook("on_tool_result", _on_tool_result)
+    except Exception:
+        pass
 
     # Register status tool
     ctx.register_tool(

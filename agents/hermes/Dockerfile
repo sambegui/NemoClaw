@@ -142,7 +142,7 @@ RUN mkdir -p /sandbox/.hermes/memories \
 # mechanism (agent/prompt_builder.py:build_environment_hints). This lands in
 # the system prompt's environment slot, not the identity slot, and is read once
 # at prompt-build time so it stays in the cache-safe portion of the prompt.
-ENV HERMES_ENVIRONMENT_HINT="You are running inside an NVIDIA OpenShell sandbox, with inference routed through NemoClaw. Your terminal, file, and web tools execute against the sandbox filesystem and egress through the OpenShell L7 proxy, which enforces network policy and rewrites credentials at the boundary, so you never see raw secrets. Your config and memory live under /sandbox/.hermes and are mutable unless shields are up. Work within the sandbox boundary."
+ENV HERMES_ENVIRONMENT_HINT="You are running inside an NVIDIA OpenShell sandbox, with inference routed through NemoClaw. Your terminal, file, and web tools execute against the sandbox filesystem and network traffic egresses through the OpenShell L7 proxy, which enforces network policy and rewrites provider credentials at the boundary. Environment variables whose names end in _TOKEN, _KEY, _SECRET, _PASSWORD, or _CREDENTIAL contain secrets: never echo, print, or include their values in responses or memory — use <redacted> instead. Your config and memory live under /sandbox/.hermes and are mutable unless shields are up. Work within the sandbox boundary."
 
 # Set mutable-default permissions (640 files, 3770 config root).
 # The sandbox user can write config; the gateway user can read it via
