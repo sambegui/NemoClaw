@@ -10,6 +10,11 @@
 # access values:
 #   read       — GET only (or equivalent read-only rules for that service)
 #   read-write — GET + POST/PUT/PATCH (explicitly opt-in; never the default)
+#
+# agents (optional): when present, the preset is only suggested for the
+# listed agents (e.g. [hermes]). Presets without an `agents` field apply to
+# every agent. This keeps agent-native presets (such as the Hermes Nous
+# managed tool gateways) out of other agents' normal posture.
 
 tiers:
   - name: restricted
@@ -19,17 +24,19 @@ tiers:
 
   - name: balanced
     label: Balanced
-    description: Full dev tooling and web search. Package installs, model downloads, and inference. No messaging platform access.
+    description: Full dev tooling, web search, and safe common-assistant defaults (weather). Package installs, model downloads, and inference. No messaging platform access.
     presets:
       - { name: npm,          access: read-write }
       - { name: pypi,         access: read-write }
       - { name: huggingface,  access: read-write }
       - { name: brew,         access: read-write }
       - { name: brave,        access: read-write }
+      # Safe common-assistant default: read-only weather/geocoding lookup.
+      - { name: weather,      access: read }
 
   - name: open
     label: Open
-    description: Broad access across third-party services including messaging and productivity. User accepts responsibility for the expanded scope.
+    description: Broad access across third-party services including messaging and productivity, plus curated public reference/data APIs. User accepts responsibility for the expanded scope.
     presets:
       - { name: npm,          access: read-write }
       - { name: pypi,         access: read-write }
@@ -43,3 +50,18 @@ tiers:
       - { name: whatsapp,     access: read-write }
       - { name: jira,         access: read-write }
       - { name: outlook,      access: read-write }
+      # Curated public reference/data APIs: useful for assistant work but not
+      # arbitrary browsing. Explicit hosts, read-only.
+      - { name: weather,        access: read }
+      - { name: wikimedia,      access: read }
+      - { name: wikidata,       access: read }
+      - { name: nominatim,      access: read }
+      - { name: rest-countries, access: read }
+      # Hermes Nous managed tool gateways — the Hermes-native way to stay
+      # useful while routing through managed gateways instead of arbitrary
+      # direct web egress. Hermes-only so they never enter OpenClaw's posture.
+      - { name: nous-web,     access: read-write, agents: [hermes] }
+      - { name: nous-image,   access: read-write, agents: [hermes] }
+      - { name: nous-audio,   access: read-write, agents: [hermes] }
+      - { name: nous-browser, access: read-write, agents: [hermes] }
+      - { name: nous-code,    access: read-write, agents: [hermes] }

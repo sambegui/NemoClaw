@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Safe common-assistant weather defaults. Explicit hosts only, read-only
+# (GET/HEAD), no wildcard egress, no `access: full`, no generic "/**" binary
+# access. Lets balanced/open answer "what's the weather" without opening
+# arbitrary world egress.
+
+preset:
+  name: weather
+  description: "Open-Meteo and US weather.gov forecast/geocoding APIs (read-only)"
+
+network_policies:
+  weather:
+    name: weather
+    endpoints:
+      - host: api.open-meteo.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: HEAD, path: "/**" }
+      - host: geocoding-api.open-meteo.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: HEAD, path: "/**" }
+      - host: api.weather.gov
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: HEAD, path: "/**" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/local/bin/hermes }
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.11 }
+      - { path: /opt/hermes/.venv/bin/python }
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/curl }

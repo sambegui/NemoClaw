@@ -5902,17 +5902,19 @@ async function selectTierPresetsAndAccess(
   tierName: string,
   allPresets: Array<{ name: string; description?: string }>,
   extraSelected: string[] = [],
+  agent: string | null = null,
 ): Promise<Array<{ name: string; access: string }>> {
   const tierDef = tiers.getTier(tierName);
+  // Resolve with the agent so agent-scoped presets (e.g. the Hermes Nous
+  // gateways) are only pre-checked for the agent that owns them.
+  const tierPresets = tierDef ? tiers.resolveTierPresets(tierName, { agent }) : [];
   const tierPresetMap: Record<string, string> = {};
-  if (tierDef) {
-    for (const p of tierDef.presets) {
-      tierPresetMap[p.name] = p.access;
-    }
+  for (const p of tierPresets) {
+    tierPresetMap[p.name] = p.access;
   }
 
   // Tier presets first (in tier order), then the rest in their original order.
-  const tierNames = tierDef ? tierDef.presets.map((p) => p.name) : [];
+  const tierNames = tierPresets.map((p) => p.name);
   const tierSet = new Set(tierNames);
   const ordered: Array<{ name: string; description?: string }> = [
     ...tierNames

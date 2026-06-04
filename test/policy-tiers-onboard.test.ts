@@ -135,7 +135,7 @@ console.log = () => {};
     assert.equal(payload.presets.length, 0);
   });
 
-  it("balanced tier resolves presets all with read-write access", () => {
+  it("balanced tier resolves dev presets read-write and curated presets read-only", () => {
     const tiersPath = JSON.stringify(path.join(repoRoot, "dist", "lib", "policy", "tiers.js"));
     const script =
       buildPreamble({ tierEnv: "balanced" }) +
@@ -153,8 +153,10 @@ console.log = () => {};
     const payload = JSON.parse(result.stdout.trim());
     assert.equal(payload.tier, "balanced");
     assert.ok(payload.presets.length >= 5, "balanced tier must have at least 5 presets");
+    const readOnly = new Set(["weather", "wikimedia", "wikidata", "nominatim", "rest-countries"]);
     for (const p of payload.presets) {
-      assert.equal(p.access, "read-write", `preset ${p.name} in balanced should be read-write`);
+      const expected = readOnly.has(p.name) ? "read" : "read-write";
+      assert.equal(p.access, expected, `preset ${p.name} in balanced should be ${expected}`);
     }
   });
 
@@ -783,10 +785,42 @@ ${body}
     const names = resolved.map((p) => p.name);
     assert.ok(names.includes("npm"), "npm should be included");
     assert.ok(names.includes("brave"), "brave should be included");
+    assert.ok(names.includes("weather"), "weather should be included in balanced");
     assert.ok(!names.includes("slack"), "slack should not be included in balanced");
+    const readOnly = new Set(["weather", "wikimedia", "wikidata", "nominatim", "rest-countries"]);
     for (const p of resolved) {
-      assert.equal(p.access, "read-write", `${p.name} should default to read-write`);
+      const expected = readOnly.has(p.name) ? "read" : "read-write";
+      assert.equal(p.access, expected, `${p.name} should default to ${expected}`);
     }
+  });
+
+  it("pre-checks Hermes Nous presets in open only for the hermes agent", () => {
+    const hermes = run(String.raw`
+(async () => {
+  const allPresets = policies.listPresets();
+  const resolved = await selectTierPresetsAndAccess("open", allPresets, [], "hermes");
+  process.stdout.write(JSON.stringify(resolved.map((p) => p.name)) + "\n");
+})().catch((e) => { process.stderr.write(e.message); process.exit(1); });
+`);
+    assert.equal(hermes.status, 0, hermes.stderr);
+    const hermesNames: string[] = JSON.parse(hermes.stdout.trim());
+    assert.ok(hermesNames.includes("nous-web"), "hermes open should pre-check nous-web");
+    assert.ok(hermesNames.includes("nous-code"), "hermes open should pre-check nous-code");
+    assert.ok(hermesNames.includes("weather"), "hermes open should pre-check weather");
+
+    const openclaw = run(String.raw`
+(async () => {
+  const allPresets = policies.listPresets();
+  const resolved = await selectTierPresetsAndAccess("open", allPresets, [], "openclaw");
+  process.stdout.write(JSON.stringify(resolved.map((p) => p.name)) + "\n");
+})().catch((e) => { process.stderr.write(e.message); process.exit(1); });
+`);
+    assert.equal(openclaw.status, 0, openclaw.stderr);
+    const openclawNames: string[] = JSON.parse(openclaw.stdout.trim());
+    assert.ok(!openclawNames.includes("nous-web"), "openclaw open must not pre-check nous-web");
+    assert.ok(!openclawNames.includes("nous-code"), "openclaw open must not pre-check nous-code");
+    assert.ok(openclawNames.includes("weather"), "openclaw open should still pre-check weather");
+    assert.ok(openclawNames.includes("wikimedia"), "openclaw open should still pre-check wikimedia");
   });
 
   it("restricted tier returns empty array", () => {

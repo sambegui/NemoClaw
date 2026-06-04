@@ -23,6 +23,11 @@ type TierAccess = "read" | "read-write";
 export interface TierPreset {
   name: string;
   access: TierAccess;
+  /**
+   * Optional agent allowlist. When present, the preset only applies for the
+   * listed agents (e.g. ["hermes"]). Absent means it applies to every agent.
+   */
+  agents?: string[];
 }
 
 export interface TierDefinition {
@@ -39,6 +44,13 @@ interface TierDocument {
 interface ResolveTierPresetOptions {
   overrides?: Record<string, string>;
   selected?: string[] | null;
+  /**
+   * When provided, presets carrying an `agents` allowlist are dropped unless
+   * the allowlist includes this agent. Presets without an `agents` field are
+   * always kept. When omitted, no agent filtering is applied (every preset is
+   * returned), preserving the agent-agnostic default behavior.
+   */
+  agent?: string | null;
 }
 
 type TierYamlScalar = string | number | boolean | null | undefined;
@@ -52,6 +64,12 @@ function isRecord(value: TierYamlValue): value is TierYamlRecord {
 function readString(record: TierYamlRecord, key: string): string | null {
   const value = record[key];
   return typeof value === "string" ? value : null;
+}
+
+function readStringArray(record: TierYamlRecord, key: string): string[] | undefined {
+  const value = record[key];
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 function isTierAccess(value: string): value is TierAccess {
@@ -75,7 +93,8 @@ function parseTierPreset(value: TierYamlValue, index: number, tierName: string):
     );
   }
 
-  return { name, access };
+  const agents = readStringArray(value, "agents");
+  return agents ? { name, access, agents } : { name, access };
 }
 
 function parseTierDefinition(value: TierYamlValue, index: number): TierDefinition {
@@ -138,6 +157,21 @@ function getTier(name: string): TierDefinition | null {
 }
 
 /**
+ * Decide whether a tier preset applies for the given agent.
+ *
+ * A preset with no `agents` allowlist applies to every agent. A preset that
+ * carries an allowlist only applies when an agent is supplied and is present
+ * in the list. When `agent` is null/undefined, no agent filtering is applied
+ * and every preset (including agent-scoped ones) is kept — this preserves the
+ * agent-agnostic default used by callers that do not yet know the agent.
+ */
+function presetAppliesToAgent(preset: TierPreset, agent: string | null): boolean {
+  if (!preset.agents || preset.agents.length === 0) return true;
+  if (!agent) return true;
+  return preset.agents.includes(agent);
+}
+
+/**
  * Resolve the final preset list for a tier, applying any per-preset access
  * overrides supplied by the user.
  *
@@ -153,18 +187,23 @@ function resolveTierPresets(
 ): TierPreset[] {
   const overrides = options.overrides ?? {};
   const selected = options.selected === undefined ? null : options.selected;
+  const agent = options.agent ?? null;
   const tier = getTier(tierName);
   if (!tier) {
     throw new Error(`Unknown tier: ${tierName}`);
   }
 
-  let presets = tier.presets.map((preset): TierPreset => {
-    const override = overrides[preset.name];
-    return {
-      name: preset.name,
-      access: override && isTierAccess(override) ? override : preset.access,
-    };
-  });
+  let presets = tier.presets
+    .filter((preset) => presetAppliesToAgent(preset, agent))
+    .map((preset): TierPreset => {
+      const override = overrides[preset.name];
+      const resolved: TierPreset = {
+        name: preset.name,
+        access: override && isTierAccess(override) ? override : preset.access,
+      };
+      if (preset.agents) resolved.agents = preset.agents;
+      return resolved;
+    });
 
   if (selected !== null) {
     const allowSet = new Set(selected);
@@ -174,4 +213,4 @@ function resolveTierPresets(
   return presets;
 }
 
-export { TIERS_FILE, listTiers, getTier, resolveTierPresets };
+export { getTier, listTiers, resolveTierPresets, TIERS_FILE };

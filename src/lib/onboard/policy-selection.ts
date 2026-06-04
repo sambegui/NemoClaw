@@ -35,7 +35,10 @@ type PoliciesApi = {
   ): string[];
 };
 type TiersApi = {
-  resolveTierPresets(tierName: string): Preset[];
+  resolveTierPresets(
+    tierName: string,
+    options?: { overrides?: Record<string, string>; selected?: string[] | null; agent?: string | null },
+  ): Preset[];
   getTier(tierName: string): unknown;
 };
 
@@ -83,6 +86,7 @@ export type SetupPolicySelectionDeps = {
     tierName: string,
     presets: Preset[],
     extraSelected: string[],
+    agent?: string | null,
   ) => Promise<Array<Preset & { access: string }>>;
   parsePolicyPresetEnv: (raw: string) => string[];
   env?: NodeJS.ProcessEnv;
@@ -156,7 +160,7 @@ export function computeSetupPresetSuggestions(
   const known = Array.isArray(options.knownPresetNames) ? new Set(options.knownPresetNames) : null;
   const supportOptions = { webSearchSupported: options.webSearchSupported };
   const suggestions = deps.tiers
-    .resolveTierPresets(tierName)
+    .resolveTierPresets(tierName, { agent })
     .map((preset) => preset.name)
     .filter((name) => !isStaleBuiltinBravePolicyPreset(name, { webSearchConfig }))
     .filter((name) => deps.policies.setupPolicyPresetSupported(name, supportOptions))
@@ -448,7 +452,12 @@ async function setupPoliciesWithSelectionInner(
     ...appliedForPreservation.filter((name) => knownNames.has(name)),
     ...suggestions.filter((name) => knownNames.has(name) && !applied.includes(name)),
   ];
-  const resolvedPresets = await deps.selectTierPresetsAndAccess(tierName, allPresets, extraSelected);
+  const resolvedPresets = await deps.selectTierPresetsAndAccess(
+    tierName,
+    allPresets,
+    extraSelected,
+    agent,
+  );
   const interactiveChoice = pruneDisabledPresets(
     mergeRequiredSetupPolicyPresets(
       resolvedPresets.map((preset) => preset.name),

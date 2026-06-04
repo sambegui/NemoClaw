@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Curated public reference data: Wikimedia/Wikipedia APIs. Explicit hosts,
+# read-only (GET/HEAD), no wildcard egress, no `access: full`, no generic
+# "/**" binary access. Intended for the `open` tier as useful-but-not-
+# arbitrary-browsing reference access.
+
+preset:
+  name: wikimedia
+  description: "Wikimedia/Wikipedia REST and action APIs (read-only)"
+
+network_policies:
+  wikimedia:
+    name: wikimedia
+    endpoints:
+      - host: api.wikimedia.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: HEAD, path: "/**" }
+      - host: en.wikipedia.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: HEAD, path: "/**" }
+    binaries:
+      - { path: /usr/local/bin/node }
+      - { path: /usr/bin/node }
+      - { path: /usr/local/bin/hermes }
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.11 }
+      - { path: /opt/hermes/.venv/bin/python }
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/curl }

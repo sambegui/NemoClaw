@@ -30,6 +30,16 @@ interface Preset {
   name: string;
 }
 
+// Curated public reference/data presets are intentionally read-only
+// (GET/HEAD). Everything else in balanced/open defaults to read-write.
+const READ_ONLY_PRESETS = new Set([
+  "weather",
+  "wikimedia",
+  "wikidata",
+  "nominatim",
+  "rest-countries",
+]);
+
 type TierShape = {
   name?: string;
   label?: string;
@@ -132,10 +142,33 @@ describe("tiers", () => {
       expect(mustGetTier("balanced").presets.length).toBeGreaterThanOrEqual(5);
     });
 
-    it("all balanced presets are read-write", () => {
+    it("includes the safe weather default", () => {
+      const names = mustGetTier("balanced").presets.map((preset: TierPreset) => preset.name);
+      expect(names).toContain("weather");
+    });
+
+    it("dev presets are read-write; curated public-data presets are read-only", () => {
       for (const preset of mustGetTier("balanced").presets) {
-        expect(preset.access).toBe("read-write");
+        if (READ_ONLY_PRESETS.has(preset.name)) {
+          expect(preset.access).toBe("read");
+        } else {
+          expect(preset.access).toBe("read-write");
+        }
       }
+    });
+
+    it("does not include curated reference presets beyond weather", () => {
+      const names = mustGetTier("balanced").presets.map((preset: TierPreset) => preset.name);
+      expect(names).not.toContain("wikimedia");
+      expect(names).not.toContain("wikidata");
+      expect(names).not.toContain("nominatim");
+      expect(names).not.toContain("rest-countries");
+    });
+
+    it("does not include Hermes Nous managed tool presets", () => {
+      const names = mustGetTier("balanced").presets.map((preset: TierPreset) => preset.name);
+      expect(names).not.toContain("nous-web");
+      expect(names).not.toContain("nous-browser");
     });
 
     it("does not include messaging presets (slack, discord, telegram, wechat, whatsapp)", () => {
@@ -155,9 +188,32 @@ describe("tiers", () => {
       expect(openCount).toBeGreaterThan(balancedCount);
     });
 
-    it("all open presets are read-write", () => {
+    it("dev/messaging presets are read-write; curated public-data presets are read-only", () => {
       for (const preset of mustGetTier("open").presets) {
-        expect(preset.access).toBe("read-write");
+        if (READ_ONLY_PRESETS.has(preset.name)) {
+          expect(preset.access).toBe("read");
+        } else {
+          expect(preset.access).toBe("read-write");
+        }
+      }
+    });
+
+    it("includes weather and curated public reference/data presets", () => {
+      const names = mustGetTier("open").presets.map((preset: TierPreset) => preset.name);
+      expect(names).toContain("weather");
+      expect(names).toContain("wikimedia");
+      expect(names).toContain("wikidata");
+      expect(names).toContain("nominatim");
+      expect(names).toContain("rest-countries");
+    });
+
+    it("scopes the Hermes Nous managed tool presets to the hermes agent", () => {
+      const nousPresets = mustGetTier("open").presets.filter((preset: TierPreset) =>
+        preset.name.startsWith("nous-"),
+      );
+      expect(nousPresets.length).toBe(5);
+      for (const preset of nousPresets) {
+        expect(preset.agents).toEqual(["hermes"]);
       }
     });
 
@@ -194,8 +250,42 @@ describe("tiers", () => {
       const resolved: TierPreset[] = tiers.resolveTierPresets("balanced");
       expect(resolved.length).toBeGreaterThanOrEqual(5);
       for (const preset of resolved) {
-        expect(preset.access).toBe("read-write");
+        const expected = READ_ONLY_PRESETS.has(preset.name) ? "read" : "read-write";
+        expect(preset.access).toBe(expected);
       }
+    });
+
+    it("includes Hermes Nous presets in open when resolved for the hermes agent", () => {
+      const names = tiers
+        .resolveTierPresets("open", { agent: "hermes" })
+        .map((preset: TierPreset) => preset.name);
+      for (const nous of ["nous-web", "nous-image", "nous-audio", "nous-browser", "nous-code"]) {
+        expect(names).toContain(nous);
+      }
+      // Curated, agent-agnostic presets remain present for Hermes too.
+      expect(names).toContain("weather");
+      expect(names).toContain("wikimedia");
+    });
+
+    it("excludes Hermes Nous presets in open when resolved for the openclaw agent", () => {
+      const names = tiers
+        .resolveTierPresets("open", { agent: "openclaw" })
+        .map((preset: TierPreset) => preset.name);
+      for (const nous of ["nous-web", "nous-image", "nous-audio", "nous-browser", "nous-code"]) {
+        expect(names).not.toContain(nous);
+      }
+      // Curated, agent-agnostic presets still apply to OpenClaw.
+      expect(names).toContain("weather");
+      expect(names).toContain("wikimedia");
+      expect(names).toContain("rest-countries");
+    });
+
+    it("returns all presets (including agent-scoped) when no agent is provided", () => {
+      const names = tiers
+        .resolveTierPresets("open")
+        .map((preset: TierPreset) => preset.name);
+      expect(names).toContain("nous-web");
+      expect(names).toContain("weather");
     });
 
     it("applies access override for a specific preset", () => {

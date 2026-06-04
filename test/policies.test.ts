@@ -171,6 +171,7 @@ describe("policies", () => {
         "huggingface",
         "jira",
         "local-inference",
+        "nominatim",
         "nous-audio",
         "nous-browser",
         "nous-code",
@@ -181,12 +182,69 @@ describe("policies", () => {
         "openclaw-pricing",
         "outlook",
         "pypi",
+        "rest-countries",
         "slack",
         "telegram",
+        "weather",
         "wechat",
         "whatsapp",
+        "wikidata",
+        "wikimedia",
       ];
       expect(names).toEqual(expected);
+    });
+  });
+
+  describe("curated common-data presets (#4767)", () => {
+    const CURATED_PRESETS = ["weather", "wikimedia", "wikidata", "nominatim", "rest-countries"];
+
+    it("use explicit hosts, rest/enforce, and GET/HEAD-only rules with no access:full", () => {
+      for (const presetName of CURATED_PRESETS) {
+        const parsed = parsePresetYaml(presetName);
+        const policyEntries = Object.values(parsed.network_policies) as Array<{
+          endpoints: Array<{
+            host: string;
+            protocol?: string;
+            enforcement?: string;
+            access?: string;
+            rules?: Array<{ allow?: { method?: string } }>;
+          }>;
+        }>;
+        expect(policyEntries.length).toBeGreaterThan(0);
+        for (const entry of policyEntries) {
+          expect(entry.endpoints.length).toBeGreaterThan(0);
+          for (const endpoint of entry.endpoints) {
+            // Explicit hosts only — no wildcard world egress.
+            expect(endpoint.host.includes("*")).toBe(false);
+            expect(endpoint.protocol).toBe("rest");
+            expect(endpoint.enforcement).toBe("enforce");
+            // No access: full on curated read-only presets.
+            expect(endpoint.access).toBeUndefined();
+            const methods = (endpoint.rules ?? []).map((rule) => rule.allow?.method);
+            expect(methods.length).toBeGreaterThan(0);
+            for (const method of methods) {
+              expect(["GET", "HEAD"]).toContain(method);
+            }
+          }
+        }
+      }
+    });
+
+    it("restrict binaries to agent/runtime paths and never grant generic /** access", () => {
+      for (const presetName of CURATED_PRESETS) {
+        const parsed = parsePresetYaml(presetName);
+        const policyEntries = Object.values(parsed.network_policies) as Array<{
+          binaries?: Array<{ path: string }>;
+        }>;
+        for (const entry of policyEntries) {
+          const binaries = entry.binaries ?? [];
+          expect(binaries.length).toBeGreaterThan(0);
+          for (const binary of binaries) {
+            expect(binary.path).not.toBe("/**");
+            expect(binary.path.startsWith("/")).toBe(true);
+          }
+        }
+      }
     });
   });
 
