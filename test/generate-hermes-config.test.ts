@@ -129,6 +129,18 @@ describe("agents/hermes/generate-config.ts", () => {
     expect(config.model.api_key).toMatch(/OPENSHELL/);
   });
 
+  it("exports the proxy-rewrite key in .env so the Hermes dashboard chat resolves a credential", () => {
+    // The gateway API reads config.yaml model.api_key, but the dashboard
+    // (port 9119) resolves custom-provider credentials from ~/.hermes/.env and
+    // otherwise falls through to `no-key-required` -> "No API key configured
+    // for provider 'custom'". The env-var placeholder must match the
+    // config.yaml one so both surfaces route through inference.local. See #4765.
+    const { config, envFile } = runConfigScript();
+
+    expect(envFile).toContain(`OPENAI_API_KEY=${config.model.api_key}\n`);
+    expect(envFile).toContain("OPENAI_API_KEY=sk-OPENSHELL-PROXY-REWRITE\n");
+  });
+
   it("generates managed-tool gateway config and env for selected Nous presets", () => {
     const { config, envFile } = runConfigScript({
       NEMOCLAW_HERMES_TOOL_GATEWAY_BROKER: "1",

@@ -14,7 +14,7 @@
 //   - Agent defaults (terminal, memory, skills, display)
 
 import { readHermesBuildSettings } from "./config/build-env.ts";
-import { buildHermesConfig } from "./config/hermes-config.ts";
+import { buildHermesConfig, OPENSHELL_PROXY_REWRITE_API_KEY } from "./config/hermes-config.ts";
 import { buildMessagingEnvLines } from "./config/messaging-config.ts";
 import { discoverModelSpecificSetups } from "./config/model-specific-setup.ts";
 import { writeHermesConfigFiles } from "./config/write-config.ts";
@@ -47,6 +47,16 @@ function main(): void {
       ? settings.managedToolGateways.presets
       : [],
   );
+
+  // The gateway API (port 8642) reads the inference credential from
+  // config.yaml `model.api_key`, but the Hermes dashboard (port 9119) resolves
+  // custom-provider credentials through its env-var fallback chain and reads
+  // `~/.hermes/.env` at runtime. Without an env-var key it falls through to
+  // `no-key-required` and the dashboard chat reports "No API key configured for
+  // provider 'custom'". Export the same OpenShell proxy-rewrite placeholder so
+  // both surfaces route through `inference.local` identically.
+  envLines.push(`OPENAI_API_KEY=${OPENSHELL_PROXY_REWRITE_API_KEY}`);
+
   const written = writeHermesConfigFiles(config, envLines);
 
   console.log(`[config] Wrote ${written.configPath} (model=${settings.model}, provider=custom)`);

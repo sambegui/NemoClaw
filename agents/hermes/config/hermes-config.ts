@@ -8,6 +8,14 @@ import {
 } from "./managed-tool-gateway.ts";
 import { buildDiscordConfig } from "./messaging-config.ts";
 
+// OpenShell's L7 inference router strips the client `Authorization` header and
+// injects the real cluster-route credential at egress, so this placeholder is
+// never seen upstream. It must still look like a usable `sk-`-prefixed key:
+// LiteLLM's virtual-key gate (used by the gateway API on port 8642) rejects
+// `no-key-required`, and Hermes' dashboard credential probe (port 9119) reports
+// "No API key configured" when the resolved key is empty or `no-key-required`.
+export const OPENSHELL_PROXY_REWRITE_API_KEY = "sk-OPENSHELL-PROXY-REWRITE";
+
 const API_SERVER_TOOLSETS = [
   "web",
   "browser",
@@ -34,7 +42,7 @@ export function buildHermesConfig(settings: HermesBuildSettings): Record<string,
       default: settings.model,
       provider: "custom",
       base_url: settings.baseUrl,
-      api_key: "sk-OPENSHELL-PROXY-REWRITE",
+      api_key: OPENSHELL_PROXY_REWRITE_API_KEY,
     },
     terminal: {
       backend: "local",
