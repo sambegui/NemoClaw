@@ -3201,9 +3201,7 @@ async function createSandbox(
       if (!shouldSkipPreRecreateBackup(process.env)) {
         const result = backupSandboxBeforeRecreate({ sandboxName });
         if (!result.ok) {
-          console.error(
-            "  Set NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 to recreate without preserving state.",
-          );
+          // backupSandboxBeforeRecreate already printed the runnable recovery hint.
           process.exit(1);
         }
         pendingStateRestore = result.backup;
@@ -3240,7 +3238,7 @@ async function createSandbox(
       note("  Backing up workspace state before recreating sandbox...");
       const result = backupSandboxBeforeRecreate({ sandboxName });
       if (!result.ok) {
-        console.error("  Set NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 to recreate without preserving state.");
+        // backupSandboxBeforeRecreate already printed the runnable recovery hint.
         process.exit(1);
       }
       pendingStateRestore = result.backup;

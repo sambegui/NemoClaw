@@ -15,6 +15,13 @@ export interface PreRecreateBackupOptions {
 
 export type PreRecreateBackupFailureKind = "none" | "partial" | "empty" | "threw";
 
+// Copy-pasteable workaround surfaced on every backup failure so the operator has
+// an in-product path forward instead of having to already know the env var.
+// See issue #4758 (P-29 / PRR-43) and the recovery-command contract (case 5987921).
+export const RECREATE_WITHOUT_BACKUP_HINT =
+  "  To recreate without a backup (e.g. the container is already gone): " +
+  "NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 nemoclaw onboard --resume";
+
 export interface PreRecreateBackupResult {
   ok: boolean;
   backup: BackupResult | null;
@@ -41,13 +48,16 @@ export function backupSandboxBeforeRecreate(
         `  Partial backup: ${backup.backedUpDirs.length} dirs / ${backup.backedUpFiles.length} files saved; ${backup.failedDirs.length} dirs / ${backup.failedFiles.length} files failed.`,
       );
       errorLog("  Aborting recreate — failed entries would be lost on delete.");
+      errorLog(RECREATE_WITHOUT_BACKUP_HINT);
       return { ok: false, backup, failureKind: "partial" };
     }
     errorLog("  State backup failed — aborting recreate to prevent data loss.");
+    errorLog(RECREATE_WITHOUT_BACKUP_HINT);
     return { ok: false, backup: null, failureKind: "empty" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     errorLog(`  State backup threw: ${message} — aborting recreate.`);
+    errorLog(RECREATE_WITHOUT_BACKUP_HINT);
     return { ok: false, backup: null, failureKind: "threw", errorMessage: message };
   }
 }

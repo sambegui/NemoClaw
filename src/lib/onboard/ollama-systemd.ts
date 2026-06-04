@@ -171,6 +171,15 @@ export function ensureOllamaLoopbackSystemdOverride(
   }
   if (overrideFailed) {
     console.error("  Failed to apply Ollama systemd loopback override.");
+    if (sudoPrefix === "sudo -n") {
+      console.error(
+        `  Non-interactive sudo could not run the override step. Set ${NON_INTERACTIVE_SUDO_MODE_ENV}=prompt to allow a sudo password prompt when a terminal is available.`,
+      );
+    } else {
+      console.error(
+        "  If sudo timed out waiting for a password, run 'sudo -v' first to cache sudo credentials, then re-run.",
+      );
+    }
     console.error("  Refusing to continue with a potentially non-loopback Ollama bind.");
     process.exit(1);
   }

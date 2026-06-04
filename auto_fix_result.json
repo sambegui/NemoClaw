@@ -1,0 +1,17 @@
+{
+  "fix_description": "Surface the unblocking workarounds in recreate/backup failure errors (issue #4758). (1) State-backup failures now emit a copy-pasteable recovery command on its own line via a centralized RECREATE_WITHOUT_BACKUP_HINT constant in sandbox-backup-on-recreate.ts ('To recreate without a backup ...: NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 nemoclaw onboard --resume'), emitted for all failure kinds (partial/empty/threw); the redundant call-site messages in onboard.ts were removed. (2) The Ollama systemd loopback override apply-failure in ollama-systemd.ts now prints an unblocking hint: 'sudo -v' to cache sudo credentials when interactive, or NEMOCLAW_NON_INTERACTIVE_SUDO_MODE=prompt when running non-interactively.",
+  "verification_steps": [
+    "npm run build:cli — compiles the CLI TypeScript to dist/ (succeeds)",
+    "npm run typecheck:cli — tsc -p tsconfig.cli.json (no errors)",
+    "npx vitest run src/lib/onboard/sandbox-backup-on-recreate.test.ts — 8 tests pass (includes new assertions that the runnable recovery hint is emitted on partial/empty/threw failures and that it contains the runnable command)",
+    "npx vitest run test/onboard-selection.test.ts — 76 tests pass (Ollama systemd failure test now also asserts a sudo workaround is surfaced)",
+    "npx @biomejs/biome check on changed files — clean (test import order auto-sorted)"
+  ],
+  "commands_run": [
+    "npm run build:cli",
+    "npm run typecheck:cli",
+    "npx vitest run src/lib/onboard/sandbox-backup-on-recreate.test.ts",
+    "npx vitest run test/onboard-selection.test.ts",
+    "npx @biomejs/biome check --write src/lib/onboard/sandbox-backup-on-recreate.test.ts"
+  ]
+}

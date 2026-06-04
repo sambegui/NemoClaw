@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from "vitest";
-
-import type { BackupResult } from "../../../dist/lib/state/sandbox";
 import {
   backupSandboxBeforeRecreate,
+  RECREATE_WITHOUT_BACKUP_HINT,
   shouldSkipPreRecreateBackup,
 } from "../../../dist/lib/onboard/sandbox-backup-on-recreate";
+import type { BackupResult } from "../../../dist/lib/state/sandbox";
 
 function makeBackup(overrides: Partial<BackupResult> = {}): BackupResult {
   return {
@@ -62,6 +62,7 @@ describe("backupSandboxBeforeRecreate", () => {
     expect(result.backup).toBe(backup);
     expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Partial backup"));
     expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("Aborting recreate"));
+    expect(errorLog).toHaveBeenCalledWith(RECREATE_WITHOUT_BACKUP_HINT);
   });
 
   it("rejects backup result missing manifest backupPath", () => {
@@ -95,6 +96,7 @@ describe("backupSandboxBeforeRecreate", () => {
     expect(result.failureKind).toBe("empty");
     expect(result.backup).toBeNull();
     expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("aborting recreate"));
+    expect(errorLog).toHaveBeenCalledWith(RECREATE_WITHOUT_BACKUP_HINT);
   });
 
   it("returns ok:false with failureKind=threw when backup throws", () => {
@@ -111,6 +113,14 @@ describe("backupSandboxBeforeRecreate", () => {
     expect(result.failureKind).toBe("threw");
     expect(result.errorMessage).toBe("disk full");
     expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("State backup threw"));
+    expect(errorLog).toHaveBeenCalledWith(RECREATE_WITHOUT_BACKUP_HINT);
+  });
+
+  it("recovery hint is a copy-pasteable command that sets the skip env var", () => {
+    // Recovery-command contract (case 5987921): the workaround must be runnable.
+    expect(RECREATE_WITHOUT_BACKUP_HINT).toContain(
+      "NEMOCLAW_RECREATE_WITHOUT_BACKUP=1 nemoclaw onboard --resume",
+    );
   });
 });
 

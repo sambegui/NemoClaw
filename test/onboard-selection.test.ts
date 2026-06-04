@@ -2614,6 +2614,8 @@ const { setupNim } = require(${onboardPath});
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Failed to apply Ollama systemd loopback override/);
     assert.match(result.stderr, /Refusing to continue/);
+    // Surface an unblocking workaround for the sudo step (issue #4758 / P-29).
+    assert.match(result.stderr, /NEMOCLAW_NON_INTERACTIVE_SUDO_MODE=prompt|sudo -v/);
     assert.doesNotMatch(result.stderr, /manual-start/);
   });
 
