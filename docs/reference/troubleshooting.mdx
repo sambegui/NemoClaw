@@ -864,6 +864,7 @@ nemoclaw <sandbox> doctor --fix
 ```
 
 `nemoclaw <sandbox> doctor` reports the drift as a `Config permissions` warning, and `--fix` restores `2770/660`.
+`nemoclaw <sandbox> shields status` also cross-checks the filesystem: when the contract is broken it reports `NOT CONFIGURED (default mutable state) — but config permissions are DRIFTED` and exits non-zero instead of claiming a clean mutable state.
 Restarting the sandbox repairs the same drift automatically, and NemoClaw's own `rebuild` re-applies the contract after its post-upgrade `openclaw doctor --fix` step.
 
 When verifying gateway write access by hand, step down to the gateway UID with the image's installed mechanism so the `sandbox` group membership is initialized:

@@ -938,6 +938,95 @@ describe("shields — unit logic", () => {
       );
       expect(exitSpy).toHaveBeenCalledWith(2);
     });
+
+    // #4859: a fresh (mutable_default) sandbox whose config tree was tightened
+    // by `openclaw doctor --fix` must not be reported as a clean mutable state.
+    it("prints DRIFTED and exits 2 when the mutable config contract is broken", async () => {
+      const sandboxName = "openclaw";
+      // No shields state file → mutable_default posture.
+      const driftIssues = [
+        "/sandbox/.openclaw mode 700 (expected 2770 setgid+group-writable)",
+        "/sandbox/.openclaw/openclaw.json mode 600 (expected 660 group-writable)",
+      ];
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation((code?: string | number | null) => {
+          throw new Error(`exit ${String(code)}`);
+        });
+
+      const { shieldsStatus } = await loadShieldsModule();
+      expect(() =>
+        shieldsStatus(sandboxName, true, {
+          inspectConfigPerms: () => ({
+            applies: true,
+            ok: false,
+            dirMode: "700",
+            dirOwner: "sandbox:sandbox",
+            fileMode: "600",
+            fileOwner: "sandbox:sandbox",
+            configDir: "/sandbox/.openclaw",
+            configFile: "openclaw.json",
+            issues: driftIssues,
+          }),
+        }),
+      ).toThrow("exit 2");
+
+      const allErrors = errorSpy.mock.calls.map((args) => args[0]).join("\n");
+      expect(allErrors).toContain(
+        "Shields: NOT CONFIGURED (default mutable state) — but config permissions are DRIFTED",
+      );
+      for (const issue of driftIssues) {
+        expect(allErrors).toContain(`    - ${issue}`);
+      }
+      expect(allErrors).toContain(`nemoclaw ${sandboxName} doctor --fix`);
+      expect(exitSpy).toHaveBeenCalledWith(2);
+    });
+
+    it("prints a clean mutable status when the config contract is intact", async () => {
+      const sandboxName = "openclaw";
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const { shieldsStatus } = await loadShieldsModule();
+      shieldsStatus(sandboxName, true, {
+        inspectConfigPerms: () => ({
+          applies: true,
+          ok: true,
+          dirMode: "2770",
+          dirOwner: "sandbox:sandbox",
+          fileMode: "660",
+          fileOwner: "sandbox:sandbox",
+          configDir: "/sandbox/.openclaw",
+          configFile: "openclaw.json",
+          issues: [],
+        }),
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        "  Shields: NOT CONFIGURED (default mutable state)",
+      );
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the normal mutable status when the perms probe is inapplicable", async () => {
+      const sandboxName = "openclaw";
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const { shieldsStatus } = await loadShieldsModule();
+      shieldsStatus(sandboxName, true, {
+        inspectConfigPerms: () => ({
+          applies: false,
+          reason: "container not running",
+        }),
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        "  Shields: NOT CONFIGURED (default mutable state)",
+      );
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

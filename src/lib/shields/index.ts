@@ -1529,6 +1529,7 @@ function shieldsUp(sandboxName: string, opts: { throwOnError?: boolean } = {}): 
 type ShieldsStatusDeps = {
   verifyLockState?: typeof verifyShieldsLockState;
   resolveConfig?: typeof resolveAgentConfig;
+  inspectConfigPerms?: (sandboxName: string) => MutableConfigPermsInspection;
 };
 
 function shieldsStatus(
@@ -1540,6 +1541,7 @@ function shieldsStatus(
 
   const verify = deps.verifyLockState ?? verifyShieldsLockState;
   const resolveConfig = deps.resolveConfig ?? resolveAgentConfig;
+  const inspectConfigPerms = deps.inspectConfigPerms ?? inspectMutableConfigPerms;
 
   const posture = getShieldsPosture(sandboxName, allowInlineRecovery);
   const { state } = posture;
@@ -1555,13 +1557,47 @@ function shieldsStatus(
   }
 
   switch (posture.mode) {
-    case "mutable_default":
+    case "mutable_default": {
       // NC-2227-02: Fresh sandbox with no shields history — do NOT claim locked
+      //
+      // #4859: cross-check the actual filesystem before reporting a clean
+      // mutable state. `openclaw doctor --fix` (run inside the sandbox) tightens
+      // the config tree to single-user 700/600, which silently breaks the
+      // mutable contract (the gateway UID can no longer persist config edits)
+      // while shields state still reads "not configured". Surface that drift
+      // here — mirroring the locked-state drift check below — so `shields
+      // status` no longer reports "mutable" when the filesystem says otherwise.
+      let permDrift: string[] = [];
+      try {
+        const inspection = inspectConfigPerms(sandboxName);
+        if (inspection.applies && !inspection.ok) {
+          permDrift = inspection.issues;
+        }
+      } catch {
+        // A probe failure is non-fatal here: fall through to the normal mutable
+        // status rather than blocking on an inability to stat the config.
+      }
+      if (permDrift.length > 0) {
+        console.error(
+          "  Shields: NOT CONFIGURED (default mutable state) — but config permissions are DRIFTED",
+        );
+        console.error(
+          "  The mutable config contract is broken (likely `openclaw doctor --fix` ran inside the sandbox):",
+        );
+        for (const issue of permDrift) {
+          console.error(`    - ${issue}`);
+        }
+        console.error(
+          `  Recovery: nemoclaw ${sandboxName} doctor --fix   # restore group-write, or restart the sandbox`,
+        );
+        process.exit(2);
+      }
       console.log(`  Shields: ${posture.statusText}`);
       console.log(
         "  Config is mutable. Run `nemoclaw <sandbox> shields up` to opt into lockdown.",
       );
       return;
+    }
 
     case "locked": {
       // Cross-check the sandbox filesystem so a host-root tamper that reverts
