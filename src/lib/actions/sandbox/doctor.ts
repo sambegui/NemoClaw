@@ -17,7 +17,11 @@ import { B, D, G, R, RD, YW } from "../../cli/terminal-style";
 import { GATEWAY_PORT, OLLAMA_PORT } from "../../core/ports";
 import { recoverNamedGatewayRuntime } from "../../gateway-runtime-action";
 import { parseGatewayInference } from "../../inference/config";
-import { type ProviderHealthStatus, probeProviderHealth } from "../../inference/health";
+import {
+  getRemoteProviderHealthEndpoint,
+  type ProviderHealthStatus,
+  probeProviderHealth,
+} from "../../inference/health";
 import { isLinuxDockerDriverGatewayEnabled } from "../../onboard/docker-driver-platform";
 import { executeSandboxCommandForVerification } from "../../onboard/sandbox-verification-exec";
 import { ROOT } from "../../runner";
@@ -30,6 +34,7 @@ import { buildStatusCommandDeps } from "../../status-command-deps";
 import { readCloudflaredState } from "../../tunnel/services";
 import { buildConfigPermsCheck } from "./doctor-config-perms";
 import { probeSandboxInferenceGatewayHealth } from "./process-recovery";
+import { runTopologyChecks } from "./topology";
 
 const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
 
@@ -154,7 +159,15 @@ function renderDoctorReport(report: DoctorReport, asJson: boolean): number {
 
   console.log("");
   console.log(`  ${B}${CLI_DISPLAY_NAME} doctor:${R} ${report.sandbox}`);
-  const groupOrder = ["Host", "Gateway", "Sandbox", "Inference", "Messaging", "Local services"];
+  const groupOrder = [
+    "Host",
+    "Gateway",
+    "Sandbox",
+    "Inference",
+    "Messaging",
+    "Local services",
+    "Topology",
+  ];
   const orderedGroups = [
     ...groupOrder,
     ...report.checks
@@ -544,16 +557,20 @@ export async function runSandboxDoctor(
 ): Promise<DoctorReport | undefined> {
   const asJson = args.includes("--json");
   const wantsFix = args.includes("--fix");
+  const wantsTopology = args.includes("--topology");
   const helpRequested = args.includes("--help") || args.includes("-h");
-  const unknown = args.filter((arg) => !["--json", "--fix", "--help", "-h"].includes(arg));
+  const unknown = args.filter(
+    (arg) => !["--json", "--fix", "--topology", "--help", "-h"].includes(arg),
+  );
   if (helpRequested) {
-    console.log(`  Usage: ${CLI_NAME} <name> doctor [--json] [--fix]`);
-    console.log(`  --fix   Restore the mutable OpenClaw config permission contract if it was tightened`);
+    console.log(`  Usage: ${CLI_NAME} <name> doctor [--json] [--fix] [--topology]`);
+    console.log(`  --fix        Restore the mutable OpenClaw config permission contract if it was tightened`);
+    console.log(`  --topology   Probe multi-host connectivity between the CLI, gateway, dashboard, and inference endpoint`);
     return;
   }
   if (unknown.length > 0) {
     console.error(`  Unknown doctor argument${unknown.length === 1 ? "" : "s"}: ${unknown.join(" ")}`);
-    console.error(`  Usage: ${CLI_NAME} <name> doctor [--json] [--fix]`);
+    console.error(`  Usage: ${CLI_NAME} <name> doctor [--json] [--fix] [--topology]`);
     process.exit(1);
   }
   // `--fix` mutates sandbox permissions; `--json` is the machine-readable
@@ -805,6 +822,22 @@ export async function runSandboxDoctor(
 
   checks.push(ollamaDoctorCheck(currentProvider));
   checks.push(cloudflaredDoctorCheck(sandboxName));
+
+  // #4874: opt-in multi-host topology connectivity sweep. Probes each required
+  // hop (CLI → OpenShell gateway, CLI → dashboard, gateway → inference) and
+  // classifies a broken route into a specific reason (DNS, port conflict,
+  // proxy, TLS/CA, policy, route, timeout) so split-host deployments can see
+  // which hop is broken.
+  if (wantsTopology) {
+    const topologyChecks = await runTopologyChecks({
+      inferenceProvider:
+        typeof currentProvider === "string" && currentProvider !== "unknown"
+          ? currentProvider
+          : undefined,
+      resolveProviderEndpoint: getRemoteProviderHealthEndpoint,
+    });
+    checks.push(...topologyChecks);
+  }
 
   const report = buildDoctorReport(sandboxName, checks);
   if (asJson && options.quietJson) return report;

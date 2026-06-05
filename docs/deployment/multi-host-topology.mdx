@@ -1,0 +1,61 @@
+---
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: "Multi-Host Topology and Connectivity Checks"
+sidebar-title: "Multi-Host Topology"
+description: "Understand the supported multi-host NemoClaw topology and use the doctor connectivity sweep to find which hop is broken."
+description-agent: "Describes the supported multi-host NemoClaw deployment topology (CLI, OpenShell gateway, OpenClaw dashboard, sandbox runtime, inference endpoint) and the `doctor --topology` connectivity sweep that classifies a broken route into a DNS, port-conflict, proxy, TLS/CA, policy, or route failure. Use when diagnosing split-host or split-namespace connectivity problems."
+keywords: ["nemoclaw multi-host topology", "nemoclaw doctor topology", "nemoclaw connectivity check"]
+content:
+  type: "how_to"
+skill:
+  priority: 10
+---
+
+In a single-host deployment the NemoClaw CLI, the OpenShell gateway, the OpenClaw gateway/TUI (dashboard), the sandbox runtime, and the inference endpoint all share `localhost`. In multi-host or multi-namespace deployments these roles can run on different hosts, ports, or network namespaces, and a single misconfigured gateway URL, dashboard port, proxy rule, host alias, or certificate can silently break a required route.
+
+The `doctor --topology` connectivity sweep probes each required hop, reports which hop is broken, and classifies the failure so you know whether to fix DNS, a port conflict, a proxy bypass rule, a TLS/CA trust problem, the sandbox policy, or the route itself.
+
+## Supported topology
+
+NemoClaw supports a production topology built from these hops:
+
+| Hop | Default host | Default port | Override |
+|-----|--------------|--------------|----------|
+| CLI host → OpenShell gateway | `localhost` | `8080` | `NEMOCLAW_GATEWAY_HOST`, `NEMOCLAW_GATEWAY_PORT` |
+| CLI host → OpenClaw gateway/TUI (dashboard) | `localhost` | `18789` | `NEMOCLAW_DASHBOARD_HOST`, `NEMOCLAW_DASHBOARD_PORT` |
+| Gateway → inference endpoint | provider-defined | provider-defined | provider/endpoint configuration |
+
+The sandbox runtime reaches local host services through a host alias (for example `host.openshell.internal`); see the network policy and sandbox hardening guides for sandbox-side egress.
+
+<Note>
+Arbitrary distributed or Kubernetes topologies are not supported by default, and NemoClaw does not replace operator-managed ingress, firewall, VPN, DNS, or certificate infrastructure. The connectivity sweep validates the required NemoClaw-managed hops only.
+</Note>
+
+## Run the connectivity sweep
+
+```bash
+nemoclaw <sandbox-name> doctor --topology
+```
+
+The topology checks are appended under a **Topology** group in the doctor report. Add `--json` for a machine-readable readiness gate:
+
+```bash
+nemoclaw <sandbox-name> doctor --topology --json
+```
+
+## How failures are classified
+
+Each broken hop is reported with the specific failure reason so the remediation is unambiguous:
+
+| Reason | Meaning | Typical remediation |
+|--------|---------|---------------------|
+| `dns` | The destination host does not resolve | Fix DNS or add a host alias for the host |
+| `port-conflict` | Another process already owns the expected port | Free the port or set a distinct port for the hop |
+| `proxy` | An HTTP(S) proxy is intercepting the host | Add the host to `NO_PROXY` or allow it in the proxy |
+| `tls` | TLS/CA verification failed | Install the CA bundle or fix the certificate |
+| `policy` | The sandbox egress policy denied the route | Allow it with `nemoclaw <name> policy` |
+| `timeout` | No response within the probe window | Check firewall/VPN routing and that the service is up |
+| `route` | No route to the host/port | Verify the host, port, and that the service is listening |
+
+The doctor prints an actionable hint for each failed hop pointing at the remediation above. A required hop that fails is reported as a failure; the dashboard hop is optional and a failure is reported as a warning.

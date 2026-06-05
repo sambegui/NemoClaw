@@ -12,11 +12,12 @@ export default class SandboxDoctorCliCommand extends NemoClawCommand {
   static enableJsonFlag = true;
   static summary = "Diagnose sandbox and gateway health";
   static description = "Run host, gateway, sandbox, inference, messaging, and local service diagnostics.";
-  static usage = ["<name> [--json] [--fix]"];
+  static usage = ["<name> [--json] [--fix] [--topology]"];
   static examples = [
     "<%= config.bin %> sandbox doctor alpha",
     "<%= config.bin %> sandbox doctor alpha --json",
     "<%= config.bin %> sandbox doctor alpha --fix",
+    "<%= config.bin %> sandbox doctor alpha --topology",
   ];
   static args = {
     sandboxName: Args.string({
@@ -34,6 +35,11 @@ export default class SandboxDoctorCliCommand extends NemoClawCommand {
       // `--json` readiness-gate path so automation cannot trigger a silent repair.
       exclusive: ["json"],
     }),
+    topology: Flags.boolean({
+      description:
+        "Probe multi-host connectivity between the CLI, OpenShell gateway, OpenClaw dashboard, and inference endpoint (#4874)",
+      default: false,
+    }),
   };
 
   public async run(): Promise<unknown> {
@@ -43,13 +49,14 @@ export default class SandboxDoctorCliCommand extends NemoClawCommand {
       // `--fix` is mutually exclusive with `--json` (enforced above), so the
       // JSON path is always read-only. Redirect any stray stdout to stderr so
       // the report stays the only thing on stdout.
+      const jsonArgs = flags.topology ? ["--json", "--topology"] : ["--json"];
       const report = await withStdoutRedirectedToStderr(() =>
-        runSandboxDoctor(args.sandboxName, ["--json"], { quietJson: true }),
+        runSandboxDoctor(args.sandboxName, jsonArgs, { quietJson: true }),
       );
       if (report && report.failed > 0) process.exitCode = 1;
       return report;
     }
-    const doctorArgs = flags.fix ? ["--fix"] : [];
+    const doctorArgs = [...(flags.fix ? ["--fix"] : []), ...(flags.topology ? ["--topology"] : [])];
     await runSandboxDoctor(args.sandboxName, doctorArgs, { quietJson: false });
   }
 }
