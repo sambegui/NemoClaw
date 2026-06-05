@@ -1,0 +1,15 @@
+{
+  "fix_description": "Investigated NemoClaw #4869 (Slack channels.* allowlist block empty). Root cause: the OpenClaw sandbox config generator (scripts/generate-openclaw-config.mts) is the single active writer of the Slack account block in openclaw.json. It already populates channels['*'] = { enabled: true, requireMention: true, users: <SLACK_ALLOWED_USERS> } alongside dmPolicy/allowFrom/groupPolicy whenever the Slack allowlist is set (present since v0.0.56 via commit 9641ce053), and the positive regression test for this (#3729) passes. The reported empty channels.* could not be reproduced against current code. The genuinely missing half of the regression guard was the backward-compatibility negative path the issue explicitly requested. Added a focused test asserting that when SLACK_ALLOWED_USERS is unset, all four allowlist keys (dmPolicy, allowFrom, groupPolicy, channels) stay absent on the Slack account, so the four fields are provably derived only from SLACK_ALLOWED_USERS and an unset allowlist never silently broadens or narrows scope. The manifest-based messaging system (src/lib/messaging/) only declares {{allowedIds.slack.channels}} and is not yet wired into onboard, so it is not the source of the observed config and was left unchanged.",
+  "verification_steps": [
+    "Traced the only active writer of the Slack channels.* block to scripts/generate-openclaw-config.mts (lines ~898-924); confirmed channels['*'] is set with enabled/requireMention/users when allowedIds.slack is present.",
+    "Confirmed the manifest renderer (src/lib/messaging/) resolves only credential/sandboxName templates and has no callers in the onboard flow, so it does not produce the runtime openclaw.json.",
+    "Ran the existing positive guard test (#3729) for Slack DM + channel allowlisting: passes.",
+    "Added negative-path guard test (#4869) and ran the full test/generate-openclaw-config.test.ts suite: 132/132 pass."
+  ],
+  "commands_run": [
+    "npx vitest run test/generate-openclaw-config.test.ts -t \"Slack allowed\"",
+    "npx vitest run test/generate-openclaw-config.test.ts -t \"Slack\"",
+    "npx vitest run test/generate-openclaw-config.test.ts",
+    "npx biome check --write test/generate-openclaw-config.test.ts"
+  ]
+}

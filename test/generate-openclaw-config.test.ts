@@ -880,6 +880,23 @@ describe("generate-openclaw-config.mts: config generation", () => {
     });
   });
 
+  it("omits Slack DM and channel allowlist keys when no allowed IDs are set (#4869)", () => {
+    // Backward-compat negative path: without SLACK_ALLOWED_USERS the four
+    // allowlist fields (dmPolicy, allowFrom, groupPolicy, channels) must all be
+    // absent so an unset allowlist never silently broadens or narrows scope.
+    const channels = Buffer.from(JSON.stringify(["slack"])).toString("base64");
+    const config = runConfigScript({
+      NEMOCLAW_MESSAGING_CHANNELS_B64: channels,
+    });
+    const slack = config.channels.slack.accounts.default;
+
+    expect(config.channels.slack.enabled).toBe(true);
+    expect(slack.dmPolicy).toBeUndefined();
+    expect(slack.allowFrom).toBeUndefined();
+    expect(slack.groupPolicy).toBeUndefined();
+    expect(slack.channels).toBeUndefined();
+  });
+
   it("enables native OpenClaw Tool Search by default", () => {
     const config = runConfigScript();
     expect(config.tools?.toolSearch).toBe(true);
