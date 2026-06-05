@@ -2457,6 +2457,7 @@ describe("NC-2227-01: legacy migration behavior", () => {
       "chown_tree_no_symlink_follow",
       "legacy_symlinks_exist",
       "assert_no_legacy_layout",
+      "materialize_legacy_data_symlinks",
       "migrate_legacy_layout",
     ]
       .map((name) => extractShellFunctionFromSource(src, name))
@@ -2540,6 +2541,56 @@ describe("NC-2227-01: legacy migration behavior", () => {
       } catch {
         /* best-effort cleanup on WSL/overlayfs can fail on chmod-preserved fixtures */
       }
+    }
+  });
+
+  it("materializes nested legacy bridges so workspace/media never dangles (#4853)", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-migrate-media-"));
+    const configDir = path.join(tmpDir, ".openclaw");
+    const dataDir = path.join(tmpDir, ".openclaw-data");
+    // Legacy layout: real media lives in .openclaw-data/media, and
+    // .openclaw-data/workspace/media is a symlink bridging into it. The
+    // config dir bridges the whole workspace into the data dir.
+    fs.mkdirSync(path.join(dataDir, "media"), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, "media", "pic.txt"), "media payload");
+    fs.mkdirSync(path.join(dataDir, "workspace"), { recursive: true });
+    fs.symlinkSync(path.join(dataDir, "media"), path.join(dataDir, "workspace", "media"));
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.symlinkSync(path.join(dataDir, "workspace"), path.join(configDir, "workspace"));
+
+    try {
+      const result = runMigration(configDir, dataDir, { fakeRoot: true });
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(dataDir)).toBe(false);
+      const media = path.join(configDir, "workspace", "media");
+      // The bridge must be materialized into a real directory, not left as a
+      // dangling symlink pointing at the now-removed .openclaw-data.
+      const stat = fs.lstatSync(media);
+      expect(stat.isSymbolicLink()).toBe(false);
+      expect(stat.isDirectory()).toBe(true);
+      expect(fs.readFileSync(path.join(media, "pic.txt"), "utf-8")).toBe("media payload");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a pre-existing dangling legacy bridge without failing migration (#4853)", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-migrate-dangling-"));
+    const configDir = path.join(tmpDir, ".openclaw");
+    const dataDir = path.join(tmpDir, ".openclaw-data");
+    // A sandbox migrated by an older (buggy) build: data dir already gone, but
+    // a dangling workspace/media bridge into it remains. Migration must heal
+    // it rather than hard-fail (which would block sandbox startup).
+    fs.mkdirSync(path.join(configDir, "workspace"), { recursive: true });
+    fs.symlinkSync(path.join(dataDir, "media"), path.join(configDir, "workspace", "media"));
+
+    try {
+      const result = runMigration(configDir, dataDir, { fakeRoot: true });
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(configDir, "workspace", "media"))).toBe(false);
+      expect(fs.lstatSync(configDir).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 

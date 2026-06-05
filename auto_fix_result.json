@@ -1,0 +1,19 @@
+{
+  "fix_description": "Issue #4853 reported sandbox creation failing at build 'Step 45/51' with a symlink error on /sandbox/.openclaw-data/workspace/media. The build-time layer that originally created that nested 'workspace/media -> .openclaw-data/media' symlink was already removed by PR #2227, so the build no longer fails. The remaining real-world failure path is the runtime legacy-layout migration in scripts/nemoclaw-start.sh (migrate_legacy_layout): it copies legacy .openclaw-data subtrees with 'cp -a' (which preserves nested symlinks verbatim) and then deletes .openclaw-data, leaving a nested bridge like workspace/media dangling. The build-time Dockerfile cleanup materializes nested legacy symlinks in a loop (Dockerfile:674-708), but the runtime migration did not, and assert_no_legacy_layout/legacy_symlinks_exist only scanned top-level entries so the dangling link was neither detected nor healed. Fix: added a materialize_legacy_data_symlinks helper that mirrors the Dockerfile's pass (materialize live bridges into real content, drop bridges whose target is already gone), called it before removing the data dir and in the already-migrated/data-dir-gone branch, and made legacy_symlinks_exist + assert_no_legacy_layout recurse via 'find' so nested bridges can no longer slip through. Added two focused regression tests in test/nemoclaw-start.test.ts (#4853): one proving workspace/media is materialized into a real directory with preserved content, one proving a pre-existing dangling bridge is healed instead of hard-failing startup.",
+  "verification_steps": [
+    "bash -n scripts/nemoclaw-start.sh (syntax OK)",
+    "prek shellcheck hook on scripts/nemoclaw-start.sh: Passed",
+    "prek shfmt hook on scripts/nemoclaw-start.sh: Passed",
+    "vitest 'NC-2227-01: legacy migration behavior' describe block: 5/5 passed (3 existing + 2 new #4853 tests)",
+    "TDD red-check: with materialize_legacy_data_symlinks neutralized, both new #4853 tests fail (status 1); with the fix they pass (status 0)",
+    "Confirmed the 18 unrelated failures in test/nemoclaw-start.test.ts (gateway-token / openclaw.json baseline suites) are pre-existing and environment-dependent: they fail identically on the clean tree with my changes stashed"
+  ],
+  "commands_run": [
+    "bash -n scripts/nemoclaw-start.sh",
+    "npx prek run shellcheck --files scripts/nemoclaw-start.sh",
+    "npx prek run shfmt --files scripts/nemoclaw-start.sh",
+    "npx vitest run test/nemoclaw-start.test.ts -t 'legacy migration behavior'",
+    "npx vitest run test/nemoclaw-start.test.ts -t '4853'",
+    "git stash push -- scripts/nemoclaw-start.sh test/nemoclaw-start.test.ts && npx vitest run test/nemoclaw-start.test.ts -t 'baseline' && git stash pop"
+  ]
+}

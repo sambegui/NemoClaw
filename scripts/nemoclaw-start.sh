@@ -2553,7 +2553,11 @@ legacy_symlinks_exist() {
   local config_dir="$1" data_dir="$2"
   local data_real entry raw_target resolved_target
   data_real="$(readlink -f "$data_dir" 2>/dev/null || echo "$data_dir")"
-  for entry in "$config_dir"/.[!.]* "$config_dir"/..?* "$config_dir"/*; do
+  # Recurse: a legacy bridge can be nested (e.g. workspace/media), not just a
+  # top-level entry. The here-doc keeps the loop in this shell so `return`
+  # propagates. Ref: NVIDIA/NemoClaw#4853.
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
     [ -L "$entry" ] || continue
     raw_target="$(readlink "$entry" 2>/dev/null || true)"
     resolved_target="$(readlink -f "$entry" 2>/dev/null || true)"
@@ -2563,7 +2567,9 @@ legacy_symlinks_exist() {
     case "$resolved_target" in
       "$data_real"/* | "$data_dir"/*) return 0 ;;
     esac
-  done
+  done <<EOF
+$(find "$config_dir" -type l -print 2>/dev/null)
+EOF
   return 1
 }
 
@@ -2575,7 +2581,10 @@ assert_no_legacy_layout() {
     return 1
   fi
   data_real="$(readlink -f "$data_dir" 2>/dev/null || echo "$data_dir")"
-  for entry in "$config_dir"/.[!.]* "$config_dir"/..?* "$config_dir"/*; do
+  # Recurse so a nested bridge (e.g. workspace/media) cannot slip through.
+  # Ref: NVIDIA/NemoClaw#4853.
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
     [ -L "$entry" ] || continue
     raw_target="$(readlink "$entry" 2>/dev/null || true)"
     resolved_target="$(readlink -f "$entry" 2>/dev/null || true)"
@@ -2591,6 +2600,58 @@ assert_no_legacy_layout() {
         return 1
         ;;
     esac
+  done <<EOF
+$(find "$config_dir" -type l -print 2>/dev/null)
+EOF
+}
+
+# Materialize any nested symlinks that still point into the legacy data
+# directory so none dangle once it is removed. The copy loop in
+# migrate_legacy_layout preserves symlinks verbatim (cp -a), so an old
+# `workspace/media -> .openclaw-data/media` bridge would survive the copy and
+# become a broken link after the data dir is deleted — tripping later
+# symlink-safety checks and breaking OpenClaw media writes. The build-time
+# Dockerfile cleanup runs the same pass; mirror it here so runtime upgrades of
+# old sandboxes reach the same flat layout. Ref: NVIDIA/NemoClaw#4853.
+materialize_legacy_data_symlinks() {
+  local config_dir="$1" data_dir="$2" label="$3"
+  local data_real link raw_target resolved_target legacy_target copy_target replaced
+  data_real="$(readlink -f "$data_dir" 2>/dev/null || echo "$data_dir")"
+  # Re-scan after each pass: materializing a directory bridge can surface
+  # further nested bridges copied in from the legacy tree.
+  while :; do
+    replaced=0
+    while IFS= read -r link; do
+      [ -n "$link" ] || continue
+      [ -L "$link" ] || continue
+      raw_target="$(readlink "$link" 2>/dev/null || true)"
+      resolved_target="$(readlink -f "$link" 2>/dev/null || true)"
+      legacy_target=0
+      case "$raw_target" in "$data_real"/* | "$data_dir"/*) legacy_target=1 ;; esac
+      case "$resolved_target" in "$data_real"/* | "$data_dir"/*) legacy_target=1 ;; esac
+      [ "$legacy_target" -eq 1 ] || continue
+      copy_target="$resolved_target"
+      if [ -z "$copy_target" ] || { [ ! -e "$copy_target" ] && [ ! -L "$copy_target" ]; }; then
+        copy_target="$raw_target"
+      fi
+      ensure_mutable_for_migration "$link" "$label" || return 1
+      if [ -d "$copy_target" ] && [ ! -L "$copy_target" ]; then
+        rm -f "$link"
+        mkdir -p "$link"
+        cp -a "$copy_target"/. "$link"/
+      elif [ -e "$copy_target" ] || [ -L "$copy_target" ]; then
+        rm -f "$link"
+        cp -a "$copy_target" "$link"
+      else
+        # Target is gone (data dir already removed by a prior migration) —
+        # drop the dangling bridge rather than leave a broken symlink behind.
+        rm -f "$link"
+      fi
+      replaced=1
+    done <<EOF
+$(find "$config_dir" -type l -print 2>/dev/null)
+EOF
+    [ "$replaced" -eq 1 ] || break
   done
 }
 
@@ -2628,6 +2689,10 @@ migrate_legacy_layout() {
   fi
 
   if [ ! -d "$data_dir" ]; then
+    # The data dir is already gone, but an earlier (buggy) migration may have
+    # left a dangling nested bridge behind. Heal it before asserting so we
+    # don't hard-fail startup on legacy cruft. Ref: NVIDIA/NemoClaw#4853.
+    materialize_legacy_data_symlinks "$config_dir" "$data_dir" "$label" || return 1
     assert_no_legacy_layout "$config_dir" "$data_dir" "$label"
     return $?
   fi
@@ -2691,6 +2756,11 @@ migrate_legacy_layout() {
     [ -d "$entry" ] || continue
     chown_tree_no_symlink_follow sandbox:sandbox "$entry"
   done
+
+  # Materialize nested bridges (e.g. workspace/media) into real content while
+  # the legacy data dir still exists, so none dangle once it is removed below.
+  # Ref: NVIDIA/NemoClaw#4853.
+  materialize_legacy_data_symlinks "$config_dir" "$data_dir" "$label" || return 1
 
   rm -rf "$data_dir"
   assert_no_legacy_layout "$config_dir" "$data_dir" "$label" || return 1
