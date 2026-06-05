@@ -1404,6 +1404,27 @@ install_whatsapp_qr_compact() {
   emit_sandbox_sourced_file "$_WHATSAPP_QR_COMPACT_SCRIPT" <"$_WHATSAPP_QR_COMPACT_SOURCE"
 }
 
+# ── OpenClaw TUI markdown code-fidelity preload (NemoClaw#4849) ───────
+# The bundled OpenClaw TUI renderer applies markdown emphasis (`__x__`,
+# `_x_`) to text inside fenced code blocks and inline code spans, corrupting
+# Python dunder syntax (`__name__`, `is_palindrome`). This preload reasserts
+# verbatim code rendering at the `marked` boundary. Like the WhatsApp compact-QR
+# preload it is NOT added to the global NODE_OPTIONS — only the interactive
+# `openclaw tui` invocation renders assistant markdown — so the openclaw() guard
+# injects it for that single command and we only need the file present.
+_OPENCLAW_TUI_MD_FIX_SCRIPT="/tmp/nemoclaw-openclaw-tui-markdown-fix.js"
+_OPENCLAW_TUI_MD_FIX_SOURCE="/usr/local/lib/nemoclaw/preloads/openclaw-tui-markdown-fix.js"
+
+install_openclaw_tui_markdown_fix() {
+  # Source file is absent on older base images; skip rather than fail the boot.
+  if [ ! -f "$_OPENCLAW_TUI_MD_FIX_SOURCE" ]; then
+    return 0
+  fi
+
+  printf '[tui] Installing OpenClaw TUI markdown code-fidelity preload (NemoClaw#4849)\n' >&2
+  emit_sandbox_sourced_file "$_OPENCLAW_TUI_MD_FIX_SCRIPT" <"$_OPENCLAW_TUI_MD_FIX_SOURCE"
+}
+
 _read_gateway_token() {
   node - <<'NODETOKEN'
 const fs = require("fs");
@@ -2395,6 +2416,20 @@ PYAPPROVEAFTER
         fi
       done
       ;;
+    tui)
+      # NemoClaw#4849: the bundled TUI markdown renderer strips emphasis
+      # markers (`__`, `_`) from text inside fenced code blocks and inline
+      # code spans, corrupting Python dunders (`__name__`, `is_palindrome`).
+      # Inject the verbatim-code preload for this interactive render path only.
+      # Literal path: emitted inside a single-quoted heredoc, so the shell
+      # variable is intentionally not expanded — keep in sync with
+      # _OPENCLAW_TUI_MD_FIX_SCRIPT above.
+      _openclaw_tui_md_fix="/tmp/nemoclaw-openclaw-tui-markdown-fix.js"
+      if [ -f "$_openclaw_tui_md_fix" ]; then
+        NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $_openclaw_tui_md_fix" command openclaw "$@"
+        return $?
+      fi
+      ;;
   esac
   command openclaw "$@"
 }
@@ -3211,6 +3246,7 @@ if [ "$(id -u)" -ne 0 ]; then
   install_telegram_diagnostics
   install_slack_channel_guard
   install_whatsapp_qr_compact
+  install_openclaw_tui_markdown_fix
   verify_no_slack_secrets_on_disk
 
   # Ensure writable state directories exist and are owned by the current user.
@@ -3255,7 +3291,7 @@ if [ "$(id -u)" -ne 0 ]; then
   # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
   # (both are trust-boundary files; tampering would let the sandbox user
   # inject code into any Node process via NODE_OPTIONS).
-  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_WHATSAPP_QR_COMPACT_SCRIPT"
+  validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_WHATSAPP_QR_COMPACT_SCRIPT" "$_OPENCLAW_TUI_MD_FIX_SCRIPT"
 
   # Start gateway in background, auto-pair, then wait
   nohup "$OPENCLAW" gateway run --port "${_DASHBOARD_PORT}" >/tmp/gateway.log 2>&1 &
@@ -3356,6 +3392,7 @@ normalize_slack_runtime_env
 install_telegram_diagnostics
 install_slack_channel_guard
 install_whatsapp_qr_compact
+install_openclaw_tui_markdown_fix
 verify_no_slack_secrets_on_disk
 
 # Write auth profile as sandbox user and recursively re-tighten any
@@ -3473,7 +3510,7 @@ seed_default_workspace_templates_as_sandbox
 # Pass the HTTP proxy-fix path so it is validated alongside proxy-env.sh
 # (both are trust-boundary files; tampering would let the sandbox user
 # inject code into any Node process via NODE_OPTIONS).
-validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_WHATSAPP_QR_COMPACT_SCRIPT"
+validate_tmp_permissions "$_SANDBOX_SAFETY_NET" "$_PROXY_FIX_SCRIPT" "$_NEMOTRON_FIX_SCRIPT" "$_WS_FIX_SCRIPT" "$_SECCOMP_GUARD_SCRIPT" "$_CIAO_GUARD_SCRIPT" "$_TELEGRAM_DIAGNOSTICS_SCRIPT" "$_SLACK_GUARD_SCRIPT" "$_WHATSAPP_QR_COMPACT_SCRIPT" "$_OPENCLAW_TUI_MD_FIX_SCRIPT"
 
 # Start the gateway as the 'gateway' user.
 # SECURITY: The sandbox user cannot kill this process because it runs
