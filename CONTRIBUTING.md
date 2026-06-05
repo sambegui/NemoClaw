@@ -68,6 +68,9 @@ Install the following before you begin.
 
 ## Getting Started
 
+Install all of the [Prerequisites](#prerequisites) above before running these commands.
+In particular, install `uv` first: the blueprint setup step (`uv sync`) requires `uv` to already be on your `PATH`.
+
 Install the root dependencies and build the TypeScript plugin:
 
 ```bash
