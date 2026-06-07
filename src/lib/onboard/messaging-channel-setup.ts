@@ -317,6 +317,14 @@ function printInSandboxQrStatus(manifest: ChannelManifest): void {
   }
 }
 
+export function readMessagingPlanFromEnv(): SandboxMessagingPlan | null {
+  return MessagingSetupApplier.readPlanFromEnv();
+}
+
+export function writePlanToEnv(plan: SandboxMessagingPlan): void {
+  MessagingSetupApplier.writePlanToEnv(plan);
+}
+
 function resolveMessagingSetupSandboxName(options: SetupSelectedMessagingChannelsOptions): string {
   const explicitName = normalizeSandboxName(options.sandboxName);
   if (explicitName) return explicitName;

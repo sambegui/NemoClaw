@@ -89,10 +89,8 @@ const {
   hasWechatConfigDrift,
   toSessionWechatConfig,
 } = require("./onboard/wechat-config") as typeof import("./onboard/wechat-config");
-const {
-  setupMessagingChannels: setupMessagingChannelsImpl,
-} = require("./onboard/messaging-channel-setup") as typeof import("./onboard/messaging-channel-setup");
-const { MessagingHostStateApplier, MessagingSetupApplier }: typeof import("./messaging") = require("./messaging");
+const { setupMessagingChannels: setupMessagingChannelsImpl, readMessagingPlanFromEnv, writePlanToEnv } = require("./onboard/messaging-channel-setup") as typeof import("./onboard/messaging-channel-setup");
+const { MessagingHostStateApplier }: typeof import("./messaging") = require("./messaging");
 const {
   clearAgentScopedResumeState,
 }: typeof import("./onboard/agent-resume-state") = require("./onboard/agent-resume-state");
@@ -6499,8 +6497,8 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         getSandboxMessagingChannels: (name) => registry.getSandbox(name)?.messagingChannels,
         setupMessagingChannels,
         readMessagingChannelConfigFromEnv,
-        readMessagingPlanFromEnv: () => MessagingSetupApplier.readPlanFromEnv(),
-        writePlanToEnv: (plan) => MessagingSetupApplier.writePlanToEnv(plan),
+        readMessagingPlanFromEnv,
+        writePlanToEnv,
         promptValidatedSandboxName,
         selectResourceProfileForSandbox: () => selectResourceProfileForSandbox({ isNonInteractive, note, prompt, promptOrDefault }),
         stopStaleDashboardListenersForSandbox,
