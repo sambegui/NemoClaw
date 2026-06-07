@@ -152,6 +152,7 @@ describe("pull request workflow contract", () => {
     );
 
     expect(guardRun).toContain("HEAD_REPO");
+    expect(guardRun).toContain("HEAD_SHA");
     expect(guardRun).not.toContain(".raw_url");
     expect(guardRun).toContain('(.previous_filename // "")');
     expect(guardRun).toContain("[ \"$budget_changed\" = true ]");
