@@ -166,27 +166,17 @@ export function resolveActiveChannelsFromEntry(
 
 /**
  * Return credential hashes scoped to `channelId` for a registry entry.
- *
- * For plan-backed entries the lookup is channel-scoped: only bindings for the
- * requested channel are considered. When the plan exists but carries no hashes
- * for the channel (compiler migration in flight), the function falls back to
- * the legacy `providerCredentialHashes` flat field so no safety coverage is
- * lost during the transition.
- *
- * For legacy entries without a plan the entire `providerCredentialHashes`
- * object is returned unchanged (same behavior as before this architecture).
+ * Only plan-backed entries are considered; entries without a plan return `{}`
+ * which causes callers to fall through to "unknown-token" (conservative).
  */
 function resolveChannelHashesFromEntry(
   entry: ConflictRegistryEntry,
   channelId: string,
 ): Record<string, string> {
   if (entry.messaging?.plan) {
-    const planHashes = getCredentialHashesFromPlan(entry.messaging.plan, channelId);
-    if (Object.keys(planHashes).length > 0) return planHashes;
-    // Plan exists but no hashes yet for this channel — fall back to legacy
-    // field so matching-token detection is not silently downgraded.
+    return getCredentialHashesFromPlan(entry.messaging.plan, channelId);
   }
-  return (entry.providerCredentialHashes as Record<string, string>) ?? {};
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -348,26 +338,26 @@ export function backfillLegacyEntryChannels(
   entries: readonly ConflictRegistryEntry[],
   probe: MessagingConflictProbe,
   updateEntry: (name: string, channels: string[]) => void,
-  providerSuffixes: Record<string, string>,
+  providerSuffixes: Record<string, string[]>,
 ): void {
   for (const entry of entries) {
     if (Array.isArray(entry.messagingChannels)) continue;
     const discovered: string[] = [];
     let probeFailed = false;
     for (const channel of Object.keys(providerSuffixes)) {
-      const providerName = `${entry.name}${providerSuffixes[channel]}`;
-      let state: ProbeResult;
-      try {
-        state = probe.providerExists(providerName);
-      } catch {
-        state = "error";
+      let channelPresent = false;
+      for (const suffix of providerSuffixes[channel]) {
+        let state: ProbeResult;
+        try {
+          state = probe.providerExists(`${entry.name}${suffix}`);
+        } catch {
+          state = "error";
+        }
+        if (state === "present") { channelPresent = true; break; }
+        if (state === "error") { probeFailed = true; break; }
       }
-      if (state === "present") {
-        discovered.push(channel);
-      } else if (state === "error") {
-        probeFailed = true;
-        break;
-      }
+      if (probeFailed) break;
+      if (channelPresent) discovered.push(channel);
     }
     if (!probeFailed) {
       updateEntry(entry.name, discovered);

@@ -25,11 +25,11 @@ import {
 } from "./messaging/applier";
 import { BUILT_IN_CHANNEL_MANIFESTS } from "./messaging/channels";
 
-const PROVIDER_SUFFIXES: Record<string, string> = Object.fromEntries(
+const PROVIDER_SUFFIXES: Record<string, string[]> = Object.fromEntries(
   BUILT_IN_CHANNEL_MANIFESTS.flatMap((m) => {
-    const cred = m.credentials[0];
-    if (!cred?.providerName) return [];
-    return [[m.id, cred.providerName.replace("{sandboxName}", "")]];
+    const suffixes = m.credentials.map((c) => c.providerName.replace("{sandboxName}", ""));
+    if (suffixes.length === 0) return [];
+    return [[m.id, suffixes]];
   }),
 );
 
