@@ -12,6 +12,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
+  contents: read
   pull-requests: read
 
 jobs:
@@ -105,3 +106,102 @@ jobs:
           in the top-level onboard entrypoint.
           EOF
           exit 1
+
+      - name: Require changed test files to stay within size budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          rows_file="$(mktemp)"
+          budget_file="$(mktemp)"
+
+          gh api --paginate "/repos/${REPO}/pulls/${PR_NUMBER}/files" \
+            --jq '.[] | select((.status != "removed") and (.filename | test("\\.(test|spec)\\.(ts|js|mts|mjs|cts|cjs)$"))) | [.filename, .raw_url] | @tsv' \
+            > "$rows_file"
+
+          if [ ! -s "$rows_file" ]; then
+            echo "PASS: no changed test files to check against the size budget."
+            exit 0
+          fi
+
+          gh api "/repos/${REPO}/contents/ci/test-file-size-budget.json?ref=${BASE_SHA}" \
+            --jq .content \
+            | base64 --decode \
+            > "$budget_file"
+
+          node - "$budget_file" "$rows_file" <<'NODE'
+          const fs = require("node:fs");
+
+          function countLines(text) {
+            if (text.length === 0) return 0;
+            const newlineCount = text.match(/\r\n|\r|\n/g)?.length ?? 0;
+            return newlineCount + (/(?:\r\n|\r|\n)$/.test(text) ? 0 : 1);
+          }
+
+          async function main() {
+            const [budgetPath, rowsPath] = process.argv.slice(2);
+            const budget = JSON.parse(fs.readFileSync(budgetPath, "utf8"));
+            const defaultMaxLines = budget.defaultMaxLines;
+            if (!Number.isInteger(defaultMaxLines) || defaultMaxLines <= 0) {
+              throw new Error("ci/test-file-size-budget.json must define positive integer defaultMaxLines");
+            }
+
+            const legacyMaxLines = budget.legacyMaxLines ?? {};
+            const rows = fs
+              .readFileSync(rowsPath, "utf8")
+              .trim()
+              .split(/\n/)
+              .filter(Boolean)
+              .map((line) => {
+                const [file, rawUrl] = line.split(/\t/);
+                return { file, rawUrl };
+              });
+
+            function maxLinesFor(file) {
+              const legacyMax = legacyMaxLines[file];
+              if (legacyMax === undefined) return defaultMaxLines;
+              if (!Number.isInteger(legacyMax) || legacyMax <= 0) {
+                throw new Error(`Invalid legacy test size budget for ${file}: ${legacyMax}`);
+              }
+              return legacyMax;
+            }
+
+            const headers = {
+              Authorization: `Bearer ${process.env.GH_TOKEN}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            };
+            const violations = [];
+
+            for (const row of rows) {
+              const response = await fetch(row.rawUrl, { headers });
+              if (!response.ok) {
+                throw new Error(`Could not fetch ${row.file}: HTTP ${response.status}`);
+              }
+              const lines = countLines(await response.text());
+              const maxLines = maxLinesFor(row.file);
+              if (lines > maxLines) {
+                violations.push({ ...row, lines, maxLines });
+              }
+            }
+
+            if (violations.length > 0) {
+              console.error("FAIL: one or more changed test files exceed the size budget.");
+              console.error("Split large tests into focused files, or shrink a legacy oversized test before adding more coverage there.");
+              for (const violation of violations) {
+                console.error(`- ${violation.file}: ${violation.lines} line(s) > ${violation.maxLines}`);
+              }
+              process.exit(1);
+            }
+
+            console.log(`PASS: ${rows.length} changed test file(s) are within the size budget.`);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
