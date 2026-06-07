@@ -120,11 +120,10 @@ export function getCredentialHashesFromPlan(
  *   - bindings where the credential is not available (`credentialAvailable`
  *     false) — e.g. WhatsApp, which has no host-side token provider
  *
- * When a binding has no `credentialHash` yet (the compiler populates this
- * field once the credential-binding engine is updated), the channel is still
- * included with an empty `credentialHashes` map, which falls through to
- * `"unknown-token"` conservative detection. This preserves the safety
- * behaviour while the compiler migration is in flight.
+ * When a binding has no `credentialHash` (e.g. a registry-only resume that
+ * did not re-run the compiler), the channel is still included with an empty
+ * `credentialHashes` map, which falls through to `"unknown-token"` conservative
+ * detection.
  */
 export function planToConflictChannelRequests(plan: SandboxMessagingPlan): ConflictRequest[] {
   const disabledSet = new Set(plan.disabledChannels);

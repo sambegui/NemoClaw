@@ -2774,11 +2774,11 @@ async function createSandbox(
   // The compiled plan (written to env by setupMessagingChannels) is the source
   // of truth: credential hashes and active-channel membership are read from
   // plan.credentialBindings rather than from MESSAGING_CHANNELS constants.
-  const currentPlan = readMessagingPlanFromEnv();
-  // Gate on credentialAvailable (set by the compiler) rather than credentialHash
-  // (populated later once the credential-binding engine is updated). Using the
-  // hash field alone would silently skip conflict detection for all current
-  // onboarding paths because the compiler does not yet emit it.
+  // Validate sandbox identity before trusting the env plan: a stale plan from a
+  // prior run of a different sandbox must not gate or bypass conflict detection
+  // for the current sandbox creation.
+  const envPlan = readMessagingPlanFromEnv();
+  const currentPlan = envPlan?.sandboxName === sandboxName ? envPlan : null;
   const hasPlanCredentials = currentPlan?.credentialBindings.some((b) => b.credentialAvailable) ?? false;
   if (hasPlanCredentials) {
     const { backfillMessagingChannels, findChannelConflictsFromPlan, createMessagingConflictProbe } =
