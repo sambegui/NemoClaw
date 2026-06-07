@@ -494,16 +494,9 @@ async function applyChannelAddToGatewayAndRegistry(
     const enabled = new Set(entry.messagingChannels || []);
     enabled.add(channelName);
     const disabled = (entry.disabledChannels || []).filter((c: string) => c !== channelName);
-    const providerCredentialHashes = { ...(entry.providerCredentialHashes || {}) };
-    for (const [envKey, token] of Object.entries(acquired)) {
-      const hash = hashCredential(token);
-      if (hash) providerCredentialHashes[envKey] = hash;
-    }
     registry.updateSandbox(sandboxName, {
       messagingChannels: Array.from(enabled).sort(),
       disabledChannels: disabled,
-      providerCredentialHashes:
-        Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
     });
   }
 }
@@ -614,15 +607,7 @@ async function applyChannelRemoveToGatewayAndRegistry(
   const entry = registry.getSandbox(sandboxName);
   if (entry) {
     const enabled = (entry.messagingChannels || []).filter((c: string) => c !== channelName);
-    const providerCredentialHashes = { ...(entry.providerCredentialHashes || {}) };
-    for (const envKey of channelTokenKeys) {
-      delete providerCredentialHashes[envKey];
-    }
-    registry.updateSandbox(sandboxName, {
-      messagingChannels: enabled,
-      providerCredentialHashes:
-        Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
-    });
+    registry.updateSandbox(sandboxName, { messagingChannels: enabled });
   }
 
   return { ok: residual.length === 0, residual };
@@ -1095,9 +1080,6 @@ export async function addSandboxChannel(
     ? [...priorEntry.messagingChannels]
     : [];
   const wasAlreadyEnabled = priorMessagingChannels.includes(canonical);
-  const priorHashes: Record<string, string> = {
-    ...((priorEntry?.providerCredentialHashes as Record<string, string>) || {}),
-  };
   const channelTokenKeys = getChannelTokenKeys(channelDef);
   const priorCreds: Record<string, string> = {};
   for (const key of channelTokenKeys) {
@@ -1117,7 +1099,6 @@ export async function addSandboxChannel(
     await rollbackChannelAdd(sandboxName, channelDef, canonical, {
       wasAlreadyEnabled,
       priorMessagingChannels,
-      priorHashes,
       priorCreds,
     });
     process.exit(1);
@@ -1137,7 +1118,6 @@ async function rollbackChannelAdd(
   snapshot: {
     wasAlreadyEnabled: boolean;
     priorMessagingChannels: string[];
-    priorHashes: Record<string, string>;
     priorCreds: Record<string, string>;
   },
 ): Promise<{ ok: boolean; residual: string[] }> {
@@ -1147,8 +1127,6 @@ async function rollbackChannelAdd(
     );
     registry.updateSandbox(sandboxName, {
       messagingChannels: snapshot.priorMessagingChannels,
-      providerCredentialHashes:
-        Object.keys(snapshot.priorHashes).length > 0 ? snapshot.priorHashes : undefined,
     });
     clearChannelTokens(channel);
     if (Object.keys(snapshot.priorCreds).length > 0) {

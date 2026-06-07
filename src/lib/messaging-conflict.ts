@@ -117,4 +117,3 @@ export function findChannelConflictsFromPlan(
 ): ConflictMatch[] {
   return findChannelConflicts(currentSandbox, planToConflictChannelRequests(plan), registry);
 }
-

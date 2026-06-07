@@ -2881,12 +2881,9 @@ async function createSandbox(
   }
   if (braveWebSearchEnabled) messagingTokenDefs.push({ name: `${sandboxName}-brave-search`, envKey: webSearch.BRAVE_API_KEY_ENV, token: braveApiKey, providerType: braveProviderProfile.BRAVE_PROVIDER_PROFILE_ID });
   const extraPlaceholderKeys: string[] = require("./onboard/extra-placeholder-keys").registerExtraPlaceholderProviders(sandboxName, messagingTokenDefs);
-  const previousProviderCredentialHashes =
-    registry.getSandbox(sandboxName)?.providerCredentialHashes ?? {};
   const hasMessagingTokens = messagingTokenDefs.some(({ token }) => !!token);
   const reusableMessagingProviders: string[] = [];
   const reusableMessagingChannels: string[] = [];
-  const reusableMessagingEnvKeys = new Set<string>();
   if (enabledChannels != null) {
     for (const { name, envKey, token } of messagingTokenDefs) {
       if (token) continue;
@@ -2895,7 +2892,6 @@ async function createSandbox(
       if (!channel || !enabledChannels.includes(channel)) continue;
       if (!providerExistsInGateway(name)) continue;
       reusableMessagingProviders.push(name);
-      reusableMessagingEnvKeys.add(envKey);
       if (!reusableMessagingChannels.includes(channel)) {
         reusableMessagingChannels.push(channel);
       }
@@ -3684,20 +3680,6 @@ async function createSandbox(
     hermesDashboardForwarding.resolveStateForPort(actualDashboardPort);
   hermesDashboardForwarding.ensureForState(finalHermesDashboardState, sandboxName, true);
 
-  // Register only after confirmed ready — prevents phantom entries
-  const providerCredentialHashes: Record<string, string> = {};
-  for (const { envKey, token } of messagingTokenDefs) {
-    const hash = token ? hashCredential(token) : null;
-    if (hash) {
-      providerCredentialHashes[envKey] = hash;
-    }
-  }
-  for (const envKey of reusableMessagingEnvKeys) {
-    const previousHash = previousProviderCredentialHashes[envKey];
-    if (typeof previousHash === "string" && previousHash) {
-      providerCredentialHashes[envKey] = previousHash;
-    }
-  }
   // openshell tags images with seconds; buildId is ms. Parse actual tag from output. Fixes #2672.
   const resolvedImageTag = resolveSandboxImageTagFromCreateOutput(createResult.output, buildId);
 
@@ -3712,8 +3694,6 @@ async function createSandbox(
     ...sandboxRuntimeFields,
     ...getSandboxAgentRegistryFields(agent, !fromDockerfile),
     imageTag: resolvedImageTag,
-    providerCredentialHashes:
-      Object.keys(providerCredentialHashes).length > 0 ? providerCredentialHashes : undefined,
     policies: initialSandboxPolicy.appliedPresets,
     // Persist the operator's configured channel set, not the post-disabled-filter
     // active set. After `channels stop X` + rebuild, activeMessagingChannels drops
