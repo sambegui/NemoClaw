@@ -200,6 +200,48 @@ describe("Phase 6: ubuntu-repo-cloud-openclaw migration", () => {
     }
   });
 
+  it("run_scenario_should_reject_onboarding_assertion_ids_with_control_characters", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-assertion-id-control-"));
+    try {
+      const metadataDir = createMetadataFixture(tmp, (contents) =>
+        replaceOnce(
+          contents,
+          "    - base-installed\n    - preflight-passed",
+          '    - "bad\\nid"\n    - preflight-passed',
+        ),
+      );
+      const r = runScenario(["ubuntu-repo-cloud-openclaw", "--dry-run"], {
+        E2E_CONTEXT_DIR: tmp,
+        E2E_METADATA_DIR: metadataDir,
+      });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("invalid onboarding assertion id");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("run_scenario_should_reject_onboarding_assertion_stable_ids_with_control_characters", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-assertion-stable-id-"));
+    try {
+      const metadataDir = createMetadataFixture(tmp, (contents) =>
+        replaceOnce(
+          contents,
+          "assertion_id: onboarding.preflight.passed",
+          'assertion_id: "onboarding.preflight.passed\\nbase-installed\\t/bin/sh\\tinjected"',
+        ),
+      );
+      const r = runScenario(["ubuntu-repo-cloud-openclaw", "--dry-run"], {
+        E2E_CONTEXT_DIR: tmp,
+        E2E_METADATA_DIR: metadataDir,
+      });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("invalid onboarding assertion stable id");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("run_scenario_should_reject_onboarding_assertion_scripts_outside_the_assertion_root", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-assertion-path-"));
     try {

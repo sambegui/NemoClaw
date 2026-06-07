@@ -31,6 +31,8 @@ import type {
 export type { ResolverInput } from "./load.ts";
 export type { ResolvedPlan } from "./schema.ts";
 
+const ONBOARDING_ASSERTION_TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 function lookupProfile<T>(
   collection: Record<string, T>,
   kind: string,
@@ -129,6 +131,18 @@ function validateSuiteAgainstState(
   }
 }
 
+function validateOnboardingAssertionToken(
+  value: string,
+  label: string,
+  scenarioId: string,
+): void {
+  if (!ONBOARDING_ASSERTION_TOKEN_PATTERN.test(value)) {
+    throw new Error(
+      `scenario '${scenarioId}' has invalid onboarding assertion ${label}: ${JSON.stringify(value)} (allowed: letters, numbers, '.', '_', '-')`,
+    );
+  }
+}
+
 function resolveOnboardingAssertions(
   assertionIds: string[],
   meta: ResolverInput,
@@ -136,6 +150,7 @@ function resolveOnboardingAssertions(
 ): ResolvedOnboardingAssertion[] {
   const registry = meta.scenarios.onboarding_assertions ?? {};
   return assertionIds.map((assertionId) => {
+    validateOnboardingAssertionToken(assertionId, "id", scenarioId);
     const definition = lookupProfile(
       registry,
       "onboarding assertion",
@@ -147,13 +162,15 @@ function resolveOnboardingAssertions(
         `scenario '${scenarioId}' references onboarding assertion '${assertionId}' with missing script`,
       );
     }
+    const stableId =
+      typeof definition.assertion_id === "string"
+        ? definition.assertion_id
+        : `onboarding.${assertionId}`;
+    validateOnboardingAssertionToken(stableId, `stable id for '${assertionId}'`, scenarioId);
     return {
       id: assertionId,
       script: definition.script,
-      assertion_id:
-        typeof definition.assertion_id === "string"
-          ? definition.assertion_id
-          : `onboarding.${assertionId}`,
+      assertion_id: stableId,
       ...(typeof definition.stage === "string" ? { stage: definition.stage } : {}),
     };
   });

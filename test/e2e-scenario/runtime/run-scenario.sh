@@ -253,6 +253,7 @@ const e2eRoot = process.env.E2E_ROOT;
 const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
 const assertionRoot = path.resolve(e2eRoot, 'onboarding_assertions');
 const assertionRootReal = fs.realpathSync(assertionRoot);
+const assertionTokenPattern = /^[A-Za-z0-9._-]+$/;
 
 function fail(message) {
   process.stderr.write(`run-scenario: ${message}\n`);
@@ -278,7 +279,7 @@ if (assertionIds.length !== assertionSteps.length) {
 }
 for (const [index, assertion] of assertionSteps.entries()) {
   const id = assertion?.id;
-  if (typeof id !== 'string' || !/^[A-Za-z0-9._-]+$/.test(id)) {
+  if (typeof id !== 'string' || !assertionTokenPattern.test(id)) {
     fail(`invalid onboarding assertion id: ${String(id)}`);
   }
   if (id !== assertionIds[index]) {
@@ -312,6 +313,9 @@ for (const [index, assertion] of assertionSteps.entries()) {
     typeof assertion.assertion_id === 'string'
       ? assertion.assertion_id
       : `onboarding.${id}`;
+  if (!assertionTokenPattern.test(stableId)) {
+    fail(`invalid onboarding assertion stable id for ${id}: ${JSON.stringify(stableId)}`);
+  }
   process.stdout.write(`${id}\t${real}\t${stableId}\n`);
 }
 NODE
