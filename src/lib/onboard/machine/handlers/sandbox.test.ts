@@ -348,16 +348,38 @@ describe("handleSandboxState", () => {
     expect(getSession().messagingPlan).toEqual(mockPlan);
   });
 
-  it("restores matching plan to env on non-interactive resume", async () => {
+  it("restores matching session plan to env on non-interactive resume when env is empty", async () => {
     const mockPlan = makeMinimalPlan("my-assistant");
     const session = createSession({ sandboxName: "my-assistant", messagingChannels: ["telegram"], messagingPlan: mockPlan });
     const getRecordedMessagingChannelsForResume = vi.fn(() => ["telegram"]);
     const writePlanToEnv = vi.fn();
-    const { deps } = createDeps({ getRecordedMessagingChannelsForResume, writePlanToEnv });
+    const { deps } = createDeps({
+      getRecordedMessagingChannelsForResume,
+      writePlanToEnv,
+      readMessagingPlanFromEnv: () => null,
+    });
 
     await handleSandboxState({ ...baseOptions(deps, session), resume: true, sandboxName: "my-assistant" });
 
     expect(writePlanToEnv).toHaveBeenCalledWith(mockPlan);
+  });
+
+  it("prefers env-staged plan over session plan on non-interactive resume (rebuild path)", async () => {
+    const sessionPlan = makeMinimalPlan("my-assistant");
+    const rebuiltPlan = makeMinimalPlan("my-assistant");
+    const session = createSession({ sandboxName: "my-assistant", messagingChannels: ["telegram"], messagingPlan: sessionPlan });
+    const getRecordedMessagingChannelsForResume = vi.fn(() => ["telegram"]);
+    const writePlanToEnv = vi.fn();
+    const { deps, getSession } = createDeps({
+      getRecordedMessagingChannelsForResume,
+      writePlanToEnv,
+      readMessagingPlanFromEnv: () => rebuiltPlan,
+    });
+
+    await handleSandboxState({ ...baseOptions(deps, session), resume: true, sandboxName: "my-assistant" });
+
+    expect(writePlanToEnv).not.toHaveBeenCalled();
+    expect(getSession().messagingPlan).toEqual(rebuiltPlan);
   });
 
   it("does not restore plan to env when sandbox name does not match", async () => {
@@ -365,7 +387,11 @@ describe("handleSandboxState", () => {
     const session = createSession({ sandboxName: "my-assistant", messagingChannels: ["telegram"], messagingPlan: stalePlan });
     const getRecordedMessagingChannelsForResume = vi.fn(() => ["telegram"]);
     const writePlanToEnv = vi.fn();
-    const { deps } = createDeps({ getRecordedMessagingChannelsForResume, writePlanToEnv });
+    const { deps } = createDeps({
+      getRecordedMessagingChannelsForResume,
+      writePlanToEnv,
+      readMessagingPlanFromEnv: () => null,
+    });
 
     await handleSandboxState({ ...baseOptions(deps, session), resume: true, sandboxName: "my-assistant" });
 

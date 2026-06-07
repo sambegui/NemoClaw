@@ -271,22 +271,27 @@ export async function handleSandboxState<Gpu, Agent, WebSearchConfig, MessagingC
       selectedMessagingChannels = recordedMessagingChannels;
       if (selectedMessagingChannels.length > 0) {
         deps.note(`  [non-interactive] Reusing messaging channel configuration: ${selectedMessagingChannels.join(", ")}`);
-        // Restore the compiled plan to env so createSandbox can read it via
-        // MessagingHostStateApplier.readPlanStateFromEnv() and write it to the
-        // registry. Without this, the plan is lost across process restarts and
-        // the registry entry loses its messaging state on rebuild.
-        // Guard: only restore if the plan's identity matches the current sandbox
-        // and agent. An agent change or renamed sandbox means the persisted plan
-        // is stale and must be recompiled through the normal setup path.
-        const storedPlan = session?.messagingPlan;
-        const agentName = (agent as { name?: string } | null)?.name;
-        const planMatchesCurrent =
-          storedPlan != null &&
-          storedPlan.sandboxName === sandboxName &&
-          (agentName == null || storedPlan.agent === agentName);
-        if (planMatchesCurrent && storedPlan != null) {
-          deps.writePlanToEnv(storedPlan);
-          messagingPlan = storedPlan;
+        // Prefer a plan already in env over the session plan. rebuild.ts stages
+        // a fresh plan from the registry entry before calling onboard --resume,
+        // and that plan reflects post-stop/-start channel mutations. Overwriting
+        // it with the session plan (saved at initial onboard) would lose the
+        // disabled state and reactivate stopped channels after rebuild.
+        // Only restore the session plan when the env is empty, i.e. for plain
+        // process-restart resumes where no external caller staged a plan.
+        const envPlan = deps.readMessagingPlanFromEnv();
+        if (envPlan) {
+          messagingPlan = envPlan;
+        } else {
+          const storedPlan = session?.messagingPlan;
+          const agentName = (agent as { name?: string } | null)?.name;
+          const planMatchesCurrent =
+            storedPlan != null &&
+            storedPlan.sandboxName === sandboxName &&
+            (agentName == null || storedPlan.agent === agentName);
+          if (planMatchesCurrent && storedPlan != null) {
+            deps.writePlanToEnv(storedPlan);
+            messagingPlan = storedPlan;
+          }
         }
       }
     } else {
