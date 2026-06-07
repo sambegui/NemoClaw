@@ -378,3 +378,108 @@ describe("legacy entry cross-channel hash scoping", () => {
     expect(conflictReasonForPair("slack", alice, bob)).toBe("matching-token");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multi-credential channel partial-hash suppression (Slack SLACK_BOT_TOKEN +
+// SLACK_APP_TOKEN). Both manifest keys are required; a differing bot token
+// with a missing app token must NOT return null — it must return unknown-token.
+// ---------------------------------------------------------------------------
+
+describe("multi-credential channel partial hash suppression", () => {
+  it("conflictReasonForRequest — returns unknown-token when Slack bot tokens differ but app token is missing from stored entry", () => {
+    // stored: only SLACK_BOT_TOKEN; missing SLACK_APP_TOKEN
+    const entry = planEntry(
+      "alice",
+      makePlan("alice", {
+        channels: [slackChannel()],
+        credentialBindings: [
+          {
+            channelId: "slack",
+            credentialId: "slackBotToken",
+            sourceInput: "botToken",
+            providerName: "alice-slack-bridge",
+            providerEnvKey: "SLACK_BOT_TOKEN",
+            placeholder: "openshell:resolve:env:SLACK_BOT_TOKEN",
+            credentialAvailable: true,
+            credentialHash: "hash-bot-a",
+          },
+          // No SLACK_APP_TOKEN binding
+        ],
+      }),
+    );
+    expect(
+      conflictReasonForRequest(entry, {
+        channel: "slack",
+        credentialHashes: { SLACK_BOT_TOKEN: "hash-bot-b", SLACK_APP_TOKEN: "hash-app-x" },
+      }),
+    ).toBe("unknown-token"); // bot tokens differ, but app token unknown → conservative
+  });
+
+  it("conflictReasonForRequest — returns null when both Slack tokens are present and both differ", () => {
+    const entry = planEntry(
+      "alice",
+      makePlan("alice", {
+        channels: [slackChannel()],
+        credentialBindings: [
+          {
+            channelId: "slack",
+            credentialId: "slackBotToken",
+            sourceInput: "botToken",
+            providerName: "alice-slack-bridge",
+            providerEnvKey: "SLACK_BOT_TOKEN",
+            placeholder: "openshell:resolve:env:SLACK_BOT_TOKEN",
+            credentialAvailable: true,
+            credentialHash: "hash-bot-a",
+          },
+          {
+            channelId: "slack",
+            credentialId: "slackAppToken",
+            sourceInput: "appToken",
+            providerName: "alice-slack-app",
+            providerEnvKey: "SLACK_APP_TOKEN",
+            placeholder: "openshell:resolve:env:SLACK_APP_TOKEN",
+            credentialAvailable: true,
+            credentialHash: "hash-app-a",
+          },
+        ],
+      }),
+    );
+    expect(
+      conflictReasonForRequest(entry, {
+        channel: "slack",
+        credentialHashes: { SLACK_BOT_TOKEN: "hash-bot-b", SLACK_APP_TOKEN: "hash-app-b" },
+      }),
+    ).toBeNull();
+  });
+
+  it("conflictReasonForPair — returns unknown-token when Slack bot tokens differ but app token is absent from both", () => {
+    // Both entries have only SLACK_BOT_TOKEN; without manifest keys the union
+    // would be ["SLACK_BOT_TOKEN"], bot tokens differ → null. With manifest keys
+    // SLACK_APP_TOKEN is also required → unknown-token.
+    const alice: ConflictRegistryEntry = {
+      name: "alice",
+      messagingChannels: ["slack"],
+      providerCredentialHashes: { SLACK_BOT_TOKEN: "hash-bot-a" },
+    };
+    const bob: ConflictRegistryEntry = {
+      name: "bob",
+      messagingChannels: ["slack"],
+      providerCredentialHashes: { SLACK_BOT_TOKEN: "hash-bot-b" },
+    };
+    expect(conflictReasonForPair("slack", alice, bob)).toBe("unknown-token");
+  });
+
+  it("conflictReasonForPair — returns null when both Slack tokens are present and both differ", () => {
+    const alice: ConflictRegistryEntry = {
+      name: "alice",
+      messagingChannels: ["slack"],
+      providerCredentialHashes: { SLACK_BOT_TOKEN: "hash-bot-a", SLACK_APP_TOKEN: "hash-app-a" },
+    };
+    const bob: ConflictRegistryEntry = {
+      name: "bob",
+      messagingChannels: ["slack"],
+      providerCredentialHashes: { SLACK_BOT_TOKEN: "hash-bot-b", SLACK_APP_TOKEN: "hash-app-b" },
+    };
+    expect(conflictReasonForPair("slack", alice, bob)).toBeNull();
+  });
+});

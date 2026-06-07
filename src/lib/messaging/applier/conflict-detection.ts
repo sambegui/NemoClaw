@@ -226,10 +226,11 @@ export function hasStoredChannelInEntry(
  * Determine the conflict reason between `entry`'s stored state and a new
  * channel request, or `null` if there is no conflict.
  *
- * Hash comparison is scoped to the requested channel so that credentials
- * from other channels on the same sandbox do not produce false positives.
- * When no hashes are available the comparison falls back to "unknown-token"
- * (conservative: warn even without definitive proof of sharing).
+ * Comparison keys are taken from manifest-declared credentials for the channel
+ * so that a missing hash for one of multiple required credentials (e.g. Slack's
+ * SLACK_APP_TOKEN when only SLACK_BOT_TOKEN differs) conservatively marks the
+ * result as "unknown-token" rather than silently returning null. Falls back to
+ * the union of present stored/requested keys for channels not in the manifest.
  */
 export function conflictReasonForRequest(
   entry: ConflictRegistryEntry,
@@ -238,10 +239,13 @@ export function conflictReasonForRequest(
   if (!hasStoredChannelInEntry(entry, request.channel)) return null;
   const requestedHashes = request.credentialHashes ?? {};
   const storedHashes = resolveChannelHashesFromEntry(entry, request.channel);
+  const manifestKeys = CHANNEL_CREDENTIAL_ENV_KEYS[request.channel];
   const keys =
-    Object.keys(storedHashes).length > 0
-      ? Object.keys(storedHashes)
-      : Object.keys(requestedHashes);
+    manifestKeys && manifestKeys.length > 0
+      ? [...manifestKeys]
+      : Object.keys(storedHashes).length > 0
+        ? Object.keys(storedHashes)
+        : Object.keys(requestedHashes);
   if (keys.length === 0) return "unknown-token";
 
   let sawUnknown = false;
@@ -262,7 +266,9 @@ export function conflictReasonForRequest(
  * or `null` if there is no conflict. Returns each pair at most once (the
  * caller is responsible for ordered iteration).
  *
- * Hash comparison is scoped to `channel` for plan-backed entries.
+ * Comparison keys are taken from manifest-declared credentials for the channel
+ * so that a missing hash on either side conservatively produces "unknown-token"
+ * rather than null for multi-credential channels like Slack.
  */
 export function conflictReasonForPair(
   channel: string,
@@ -274,7 +280,11 @@ export function conflictReasonForPair(
   }
   const lh = resolveChannelHashesFromEntry(left, channel);
   const rh = resolveChannelHashesFromEntry(right, channel);
-  const keys = [...new Set([...Object.keys(lh), ...Object.keys(rh)])];
+  const manifestKeys = CHANNEL_CREDENTIAL_ENV_KEYS[channel];
+  const keys =
+    manifestKeys && manifestKeys.length > 0
+      ? [...manifestKeys]
+      : [...new Set([...Object.keys(lh), ...Object.keys(rh)])];
   if (keys.length === 0) return "unknown-token";
 
   let sawUnknown = false;

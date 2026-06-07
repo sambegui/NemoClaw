@@ -2780,8 +2780,20 @@ async function createSandbox(
   const envPlan = readMessagingPlanFromEnv();
   const currentPlan = envPlan?.sandboxName === sandboxName ? envPlan : null;
   const hasPlanCredentials = currentPlan?.credentialBindings.some((b) => b.credentialAvailable) ?? false;
-  if (hasPlanCredentials) {
-    const { backfillMessagingChannels, findChannelConflictsFromPlan, createMessagingConflictProbe } =
+
+  // Fallback: if no plan credentials are available (e.g. credential-store-backed
+  // availability, all channels QR-paired, or stale/missing env plan) but token-backed
+  // channels were selected, still run a channel-name-only overlap check so we at
+  // minimum emit conservative unknown-token warnings for any channel conflict.
+  const selectedTokenChannels = Array.isArray(enabledChannels)
+    ? enabledChannels.filter((name) => {
+        const def = MESSAGING_CHANNELS.find((c) => c.name === name);
+        return def ? getChannelTokenKeys(def).length > 0 : false;
+      })
+    : [];
+
+  if (hasPlanCredentials || selectedTokenChannels.length > 0) {
+    const { backfillMessagingChannels, findChannelConflictsFromPlan, findChannelConflicts, createMessagingConflictProbe } =
       require("./messaging-conflict") as typeof import("./messaging-conflict");
     const probe = createMessagingConflictProbe({
       checkGatewayLiveness: () =>
@@ -2789,7 +2801,9 @@ async function createSandbox(
       providerExists: (name) => providerExistsInGateway(name),
     });
     backfillMessagingChannels(registry, probe);
-    const conflicts = findChannelConflictsFromPlan(sandboxName, currentPlan!, registry);
+    const conflicts = hasPlanCredentials
+      ? findChannelConflictsFromPlan(sandboxName, currentPlan!, registry)
+      : findChannelConflicts(sandboxName, selectedTokenChannels, registry);
     if (conflicts.length > 0) {
       for (const { channel, sandbox, reason } of conflicts) {
         const detail =

@@ -407,6 +407,11 @@ async function checkChannelAddConflict(
   }
   if (Object.keys(credentialHashes).length === 0) return true;
 
+  // `channels add` does not have a compiled SandboxMessagingPlan in env — the
+  // plan is only written during full onboarding (createSandbox). Hashes are
+  // built directly from the acquired tokens keyed by providerEnvKey, which is
+  // equivalent to what planToConflictChannelRequests produces from bindings.
+  // Migrating this path to a plan-driven approach is tracked as follow-up work.
   const { backfillMessagingChannels, findChannelConflicts } =
     require("../../messaging-conflict") as typeof import("../../messaging-conflict");
 
