@@ -2780,15 +2780,8 @@ async function createSandbox(
   const envPlan = readMessagingPlanFromEnv();
   const currentPlan = envPlan?.sandboxName === sandboxName ? envPlan : null;
   const hasPlanCredentials = currentPlan?.credentialBindings.some((b) => b.credentialAvailable) ?? false;
-  const selectedTokenChannels = Array.isArray(enabledChannels)
-    ? enabledChannels.filter((name) => {
-        const def = MESSAGING_CHANNELS.find((c) => c.name === name);
-        return def ? getChannelTokenKeys(def).length > 0 : false;
-      })
-    : [];
-
-  if (hasPlanCredentials || selectedTokenChannels.length > 0) {
-    const { backfillMessagingChannels, findChannelConflictsForOnboarding, createMessagingConflictProbe } =
+  if (hasPlanCredentials) {
+    const { backfillMessagingChannels, findChannelConflictsFromPlan, createMessagingConflictProbe } =
       require("./messaging-conflict") as typeof import("./messaging-conflict");
     const probe = createMessagingConflictProbe({
       checkGatewayLiveness: () =>
@@ -2796,12 +2789,7 @@ async function createSandbox(
       providerExists: (name) => providerExistsInGateway(name),
     });
     backfillMessagingChannels(registry, probe);
-    const conflicts = findChannelConflictsForOnboarding(
-      sandboxName,
-      currentPlan,
-      selectedTokenChannels,
-      registry,
-    );
+    const conflicts = findChannelConflictsFromPlan(sandboxName, currentPlan!, registry);
     if (conflicts.length > 0) {
       for (const { channel, sandbox, reason } of conflicts) {
         const detail =

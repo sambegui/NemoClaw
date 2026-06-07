@@ -5,8 +5,9 @@ import type { SandboxMessagingPlan } from "../manifest";
 import { BUILT_IN_CHANNEL_MANIFESTS } from "../channels";
 
 // Map channelId → providerEnvKey values declared in built-in manifests.
-// Used to scope legacy providerCredentialHashes to a single channel so hashes
-// from other channels on the same sandbox don't produce cross-channel conflicts.
+// Used as the primary key set for hash comparison so a missing credential for
+// one of a channel's required credentials conservatively marks the comparison
+// as unknown-token rather than silently returning null.
 const CHANNEL_CREDENTIAL_ENV_KEYS: Readonly<Record<string, readonly string[]>> =
   Object.fromEntries(
     BUILT_IN_CHANNEL_MANIFESTS.map((m) => [m.id, m.credentials.map((c) => c.providerEnvKey)]),
@@ -53,7 +54,6 @@ export interface ConflictRegistryEntry {
   readonly messaging?: { readonly plan: SandboxMessagingPlan } | null;
   readonly messagingChannels?: readonly string[] | null;
   readonly disabledChannels?: readonly string[] | null;
-  readonly providerCredentialHashes?: Record<string, string> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,14 +152,14 @@ export function planToConflictChannelRequests(plan: SandboxMessagingPlan): Confl
 }
 
 // ---------------------------------------------------------------------------
-// Entry resolution — plan-preferred, legacy-fallback
+// Entry resolution
 // ---------------------------------------------------------------------------
 
 /**
  * Return the active (non-disabled) channel IDs for a registry entry.
- * Prefers `entry.messaging.plan` data; falls back to the legacy
- * `messagingChannels`/`disabledChannels` flat fields for entries that predate
- * the plan architecture. Returns `null` when the entry has neither.
+ * Uses `entry.messaging.plan` when available; falls back to the legacy
+ * `messagingChannels`/`disabledChannels` flat fields for pre-plan entries.
+ * Returns `null` when the entry has neither.
  */
 export function resolveActiveChannelsFromEntry(
   entry: ConflictRegistryEntry,
@@ -174,36 +174,18 @@ export function resolveActiveChannelsFromEntry(
 
 /**
  * Return credential hashes scoped to `channelId` for a registry entry.
- *
- * For plan-backed entries the lookup is channel-scoped via `getCredentialHashesFromPlan`.
- * When the plan exists but carries no hashes for the channel (e.g. a registry-only
- * resume that did not re-run the compiler), falls back to the legacy
- * `providerCredentialHashes` flat field so safety coverage is preserved.
- *
- * For legacy entries without a plan, `providerCredentialHashes` is filtered to
- * only the env keys that are declared for `channelId` in the built-in manifests.
- * This prevents hashes from other channels on the same sandbox from producing
- * cross-channel false positives (e.g. a Slack hash matching in a Telegram comparison).
- * When no manifest-declared keys are found in the stored hashes the result is an
- * empty map, which falls through to `"unknown-token"` conservative detection in
- * the callers.
+ * Plan-backed entries return channel-scoped hashes from `getCredentialHashesFromPlan`.
+ * Legacy entries without a plan return an empty map, which falls through to
+ * conservative `"unknown-token"` detection in the callers.
  */
 function resolveChannelHashesFromEntry(
   entry: ConflictRegistryEntry,
   channelId: string,
 ): Record<string, string> {
   if (entry.messaging?.plan) {
-    const planHashes = getCredentialHashesFromPlan(entry.messaging.plan, channelId);
-    if (Object.keys(planHashes).length > 0) return planHashes;
+    return getCredentialHashesFromPlan(entry.messaging.plan, channelId);
   }
-  const allHashes = (entry.providerCredentialHashes as Record<string, string>) ?? {};
-  const knownKeys = CHANNEL_CREDENTIAL_ENV_KEYS[channelId];
-  if (!knownKeys || knownKeys.length === 0) return allHashes;
-  const scoped: Record<string, string> = {};
-  for (const key of knownKeys) {
-    if (allHashes[key]) scoped[key] = allHashes[key];
-  }
-  return scoped;
+  return {};
 }
 
 // ---------------------------------------------------------------------------

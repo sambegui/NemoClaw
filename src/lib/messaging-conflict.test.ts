@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Legacy-field (messagingChannels / providerCredentialHashes) conflict tests.
-// Plan-driven tests live in src/lib/messaging/applier/conflict-detection.test.ts
+// Legacy-field (messagingChannels / disabledChannels) conflict tests.
+// Hash-precise (plan-backed) tests live in src/lib/messaging/applier/conflict-detection-entry.test.ts
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,18 +43,10 @@ describe("findChannelConflicts", () => {
     ]);
   });
 
-  it("returns conflicts only when the same channel credential hash matches", () => {
+  it("returns unknown-token for any legacy entry sharing the channel (no hash data)", () => {
     const registry = makeRegistry([
-      {
-        name: "alice",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
-      {
-        name: "carol",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-c" },
-      },
+      { name: "alice", messagingChannels: ["telegram"] },
+      { name: "carol", messagingChannels: ["telegram"] },
     ]);
     expect(
       findChannelConflicts(
@@ -62,24 +54,10 @@ describe("findChannelConflicts", () => {
         [{ channel: "telegram", credentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" } }],
         registry,
       ),
-    ).toEqual([{ channel: "telegram", sandbox: "alice", reason: "matching-token" }]);
-  });
-
-  it("allows multiple telegram sandboxes with distinct token hashes", () => {
-    const registry = makeRegistry([
-      {
-        name: "alice",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
+    ).toEqual([
+      { channel: "telegram", sandbox: "alice", reason: "unknown-token" },
+      { channel: "telegram", sandbox: "carol", reason: "unknown-token" },
     ]);
-    expect(
-      findChannelConflicts(
-        "bob",
-        [{ channel: "telegram", credentialHashes: { TELEGRAM_BOT_TOKEN: "hash-b" } }],
-        registry,
-      ),
-    ).toEqual([]);
   });
 
   it("excludes the current sandbox from its own conflicts", () => {
@@ -103,7 +81,6 @@ describe("findChannelConflicts", () => {
         name: "alice",
         messagingChannels: ["telegram"],
         disabledChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
       },
     ]);
     expect(
@@ -141,39 +118,6 @@ describe("findAllOverlaps", () => {
     ]);
   });
 
-  it("does not report overlaps when same-channel credential hashes differ", () => {
-    const registry = makeRegistry([
-      {
-        name: "alice",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
-      {
-        name: "bob",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-b" },
-      },
-    ]);
-    expect(findAllOverlaps(registry)).toEqual([]);
-  });
-
-  it("reports matching-token overlaps when same-channel credential hashes match", () => {
-    const registry = makeRegistry([
-      {
-        name: "alice",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
-      {
-        name: "bob",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
-    ]);
-    expect(findAllOverlaps(registry)).toEqual([
-      { channel: "telegram", sandboxes: ["alice", "bob"], reason: "matching-token" },
-    ]);
-  });
 
   it("returns empty when channels do not overlap", () => {
     const registry = makeRegistry([
@@ -189,13 +133,8 @@ describe("findAllOverlaps", () => {
         name: "alice",
         messagingChannels: ["telegram"],
         disabledChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
       },
-      {
-        name: "bob",
-        messagingChannels: ["telegram"],
-        providerCredentialHashes: { TELEGRAM_BOT_TOKEN: "hash-a" },
-      },
+      { name: "bob", messagingChannels: ["telegram"] },
     ]);
     expect(findAllOverlaps(registry)).toEqual([]);
   });
