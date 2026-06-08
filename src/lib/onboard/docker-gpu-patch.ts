@@ -40,6 +40,16 @@ const OPENSHELL_SANDBOX_COMMAND_ENV = "OPENSHELL_SANDBOX_COMMAND";
 const DOCKER_GPU_PATCH_TIMEOUT_MS = 30_000;
 const DOCKER_GPU_PATCH_WAIT_SECS = 180;
 export const DOCKER_GPU_PATCH_NETWORK_ENV = "NEMOCLAW_DOCKER_GPU_PATCH_NETWORK";
+// Operator override to prefer a specific GPU injection mode. The patch
+// otherwise auto-selects the first mode whose `docker create` probe is
+// accepted, which is almost always the legacy `--gpus` mode — but that probe
+// only proves Docker accepts the flag, not that runtime GPU injection +
+// supervisor reconnect works. On some hosts (e.g. aarch64 + Blackwell/GB300 +
+// nvidia-container-toolkit CDI, #4950) the legacy `--gpus` path breaks
+// reconnect while the modern CDI / NVIDIA-runtime path works. Setting this to
+// `cdi`, `nvidia-runtime`, or `gpus` probes that mode first (and includes it
+// even when CDI auto-detection missed it), keeping the others as fallback.
+export const DOCKER_GPU_PATCH_MODE_ENV = "NEMOCLAW_DOCKER_GPU_PATCH_MODE";
 const MAX_DOCKER_CONTAINER_NAME_LENGTH = 253;
 const GPU_ENV_KEYS = new Set([
   "NVIDIA_VISIBLE_DEVICES",
@@ -409,16 +419,49 @@ export function buildDockerGpuMode(
   };
 }
 
+/**
+ * Resolve the operator's preferred GPU injection mode from
+ * `NEMOCLAW_DOCKER_GPU_PATCH_MODE`. Returns null when unset or unrecognized so
+ * the default auto-selection order applies. Accepts a few friendly aliases
+ * (`--gpus`, `runtime`, `nvidia`, `device`) alongside the canonical kinds.
+ */
+export function getDockerGpuPatchModePreference(
+  env: Record<string, string | undefined> = process.env,
+): DockerGpuPatchModeKind | null {
+  const raw = String(env[DOCKER_GPU_PATCH_MODE_ENV] || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "gpus" || raw === "--gpus") return "gpus";
+  if (raw === "nvidia-runtime" || raw === "runtime" || raw === "nvidia") return "nvidia-runtime";
+  if (raw === "cdi" || raw === "device") return "cdi";
+  return null;
+}
+
 export function buildDockerGpuModeCandidates(
   device?: string | null,
-  options: { cdiAvailable?: boolean; backend?: DockerGpuPatchBackend } = {},
+  options: {
+    cdiAvailable?: boolean;
+    backend?: DockerGpuPatchBackend;
+    preferredKind?: DockerGpuPatchModeKind | null;
+  } = {},
 ): DockerGpuPatchMode[] {
   if (options.backend === "jetson") {
     return [buildDockerGpuMode("nvidia-runtime", device, { backend: "jetson" })];
   }
   const candidates = [buildDockerGpuMode("gpus", device), buildDockerGpuMode("nvidia-runtime", device)];
   if (options.cdiAvailable) candidates.push(buildDockerGpuMode("cdi", device));
-  return candidates;
+
+  const preferred = options.preferredKind ?? null;
+  if (!preferred) return candidates;
+  // Force the requested mode to be present even when auto-detection skipped it
+  // (e.g. operator forces `cdi` but `docker info` reported no spec dirs), then
+  // move it to the front while keeping the remaining fallbacks in order. Array
+  // sort is stable, so non-preferred candidates retain their relative order.
+  if (!candidates.some((mode) => mode.kind === preferred)) {
+    candidates.push(buildDockerGpuMode(preferred, device));
+  }
+  return [...candidates].sort(
+    (a, b) => (a.kind === preferred ? 0 : 1) - (b.kind === preferred ? 0 : 1),
+  );
 }
 
 export function shouldApplyDockerGpuPatch(
@@ -820,14 +863,26 @@ function probeDockerGpuMode(
 }
 
 export function selectDockerGpuPatchMode(
-  options: { image: string; device?: string | null; backend?: DockerGpuPatchBackend },
+  options: {
+    image: string;
+    device?: string | null;
+    backend?: DockerGpuPatchBackend;
+    preferredKind?: DockerGpuPatchModeKind | null;
+  },
   deps: DockerGpuPatchDeps = {},
 ): { mode: DockerGpuPatchMode | null; attempts: DockerGpuPatchModeAttempt[] } {
-  const cdiAvailable = options.backend === "jetson" ? false : dockerReportsNvidiaCdiDevices(deps);
+  const preferredKind = options.preferredKind ?? null;
+  // A forced `cdi` preference implies CDI is viable on this host even when the
+  // `docker info` / default-dir scan came up empty, so honor it directly.
+  const cdiAvailable =
+    options.backend === "jetson"
+      ? false
+      : preferredKind === "cdi" || dockerReportsNvidiaCdiDevices(deps);
   const attempts: DockerGpuPatchModeAttempt[] = [];
   for (const mode of buildDockerGpuModeCandidates(options.device, {
     cdiAvailable,
     backend: options.backend,
+    preferredKind,
   })) {
     const result = probeDockerGpuMode(mode, options.image, deps);
     const attempt = { mode, ok: result.ok, error: result.error };
@@ -908,7 +963,12 @@ export function recreateOpenShellDockerSandboxWithGpu(
     if (!image) throw new Error("OpenShell sandbox container inspect did not include an image.");
 
     const selection = selectDockerGpuPatchMode(
-      { image, device: options.gpuDevice, backend: options.backend },
+      {
+        image,
+        device: options.gpuDevice,
+        backend: options.backend,
+        preferredKind: getDockerGpuPatchModePreference(),
+      },
       deps,
     );
     context.modeAttempts = selection.attempts;
@@ -1105,7 +1165,10 @@ export function printDockerGpuPatchFailureAndExit(
   if (diagnostics) {
     console.error(`  Diagnostics saved: ${diagnostics.dir}`);
   }
-  console.error("  Escape hatch: set NEMOCLAW_DOCKER_GPU_PATCH=0 to skip this patch.");
+  console.error(
+    "  Try a different GPU injection mode: set NEMOCLAW_DOCKER_GPU_PATCH_MODE=cdi (or nvidia-runtime) to keep GPU access.",
+  );
+  console.error("  Escape hatch: set NEMOCLAW_DOCKER_GPU_PATCH=0 to skip this patch (disables GPU).");
   printDockerGpuPatchCleanup(sandboxName);
   process.exit(1);
 }

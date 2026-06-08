@@ -19,6 +19,7 @@ import {
   detectSandboxFallbackDns,
   dockerReportsNvidiaCdiDevices,
   formatDockerInspectNetworkSummary,
+  getDockerGpuPatchModePreference,
   getDockerGpuPatchNetworkMode,
   getDockerGpuSupervisorReconnectTimeoutSecs,
   recreateOpenShellDockerSandboxWithGpu,
@@ -516,6 +517,67 @@ describe("docker-gpu-patch", () => {
     });
     const etcCdiCalls = readDir.mock.calls.filter(([dir]) => dir === "/etc/cdi");
     expect(etcCdiCalls.length).toBe(1);
+  });
+
+  it("parses NEMOCLAW_DOCKER_GPU_PATCH_MODE preference with aliases (#4950)", () => {
+    expect(getDockerGpuPatchModePreference({})).toBeNull();
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "" })).toBeNull();
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "bogus" })).toBeNull();
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "CDI" })).toBe("cdi");
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "device" })).toBe(
+      "cdi",
+    );
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "runtime" })).toBe(
+      "nvidia-runtime",
+    );
+    expect(getDockerGpuPatchModePreference({ NEMOCLAW_DOCKER_GPU_PATCH_MODE: "--gpus" })).toBe(
+      "gpus",
+    );
+  });
+
+  it("moves the preferred GPU mode to the front while keeping fallbacks (#4950)", () => {
+    expect(
+      buildDockerGpuModeCandidates("all", { cdiAvailable: true, preferredKind: "cdi" }).map(
+        (m) => m.kind,
+      ),
+    ).toEqual(["cdi", "gpus", "nvidia-runtime"]);
+    expect(
+      buildDockerGpuModeCandidates("all", {
+        cdiAvailable: true,
+        preferredKind: "nvidia-runtime",
+      }).map((m) => m.kind),
+    ).toEqual(["nvidia-runtime", "gpus", "cdi"]);
+  });
+
+  it("forces the preferred mode in even when auto-detection skipped it (#4950)", () => {
+    // CDI was not detected, but the operator forced it: it must still appear,
+    // ahead of the default fallbacks.
+    expect(
+      buildDockerGpuModeCandidates("all", { cdiAvailable: false, preferredKind: "cdi" }).map(
+        (m) => m.kind,
+      ),
+    ).toEqual(["cdi", "gpus", "nvidia-runtime"]);
+  });
+
+  it("probes the preferred mode first so reconnect-breaking --gpus is avoidable (#4950)", () => {
+    // Forcing `cdi` makes the patch try `--device nvidia.com/gpu=all` first
+    // even though `--gpus` would have passed the create probe — the workaround
+    // for hosts where the legacy --gpus injection breaks supervisor reconnect.
+    const probed: string[] = [];
+    const dockerRun = vi.fn((args: readonly string[]) => {
+      probed.push(args.join(" "));
+      return { status: 0, stdout: "probe-id" };
+    });
+    const selected = selectDockerGpuPatchMode(
+      { image: "openshell/sandbox:abc", device: "all", preferredKind: "cdi" },
+      {
+        dockerCapture: vi.fn(() => ""),
+        dockerRun,
+        dockerRm: vi.fn(() => ({ status: 0 })),
+      },
+    );
+    expect(selected.mode?.kind).toBe("cdi");
+    expect(probed[0]).toContain("--device nvidia.com/gpu=all");
   });
 
   it("recreates the OpenShell-managed container and waits for supervisor exec", () => {
