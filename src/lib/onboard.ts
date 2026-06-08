@@ -300,7 +300,6 @@ const {
   resolveProviderCredential,
   saveCredential,
 } = credentials;
-const { hashCredential }: typeof import("./security/credential-hash") = require("./security/credential-hash");
 const {
   cleanupStaleHostFiles,
 }: typeof import("./host-artifact-cleanup") = require("./host-artifact-cleanup");
@@ -370,7 +369,6 @@ const { toSessionUpdates }: typeof import("./onboard/session-updates") = require
 const gatewayReuse: typeof import("./onboard/gateway-reuse") = require("./onboard/gateway-reuse");
 const messagingConfig: typeof import("./onboard/messaging-config") = require("./onboard/messaging-config");
 const {
-  detectMessagingCredentialRotation,
   detectMessagingCredentialRotationFromPlan,
   getRecordedMessagingChannelsForResume: getRecordedMessagingChannelsForResumeFromState,
 }: typeof import("./onboard/messaging-credentials") = require("./onboard/messaging-credentials");
@@ -749,10 +747,10 @@ const { buildProviderArgs } = onboardProviders;
 
 // Snapshot of legacy {env-key → value} pairs that stageLegacyCredentialsToEnv()
 // imported from ~/.nemoclaw/credentials.json at the start of this run.
-// Captured by the onboard() entry point; consulted by the upsertProvider /
-// upsertMessagingProviders wrappers below to decide whether a successful
-// gateway upsert actually migrated the *legacy* value (vs. e.g. a vllm/ollama
-// branch that upserts a placeholder under the same env-key name).
+// Captured by the onboard() entry point; consulted by provider upsert wrappers
+// to decide whether a successful gateway upsert actually migrated the *legacy*
+// value (vs. e.g. a vllm/ollama branch that upserts a placeholder under the
+// same env-key name).
 const stagedLegacyValues: Map<string, string> = new Map<string, string>();
 
 // Env-keys whose successful gateway upsert actually used the staged legacy
@@ -803,6 +801,20 @@ function persistMigratedLegacyKeys(): void {
   }
 }
 
+function markMigratedLegacyCredential(
+  envKey: string,
+  registeredValue: string | null | undefined,
+): void {
+  const stagedValue = stagedLegacyValues.get(envKey);
+  if (stagedValue === undefined) return;
+  if (registeredValue === stagedValue) {
+    migratedLegacyKeys.add(envKey);
+  } else {
+    migratedLegacyKeys.delete(envKey);
+  }
+  persistMigratedLegacyKeys();
+}
+
 function upsertProvider(
   name: string,
   type: string,
@@ -819,35 +831,17 @@ function upsertProvider(
     runOpenshell,
   );
   if (result.ok && credentialEnv) {
-    const stagedValue = stagedLegacyValues.get(credentialEnv);
-    if (stagedValue !== undefined) {
-      // openshell receives `--credential <ENV>` and reads the value from the
-      // `env` block passed here, falling back to the inherited process.env.
-      // Use getCredential() for the env-fallback branch (per the
-      // direct credential env guard from PR #2306) — it mirrors
-      // openshell's resolution order while the staging contract has
-      // already populated the same value into process.env.
-      const upsertedValue = env[credentialEnv] ?? getCredential(credentialEnv);
-      if (upsertedValue === stagedValue) {
-        // The gateway received the staged legacy value verbatim — count
-        // this key as migrated.
-        migratedLegacyKeys.add(credentialEnv);
-      } else {
-        // A later upsert under the same env-key wrote a different value
-        // (e.g. a retry-loop after validation failure replaced the legacy
-        // key with a freshly entered one, or a placeholder like "dummy"
-        // for vllm-local). The gateway no longer holds the staged legacy
-        // value under this env-key, so withdraw the migration mark — the
-        // cleanup gate must keep the legacy file intact.
-        migratedLegacyKeys.delete(credentialEnv);
-      }
-      persistMigratedLegacyKeys();
-    }
+    // openshell receives `--credential <ENV>` and reads the value from the
+    // `env` block passed here, falling back to the inherited process.env.
+    // Use getCredential() for the env-fallback branch (per the direct
+    // credential env guard from PR #2306) — it mirrors openshell's resolution
+    // order while the staging contract has already populated process.env.
+    markMigratedLegacyCredential(credentialEnv, env[credentialEnv] ?? getCredential(credentialEnv));
   }
   return result;
 }
 
-type MessagingTokenDef = { name: string; envKey: string; token: string | null; providerType?: string };
+type CompatibilityProviderDef = { name: string; envKey: string; token: string | null; providerType?: string };
 type SandboxMessagingPlan = import("./messaging").SandboxMessagingPlan;
 type MessagingCredentialApplyResult = import("./messaging").MessagingCredentialApplyResult;
 
@@ -861,17 +855,17 @@ const verifyDirectSandboxGpu = sandboxGpuPreflight.createDirectSandboxGpuVerifie
   redact,
 });
 
-function upsertMessagingProviders(
-  tokenDefs: MessagingTokenDef[],
+function upsertCompatibilityProviders(
+  tokenDefs: CompatibilityProviderDef[],
   options: { replaceExisting?: boolean } = {},
-) {
+): string[] {
   braveProviderProfile.ensureBraveProviderProfile(tokenDefs, { root: ROOT, runOpenshell, redact });
   const upserted = onboardProviders.upsertMessagingProviders(
     tokenDefs,
     runOpenshell,
     options,
   );
-  // upsertMessagingProviders process.exits on failure, so reaching this
+  // onboardProviders.upsertMessagingProviders process.exits on failure, so reaching this
   // point means every entry in tokenDefs that had a token was registered.
   // Mark migrated only when the registered token equals the staged legacy
   // value — a token rotated since staging (or a fresh prompt) is not a
@@ -879,20 +873,10 @@ function upsertMessagingProviders(
   // Mirror upsertProvider's withdrawal logic so a later messaging upsert
   // that replaces the legacy value with something else cannot leave the
   // mark stuck on.
-  let mutated = false;
   for (const def of tokenDefs) {
     if (!def.token || !def.envKey) continue;
-    const stagedValue = stagedLegacyValues.get(def.envKey);
-    if (stagedValue === undefined) continue;
-    if (def.token === stagedValue) {
-      migratedLegacyKeys.add(def.envKey);
-      mutated = true;
-    } else {
-      migratedLegacyKeys.delete(def.envKey);
-      mutated = true;
-    }
+    markMigratedLegacyCredential(def.envKey, def.token);
   }
-  if (mutated) persistMigratedLegacyKeys();
   return upserted;
 }
 
@@ -923,20 +907,9 @@ function applyMessagingPlanCredentials(
 }
 
 function markPlanCredentialMigrations(result: MessagingCredentialApplyResult): void {
-  let mutated = false;
   for (const entry of result.upserted) {
-    const stagedValue = stagedLegacyValues.get(entry.envKey);
-    if (stagedValue === undefined) continue;
-    const registeredValue = resolveMessagingProviderCredential(entry.envKey);
-    if (registeredValue === stagedValue) {
-      migratedLegacyKeys.add(entry.envKey);
-      mutated = true;
-    } else {
-      migratedLegacyKeys.delete(entry.envKey);
-      mutated = true;
-    }
+    markMigratedLegacyCredential(entry.envKey, resolveMessagingProviderCredential(entry.envKey));
   }
-  if (mutated) persistMigratedLegacyKeys();
 }
 const providerExistsInGateway = (name: string) => onboardProviders.providerExistsInGateway(name, runOpenshell);
 
@@ -2889,7 +2862,7 @@ async function createSandbox(
     );
     process.exit(1);
   }
-  const compatibilityProviderDefs: MessagingTokenDef[] = [];
+  const compatibilityProviderDefs: CompatibilityProviderDef[] = [];
   if (braveWebSearchEnabled) compatibilityProviderDefs.push({ name: `${sandboxName}-brave-search`, envKey: webSearch.BRAVE_API_KEY_ENV, token: braveApiKey, providerType: braveProviderProfile.BRAVE_PROVIDER_PROFILE_ID });
   const extraPlaceholderKeys: string[] = require("./onboard/extra-placeholder-keys").registerExtraPlaceholderProviders(sandboxName, compatibilityProviderDefs);
   const hasMessagingTokens =
@@ -3032,7 +3005,7 @@ async function createSandbox(
             // Upsert messaging providers even on reuse so credential changes take
             // effect without requiring a full sandbox recreation.
             applyMessagingPlanCredentials(currentPlan);
-            upsertMessagingProviders(compatibilityProviderDefs);
+            upsertCompatibilityProviders(compatibilityProviderDefs);
             if (selectionDrift.unknown) {
               note(
                 "  [non-interactive] Existing provider/model selection is unreadable; reusing sandbox.",
@@ -3093,7 +3066,7 @@ async function createSandbox(
           if (await promptYesNoOrDefault("  Reuse existing sandbox?", null, true)) {
             policyPresetCarry.seedReusedSandboxPolicyPresets(sandboxName, isNonInteractive());
             applyMessagingPlanCredentials(currentPlan);
-            upsertMessagingProviders(compatibilityProviderDefs);
+            upsertCompatibilityProviders(compatibilityProviderDefs);
             const reusedPort2 = ensureDashboardForward(sandboxName, chatUiUrl);
             chatUiUrl = `http://127.0.0.1:${reusedPort2}`;
             process.env.CHAT_UI_URL = chatUiUrl;
@@ -3335,7 +3308,7 @@ async function createSandbox(
   const messagingProviders = [
     ...new Set([
       ...applyMessagingPlanCredentials(currentPlan, { replaceExisting: true }),
-      ...upsertMessagingProviders(compatibilityProviderDefs, { replaceExisting: true }),
+      ...upsertCompatibilityProviders(compatibilityProviderDefs, { replaceExisting: true }),
     ]),
   ];
   for (const p of messagingProviders) {
@@ -6690,8 +6663,6 @@ module.exports = {
   hasChatCompletionsToolCallLeak,
   upsertProvider,
   normalizeHermesAuthMethod,
-  hashCredential,
-  detectMessagingCredentialRotation,
   getDefaultSandboxNameForAgent,
   getSandboxPromptDefault,
   getRequestedSandboxAgentName,
