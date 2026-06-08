@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { runCurlProbe, type CurlProbeResult } from "../../../../adapters/http/probe";
+import { type CurlProbeResult, runCurlProbe } from "../../../../adapters/http/probe";
 
 export type SlackTokenKind = "bot" | "app";
 export type SlackValidationFailureKind = "rejected" | "indeterminate";
@@ -30,6 +30,14 @@ const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 const SLACK_APPS_CONNECTIONS_OPEN_URL = "https://slack.com/api/apps.connections.open";
 export const SLACK_AUTH_VALIDATION_SKIP_ENV = "NEMOCLAW_SKIP_SLACK_AUTH_VALIDATION";
 
+// Reserved test placeholders that never correspond to a real Slack workspace.
+// They mirror the fake-token sentinels used by the E2E harness so onboarding,
+// docs, and CI agree on which Slack tokens skip the live auth.test/connections
+// probes (and therefore enable the slack policy preset for policy-list testing).
+// Real Slack tokens are `xoxb-`/`xapp-` followed by numeric IDs, so the
+// non-numeric `fake-`/`test-` prefixes can never collide with a live token.
+const FAKE_SLACK_TOKEN_PATTERN = /^(?:xoxb|xapp)-(?:fake|test)-/;
+
 const TRANSIENT_SLACK_ERRORS = new Set(["ratelimited", "request_timeout"]);
 
 const SLACK_CURL_CONFIG_PREFIX = "nemoclaw-slack-probe";
@@ -44,13 +52,24 @@ export function shouldSkipSlackAuthValidation(
   return isTruthyEnvFlag(env[SLACK_AUTH_VALIDATION_SKIP_ENV]);
 }
 
-function skippedSlackValidationResult(): Extract<SlackTokenValidationResult, { ok: true }> {
-  return {
-    ok: true,
-    skipped: true,
-    message: `Live Slack API validation skipped because ${SLACK_AUTH_VALIDATION_SKIP_ENV} is set.`,
-  };
+/**
+ * Reports whether a Slack token is a reserved test placeholder (e.g.
+ * `xoxb-fake-resume-policy-test`). Such tokens auto-skip live Slack API
+ * validation so policy presets can be exercised in hermetic CI without a real
+ * Slack workspace.
+ */
+export function isFakeSlackTestToken(token: string | undefined): boolean {
+  return typeof token === "string" && FAKE_SLACK_TOKEN_PATTERN.test(token.trim());
 }
+
+function skippedSlackValidationResult(
+  message = `Live Slack API validation skipped because ${SLACK_AUTH_VALIDATION_SKIP_ENV} is set.`,
+): Extract<SlackTokenValidationResult, { ok: true }> {
+  return { ok: true, skipped: true, message };
+}
+
+const FAKE_SLACK_TOKEN_SKIP_MESSAGE =
+  "Live Slack API validation skipped because a reserved Slack test placeholder token is configured.";
 
 function escapeCurlConfigValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -198,6 +217,9 @@ function classifySlackProbeResult(
 
 export function validateSlackBotToken(token: string): SlackTokenValidationResult {
   if (shouldSkipSlackAuthValidation()) return skippedSlackValidationResult();
+  if (isFakeSlackTestToken(token)) {
+    return skippedSlackValidationResult(FAKE_SLACK_TOKEN_SKIP_MESSAGE);
+  }
 
   return classifySlackProbeResult(
     "bot",
@@ -208,6 +230,9 @@ export function validateSlackBotToken(token: string): SlackTokenValidationResult
 
 export function validateSlackAppToken(token: string): SlackTokenValidationResult {
   if (shouldSkipSlackAuthValidation()) return skippedSlackValidationResult();
+  if (isFakeSlackTestToken(token)) {
+    return skippedSlackValidationResult(FAKE_SLACK_TOKEN_SKIP_MESSAGE);
+  }
 
   return classifySlackProbeResult(
     "app",
@@ -221,6 +246,11 @@ export function validateSlackCredentials(tokens: {
   appToken: string;
 }): SlackCredentialValidationResult {
   if (shouldSkipSlackAuthValidation()) return skippedSlackValidationResult();
+  // A reserved test placeholder on either token skips live validation entirely
+  // so a fake/real mix never triggers a live probe for the non-placeholder side.
+  if (isFakeSlackTestToken(tokens.botToken) || isFakeSlackTestToken(tokens.appToken)) {
+    return skippedSlackValidationResult(FAKE_SLACK_TOKEN_SKIP_MESSAGE);
+  }
 
   const bot = validateSlackBotToken(tokens.botToken);
   if (!bot.ok) return { ...bot, credential: "bot" };

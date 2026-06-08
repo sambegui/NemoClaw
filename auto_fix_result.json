@@ -1,0 +1,15 @@
+{
+  "fix_description": "Issue #4979: NemoClaw onboard validated Slack tokens against the live Slack API, so the 'Slack resume policy test' using fake tokens (xoxb-fake-resume-policy-test / xapp-fake-resume-policy-test) hit invalid_auth, Slack was skipped, and the 'slack' network policy preset was never applied. Implemented Option B from the issue: the product now recognizes the same reserved fake-token sentinel prefixes already used by the e2e harness (test/e2e/test-openclaw-slack-pairing.sh) -- xoxb-fake-*, xoxb-test-*, xapp-fake-*, xapp-test-* -- and auto-skips the live auth.test / apps.connections.open probes for them. This treats Slack as 'present for policy purposes' so the slack preset is applied and shows as applied (the) in policy-list, without requiring NEMOCLAW_SKIP_SLACK_AUTH_VALIDATION or a real Slack workspace. The non-numeric fake-/test- prefixes can never collide with real Slack tokens (which are xoxb-/xapp- followed by numeric IDs). Added isFakeSlackTestToken() in src/lib/messaging/channels/slack/hooks/credential-validation.ts, applied it in validateSlackBotToken/validateSlackAppToken/validateSlackCredentials (either token being a placeholder skips validation entirely), added focused unit tests, and documented the auto-skip in docs/reference/commands.mdx and commands-nemohermes.mdx.",
+  "verification_steps": [
+    "npx vitest run src/lib/messaging/channels/slack/hooks/credential-validation.test.ts -> 21 passed",
+    "npx vitest run src/lib/messaging/channels/slack/ src/lib/onboard/messaging-channel-setup.test.ts -> 46 passed (no regressions)",
+    "npx biome check on the two changed slack credential-validation files -> clean, no fixes applied",
+    "npm run typecheck:cli -> only pre-existing unrelated errors (missing dist/ artifacts and other test files); changed file is clean"
+  ],
+  "commands_run": [
+    "npx vitest run src/lib/messaging/channels/slack/hooks/credential-validation.test.ts",
+    "npx vitest run src/lib/messaging/channels/slack/ src/lib/onboard/messaging-channel-setup.test.ts",
+    "npm run typecheck:cli",
+    "npx biome check src/lib/messaging/channels/slack/hooks/credential-validation.ts src/lib/messaging/channels/slack/hooks/credential-validation.test.ts"
+  ]
+}

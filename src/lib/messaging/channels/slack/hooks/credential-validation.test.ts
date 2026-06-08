@@ -139,6 +139,49 @@ describe("Slack token validation", () => {
     expect(vi.mocked(runCurlProbe)).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "xoxb-fake-resume-policy-test",
+    "xoxb-test-resume-policy",
+  ])("skips live validation for reserved bot test placeholder %s", (botToken) => {
+    const result = validateSlackBotToken(botToken);
+
+    expect(result).toMatchObject({
+      ok: true,
+      skipped: true,
+      message: expect.stringContaining("reserved Slack test placeholder"),
+    });
+    expect(vi.mocked(runCurlProbe)).not.toHaveBeenCalled();
+  });
+
+  it("treats fake Slack test tokens as present without probing the Slack API", () => {
+    const result = validateSlackCredentials({
+      botToken: "xoxb-fake-resume-policy-test",
+      appToken: "xapp-fake-resume-policy-test",
+    });
+
+    expect(result).toMatchObject({ ok: true, skipped: true });
+    expect(vi.mocked(runCurlProbe)).not.toHaveBeenCalled();
+  });
+
+  it("skips live validation when only one token is a reserved test placeholder", () => {
+    const result = validateSlackCredentials({
+      botToken: "xoxb-fake-resume-policy-test",
+      appToken: "xapp-real-looking-token",
+    });
+
+    expect(result).toMatchObject({ ok: true, skipped: true });
+    expect(vi.mocked(runCurlProbe)).not.toHaveBeenCalled();
+  });
+
+  it("still probes the Slack API for tokens that are not reserved placeholders", () => {
+    vi.mocked(runCurlProbe).mockReturnValue(probe('{"ok":true}'));
+
+    const result = validateSlackBotToken("xoxb-1234567890-real-token");
+
+    expect(result).toMatchObject({ ok: true });
+    expect(vi.mocked(runCurlProbe)).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["ratelimited", "request_timeout"])(
     "treats documented transient Slack API error %s as indeterminate",
     (error) => {
