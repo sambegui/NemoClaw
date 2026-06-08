@@ -67,6 +67,20 @@ function slackChannel() {
   };
 }
 
+function discordChannel() {
+  return {
+    channelId: "discord" as const,
+    displayName: "Discord",
+    authMode: "token-paste" as const,
+    active: true,
+    selected: true,
+    configured: true,
+    disabled: false,
+    inputs: [],
+    hooks: [],
+  };
+}
+
 function tgBinding(hash?: string): SandboxMessagingPlan["credentialBindings"][number] {
   return {
     channelId: "telegram",
@@ -75,6 +89,19 @@ function tgBinding(hash?: string): SandboxMessagingPlan["credentialBindings"][nu
     providerName: "sb-telegram-bridge",
     providerEnvKey: "TELEGRAM_BOT_TOKEN",
     placeholder: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
+    credentialAvailable: true,
+    ...(hash !== undefined ? { credentialHash: hash } : {}),
+  };
+}
+
+function discordBinding(hash?: string): SandboxMessagingPlan["credentialBindings"][number] {
+  return {
+    channelId: "discord",
+    credentialId: "discordBotToken",
+    sourceInput: "botToken",
+    providerName: "sb-discord-bridge",
+    providerEnvKey: "DISCORD_BOT_TOKEN",
+    placeholder: "openshell:resolve:env:DISCORD_BOT_TOKEN",
     credentialAvailable: true,
     ...(hash !== undefined ? { credentialHash: hash } : {}),
   };
@@ -222,6 +249,42 @@ describe("conflictReasonForPair", () => {
       makePlan("bob", { channels: [tgChannel()], credentialBindings: [tgBinding("hash-b")] }),
     );
     expect(conflictReasonForPair("telegram", alice, bob)).toBeNull();
+  });
+
+  it("detects matching-token between two Discord plan-backed entries", () => {
+    const alice = planEntry(
+      "alice",
+      makePlan("alice", {
+        channels: [discordChannel()],
+        credentialBindings: [discordBinding("hash-discord")],
+      }),
+    );
+    const bob = planEntry(
+      "bob",
+      makePlan("bob", {
+        channels: [discordChannel()],
+        credentialBindings: [discordBinding("hash-discord")],
+      }),
+    );
+    expect(conflictReasonForPair("discord", alice, bob)).toBe("matching-token");
+  });
+
+  it("returns null when Discord plan-backed hashes differ", () => {
+    const alice = planEntry(
+      "alice",
+      makePlan("alice", {
+        channels: [discordChannel()],
+        credentialBindings: [discordBinding("hash-discord-a")],
+      }),
+    );
+    const bob = planEntry(
+      "bob",
+      makePlan("bob", {
+        channels: [discordChannel()],
+        credentialBindings: [discordBinding("hash-discord-b")],
+      }),
+    );
+    expect(conflictReasonForPair("discord", alice, bob)).toBeNull();
   });
 
   it("scopes comparison to the requested channel, ignoring other channels", () => {

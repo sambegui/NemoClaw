@@ -499,6 +499,40 @@ describe("addSandboxChannel cross-sandbox conflict check (#4305)", () => {
     expect(updateSandboxMock).toHaveBeenCalledWith("alpha", expect.any(Object));
   });
 
+  it("non-interactive add aborts when the conflict check throws", async () => {
+    arrangeRegistry({ current: { name: "alpha", messagingChannels: [] }, others: [] });
+    getCredentialMock.mockReturnValue(TELEGRAM_TOKEN);
+    listSandboxesMock.mockImplementation(() => {
+      throw new Error("malformed messaging plan");
+    });
+    process.env.NEMOCLAW_NON_INTERACTIVE = "1";
+
+    await expect(addSandboxChannel("alpha", { channel: "telegram" })).rejects.toThrow(
+      "process.exit(1)",
+    );
+
+    const text = loggedText();
+    expect(text).toContain("Could not verify messaging channel conflicts");
+    expect(text).toContain("rerun with --force");
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("--force proceeds when the conflict check throws", async () => {
+    arrangeRegistry({ current: { name: "alpha", messagingChannels: [] }, others: [] });
+    getCredentialMock.mockReturnValue(TELEGRAM_TOKEN);
+    listSandboxesMock.mockImplementation(() => {
+      throw new Error("malformed messaging plan");
+    });
+    process.env.NEMOCLAW_NON_INTERACTIVE = "1";
+
+    await addSandboxChannel("alpha", { channel: "telegram", force: true });
+
+    const text = loggedText();
+    expect(text).toContain("proceeding without a completed messaging channel conflict check");
+    expect(exitMock).not.toHaveBeenCalled();
+    expect(upsertMock).toHaveBeenCalledTimes(1);
+  });
+
   // Scenario 10
   it("never prints the raw token value in any conflict output (proceed path)", async () => {
     arrangeRegistry({

@@ -385,11 +385,8 @@ function makeChannelsConflictProbe() {
 // Detect whether another sandbox already uses one of this channel's
 // credentials. Mirrors the onboard.ts conflict check. Returns true if the
 // caller should PROCEED with the add, false if it should abort. Never logs
-// credential values — only the non-secret hashes computed inline are passed
-// to findChannelConflicts. Probe/backfill failures are swallowed
-// (non-fatal): backfillMessagingChannels already skips sandboxes whose probe
-// errors, so a flaky gateway degrades to "no conflict found" rather than
-// blocking the add.
+// credential values. Backfill probe failures are non-fatal, but core
+// conflict-detection errors fail closed unless --force is set.
 async function checkChannelAddConflict(
   sandboxName: string,
   channelName: string,
@@ -401,7 +398,9 @@ async function checkChannelAddConflict(
   // what planToConflictChannelRequests() produces from bindings. QR-only
   // channels (e.g. WhatsApp) have no manifest credentials → early exit with no
   // conflict possible. Unknown channelName → also exits early.
-  const channelManifest = createBuiltInChannelManifestRegistry().list().find((m) => m.id === channelName);
+  const channelManifest = createBuiltInChannelManifestRegistry()
+    .list()
+    .find((m) => m.id === channelName);
   if (!channelManifest || channelManifest.credentials.length === 0) return true;
 
   const credentialHashes: Record<string, string> = {};
@@ -423,9 +422,32 @@ async function checkChannelAddConflict(
 
   let conflicts: ReturnType<typeof findChannelConflicts>;
   try {
-    conflicts = findChannelConflicts(sandboxName, [{ channel: channelName, credentialHashes }], registry);
-  } catch {
-    return true;
+    conflicts = findChannelConflicts(
+      sandboxName,
+      [{ channel: channelName, credentialHashes }],
+      registry,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`  Could not verify messaging channel conflicts for ${channelName}: ${message}`);
+    if (force) {
+      console.log("  --force: proceeding without a completed messaging channel conflict check.");
+      return true;
+    }
+    if (isNonInteractive()) {
+      console.error(
+        `  Aborting: rerun with --force to skip the messaging channel conflict check for ${channelName}.`,
+      );
+      process.exit(1);
+    }
+    const answer = (
+      await askPrompt("  Continue without a completed conflict check? [y/N]: ")
+    )
+      .trim()
+      .toLowerCase();
+    if (answer === "y" || answer === "yes") return true;
+    console.log("  Aborting channel add.");
+    return false;
   }
   if (conflicts.length === 0) return true;
 

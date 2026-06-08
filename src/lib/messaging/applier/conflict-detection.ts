@@ -185,9 +185,12 @@ export function planToConflictChannelRequests(plan: SandboxMessagingPlan): Confl
 
 /**
  * Return the active (non-disabled) channel IDs for a registry entry.
- * Uses `entry.messaging.plan` when available; falls back to the legacy
- * `messagingChannels`/`disabledChannels` flat fields for pre-plan entries.
- * Returns `null` when the entry has neither.
+ * Uses `entry.messaging.plan` when available. Pre-plan registry entries are
+ * supported only for channel presence via the legacy
+ * `messagingChannels`/`disabledChannels` flat fields; legacy credential hashes
+ * are deliberately not recovered. Remove this branch when flat pre-plan
+ * messaging registry fields are no longer supported. Returns `null` when the
+ * entry has neither shape.
  */
 export function resolveActiveChannelsFromEntry(
   entry: ConflictRegistryEntry,
@@ -459,7 +462,10 @@ export function backfillLegacyEntryChannels(
 }
 
 /**
- * Backfill legacy registry entries using built-in manifest provider names.
+ * Backfill pre-plan registry entries using built-in manifest provider names.
+ * This infers channel presence only; it must not restore legacy credential
+ * hashes. Remove with the `messagingChannels`/`disabledChannels` fallback once
+ * pre-plan registry rows are no longer supported.
  */
 export function backfillMessagingChannels(
   registry: ConflictRegistry,
