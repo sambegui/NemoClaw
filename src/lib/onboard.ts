@@ -214,6 +214,7 @@ const inferenceProviders: typeof import("./onboard/inference-providers") = requi
 const { ensureResumeProviderReady } = require("./onboard/resume-provider-shim");
 const hermesProviderAuth = require("./hermes-provider-auth");
 const onboardHermesDashboard: typeof import("./onboard/hermes-dashboard") = require("./onboard/hermes-dashboard");
+const onboardHermesDashboardPortGuard: typeof import("./onboard/hermes-dashboard-port-guard") = require("./onboard/hermes-dashboard-port-guard");
 const hermesAuth: typeof import("./onboard/hermes-auth") = require("./onboard/hermes-auth");
 const { warnIfLandlockUnsupported } = require("./onboard/landlock-warning");
 const {
@@ -6155,6 +6156,20 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     session = onboardSession.updateSession((s: Session) => {
       s.agent = agent?.name ?? null;
       return s;
+    });
+
+    // Security: an explicit dashboard port (NEMOCLAW_DASHBOARD_PORT or
+    // --control-ui-port) must never collide with a port Hermes reserves for
+    // its OpenAI-compatible API (e.g. 8642). Reject before preflight side
+    // effects or sandbox creation so onboarding hard-fails cleanly (#4984).
+    onboardHermesDashboardPortGuard.assertDashboardPortNotReservedForHermesApi({
+      agentName: selectedAgentName,
+      dashboardPort: _preflightDashboardPort,
+      agent,
+      fail: (message: string): never => {
+        console.error(`  ${message}`);
+        process.exit(1);
+      },
     });
 
     const recordedSandboxName =
