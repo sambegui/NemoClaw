@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createBuiltInChannelManifestRegistry } from "../channels";
+import { planAgentRender } from "../compiler/engines/agent-render-engine";
+import { planBuildSteps } from "../compiler/engines/build-step-engine";
+import { planHealthChecks } from "../compiler/engines/health-check-engine";
+import { planStateUpdates } from "../compiler/engines/state-update-engine";
 import type {
   ChannelManifest,
   ChannelPolicyPresetReference,
@@ -49,7 +53,7 @@ export function validateBuiltInSandboxMessagingPlan(
   const policyResult = validateNetworkPolicy(plan, registry, channelIds, context.agent);
   if (!policyResult.ok) return policyResult;
 
-  return validatePlanEntryChannelIds(plan, channelIds);
+  return validatePlannedManifestEntries(plan, registry, channelIds, context.agent);
 }
 
 function validateChannels(
@@ -92,6 +96,8 @@ function validateChannels(
     }
     const inputResult = validateChannelInputs(manifest, channel);
     if (!inputResult.ok) return inputResult;
+    const hookResult = validateChannelHooks(manifest, channel, context.agent);
+    if (!hookResult.ok) return hookResult;
   }
 
   for (const channelId of disabled) {
@@ -174,6 +180,24 @@ function validateChannelInputs(
     }
   }
   return valid();
+}
+
+function validateChannelHooks(
+  manifest: ChannelManifest,
+  channel: SandboxMessagingChannelPlan,
+  agent: MessagingAgentId,
+): MessagingPlanValidationResult {
+  if (!Array.isArray(channel.hooks)) {
+    return invalid(`channel '${channel.channelId}' hooks are not an array`);
+  }
+  const expected = manifest.hooks
+    .filter((hook) => !hook.agents || hook.agents.includes(agent))
+    .map((hook) => ({ ...hook, channelId: manifest.id }));
+  return validateExactPlanEntries(
+    `channel '${channel.channelId}' hooks`,
+    channel.hooks,
+    expected,
+  );
 }
 
 function validateCredentialBindings(
@@ -342,24 +366,65 @@ function normalizePolicyPreset(preset: ChannelPolicyPresetReference): ChannelPol
   return typeof preset === "string" ? { name: preset } : preset;
 }
 
-function validatePlanEntryChannelIds(
+function validatePlannedManifestEntries(
   plan: SandboxMessagingPlan,
+  registry: ReturnType<typeof createBuiltInChannelManifestRegistry>,
   channelIds: ReadonlySet<string>,
+  agent: MessagingAgentId,
 ): MessagingPlanValidationResult {
-  const groups: Array<[string, readonly { readonly channelId: string }[]]> = [
-    ["agentRender", plan.agentRender],
-    ["buildSteps", plan.buildSteps],
-    ["stateUpdates", plan.stateUpdates],
-    ["healthChecks", plan.healthChecks],
+  const manifests = [...channelIds]
+    .map((channelId) => registry.get(channelId))
+    .filter((manifest): manifest is ChannelManifest => Boolean(manifest));
+  const compilerContext = {
+    sandboxName: plan.sandboxName,
+    agent,
+    workflow: plan.workflow,
+    isInteractive: false,
+    configuredChannels: [...channelIds],
+  };
+  const groups: Array<[string, readonly unknown[], readonly unknown[]]> = [
+    [
+      "agentRender",
+      plan.agentRender,
+      manifests.flatMap((manifest) => planAgentRender(manifest, compilerContext)),
+    ],
+    [
+      "buildSteps",
+      plan.buildSteps,
+      manifests.flatMap((manifest) => planBuildSteps(manifest, agent)),
+    ],
+    [
+      "stateUpdates",
+      plan.stateUpdates,
+      manifests.flatMap((manifest) => planStateUpdates(manifest)),
+    ],
+    [
+      "healthChecks",
+      plan.healthChecks,
+      manifests.flatMap((manifest) => planHealthChecks(manifest)),
+    ],
   ];
-  for (const [label, entries] of groups) {
-    for (const entry of entries) {
-      if (!isRecord(entry)) return invalid(`${label} entry is not an object`);
-      if (typeof entry.channelId !== "string" || !channelIds.has(entry.channelId)) {
-        return invalid(`${label} entry references unknown channel`);
-      }
-    }
+  for (const [label, entries, expected] of groups) {
+    const result = validateExactPlanEntries(label, entries, expected);
+    if (!result.ok) return result;
   }
+  return valid();
+}
+
+function validateExactPlanEntries(
+  label: string,
+  entries: readonly unknown[],
+  expected: readonly unknown[],
+): MessagingPlanValidationResult {
+  if (!Array.isArray(entries)) return invalid(`${label} entries are not an array`);
+  const remainingExpected = expected.map(stableStringify);
+  for (const entry of entries) {
+    if (!isRecord(entry)) return invalid(`${label} entry is not an object`);
+    const index = remainingExpected.indexOf(stableStringify(entry));
+    if (index === -1) return invalid(`unexpected ${label} entry`);
+    remainingExpected.splice(index, 1);
+  }
+  if (remainingExpected.length > 0) return invalid(`missing ${label} entry`);
   return valid();
 }
 
@@ -397,6 +462,20 @@ function sameStringArray(value: unknown, expected: readonly string[]): boolean {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

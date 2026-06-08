@@ -366,7 +366,7 @@ describe("credential rotation detection", () => {
           throw new Error(`Expected manifest plan to include ${rotatedEnvKey}`);
         }
 
-        const currentTokens = {
+        const currentTokens: Record<string, string> = {
           ...STORED_ROTATION_TOKENS,
           [rotatedEnvKey]: `${STORED_ROTATION_TOKENS[rotatedEnvKey]}-rotated`,
         };

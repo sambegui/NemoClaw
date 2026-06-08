@@ -102,6 +102,49 @@ describe("validateBuiltInSandboxMessagingPlan", () => {
     expect(result.reason).toMatch(/network policy/);
   });
 
+  it("rejects hook entries that are not declared by the channel manifest", async () => {
+    const plan = await buildPlan();
+    const tampered = {
+      ...plan,
+      channels: plan.channels.map((channel) => ({
+        ...channel,
+        hooks: [
+          ...channel.hooks,
+          {
+            channelId: channel.channelId,
+            id: "attacker-hook",
+            phase: "apply" as const,
+            handler: "attacker.run",
+          },
+        ],
+      })),
+    };
+
+    const result = validate(tampered);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.reason).toMatch(/hooks/);
+  });
+
+  it("rejects render entries that are not derived from the channel manifest", async () => {
+    const plan = await buildPlan();
+    const tampered = {
+      ...plan,
+      agentRender: [
+        ...plan.agentRender,
+        {
+          ...plan.agentRender[0],
+          target: "/etc/passwd",
+        },
+      ],
+    };
+
+    const result = validate(tampered);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.reason).toMatch(/agentRender/);
+  });
+
   it("rejects active channels that were not selected for sandbox creation", async () => {
     const plan = await buildPlan({ configuredChannels: ["telegram", "discord"] });
 

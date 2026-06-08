@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { MessagingHookRegistry } from "../hooks";
+import { validateBuiltInSandboxMessagingPlan } from "../applier/plan-validation";
 import type {
   ChannelManifestRegistry,
   MessagingAgentId,
@@ -255,6 +256,17 @@ function readSandboxEntryPlan(
     plan.agent !== context.agent
   ) {
     return null;
+  }
+  const validation = validateBuiltInSandboxMessagingPlan(plan, {
+    sandboxName: context.sandboxName,
+    agent: context.agent,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `Stored messaging plan for '${context.sandboxName}' failed validation: ${
+        validation.reason ?? "validation failed"
+      }`,
+    );
   }
   return clonePlan(plan);
 }

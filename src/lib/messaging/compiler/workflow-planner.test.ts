@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBuiltInChannelManifestRegistry } from "../channels";
 import { createBuiltInMessagingHookRegistry, MessagingHookRegistry } from "../hooks";
+import type { SandboxMessagingPlan } from "../manifest";
 import { MessagingWorkflowPlanner } from "./workflow-planner";
 
 const TEST_CREDENTIALS: Readonly<Record<string, string>> = {
@@ -106,6 +107,44 @@ async function withEnv<T>(
       }
     }
   }
+}
+
+function makeSandboxEntry(plan: SandboxMessagingPlan) {
+  return {
+    name: "demo",
+    messaging: {
+      schemaVersion: 1 as const,
+      plan,
+    },
+  };
+}
+
+function withTamperedProviderEnvKey(plan: SandboxMessagingPlan): SandboxMessagingPlan {
+  return {
+    ...plan,
+    credentialBindings: plan.credentialBindings.map((binding) => ({
+      ...binding,
+      providerEnvKey: "OPENAI_API_KEY",
+    })),
+  };
+}
+
+function withUndeclaredHostNetworkPolicy(plan: SandboxMessagingPlan): SandboxMessagingPlan {
+  return {
+    ...plan,
+    networkPolicy: {
+      presets: [...plan.networkPolicy.presets, "host-network"],
+      entries: [
+        ...plan.networkPolicy.entries,
+        {
+          channelId: "telegram",
+          presetName: "host-network",
+          policyKeys: ["host-network"],
+          source: "manifest" as const,
+        },
+      ],
+    },
+  };
 }
 
 describe("MessagingWorkflowPlanner", () => {
@@ -671,6 +710,74 @@ describe("MessagingWorkflowPlanner", () => {
 
     expect(rebuilt).toBeNull();
   });
+
+  it("rejects rebuild plans when the stored provider binding is tampered", async () => {
+    const existingPlan = await planner().buildPlan({
+      sandboxName: "demo",
+      agent: "openclaw",
+      workflow: "onboard",
+      isInteractive: false,
+      configuredChannels: ["telegram"],
+      credentialAvailability: {
+        TELEGRAM_BOT_TOKEN: true,
+      },
+    });
+
+    await expect(
+      planner().buildRebuildPlanFromSandboxEntry({
+        sandboxName: "demo",
+        agent: "openclaw",
+        sandboxEntry: makeSandboxEntry(withTamperedProviderEnvKey(existingPlan)),
+      }),
+    ).rejects.toThrow(/Stored messaging plan.*providerEnvKey/);
+  });
+
+  it.each(["add", "start", "stop", "remove"] as const)(
+    "rejects stored undeclared network policy metadata before %s-channel planning",
+    async (operation) => {
+      const existingPlan = await planner().buildPlan({
+        sandboxName: "demo",
+        agent: "openclaw",
+        workflow: "onboard",
+        isInteractive: false,
+        configuredChannels: ["telegram"],
+        credentialAvailability: {
+          TELEGRAM_BOT_TOKEN: true,
+        },
+      });
+      const subject = planner();
+      const sandboxEntry = makeSandboxEntry(withUndeclaredHostNetworkPolicy(existingPlan));
+      const context = {
+        sandboxName: "demo",
+        agent: "openclaw" as const,
+        sandboxEntry,
+      };
+
+      const result =
+        operation === "add"
+          ? subject.buildChannelAddPlanFromSandboxEntry({
+              ...context,
+              channelId: "slack",
+              isInteractive: false,
+            })
+          : operation === "start"
+            ? subject.buildChannelStartPlanFromSandboxEntry({
+                ...context,
+                channelId: "telegram",
+              })
+            : operation === "stop"
+              ? subject.buildChannelStopPlanFromSandboxEntry({
+                  ...context,
+                  channelId: "telegram",
+                })
+              : subject.buildChannelRemovePlanFromSandboxEntry({
+                  ...context,
+                  channelId: "telegram",
+                });
+
+      await expect(result).rejects.toThrow(/Stored messaging plan.*network policy/);
+    },
+  );
 
   it("reports unsupported channels deterministically before compiling", async () => {
     await expect(
