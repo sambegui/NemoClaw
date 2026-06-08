@@ -1415,7 +1415,6 @@ export async function removeSandboxChannel(
     return;
   }
 
-  clearChannelTokens(channel);
   const isQrChannel = channelUsesInSandboxQrPairing(channel);
 
   const registryEntry = registry.getSandbox(sandboxName);
@@ -1454,12 +1453,14 @@ export async function removeSandboxChannel(
     process.exit(1);
   }
 
-  const agent = resolveAgentForSandbox(sandboxName);
+  const removeAgent = registryEntry?.messaging?.plan
+    ? resolveAgentForSandbox(sandboxName)
+    : { name: registryEntry?.agent || "openclaw" };
   const providerNameResult = resolveChannelProviderNamesForRemove({
     sandboxName,
     entry: registryEntry,
     channelId: canonical,
-    agent,
+    agent: removeAgent,
   });
   if (!providerNameResult.ok) {
     console.error(`  Cannot remove channel '${canonical}': ${providerNameResult.reason}.`);
@@ -1468,6 +1469,7 @@ export async function removeSandboxChannel(
     );
     process.exit(1);
   }
+  clearChannelTokens(channel);
   const providerNames = providerNameResult.providerNames;
   await applyChannelRemoveToGatewayAndRegistry(sandboxName, canonical, providerNames);
   if (providerNames.length > 0) {

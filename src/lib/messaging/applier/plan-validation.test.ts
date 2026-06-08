@@ -176,4 +176,19 @@ describe("validateBuiltInSandboxMessagingPlan", () => {
     expect(result).toMatchObject({ ok: false });
     expect(result.reason).toMatch(/disabled channel/);
   });
+
+  it("rejects a plan that disables a channel not disabled in the registry", async () => {
+    const plan = await buildPlan({
+      configuredChannels: ["telegram"],
+      disabledChannels: ["telegram"],
+    });
+
+    const result = validate(plan, {
+      configuredChannels: ["telegram"],
+      disabledChannels: [],
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.reason).toMatch(/not disabled in registry/);
+  });
 });

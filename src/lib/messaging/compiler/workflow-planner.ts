@@ -260,6 +260,12 @@ function readSandboxEntryPlan(
   const validation = validateBuiltInSandboxMessagingPlan(plan, {
     sandboxName: context.sandboxName,
     agent: context.agent,
+    configuredChannels: Array.isArray(context.sandboxEntry?.messagingChannels)
+      ? context.sandboxEntry.messagingChannels
+      : undefined,
+    disabledChannels: Array.isArray(context.sandboxEntry?.disabledChannels)
+      ? context.sandboxEntry.disabledChannels
+      : undefined,
   });
   if (!validation.ok) {
     throw new Error(

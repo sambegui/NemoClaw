@@ -121,6 +121,14 @@ function validateChannels(
   const requiredDisabled = context.disabledChannels
     ? context.disabledChannels.filter((channelId) => supported.has(channelId))
     : [];
+  const requiredDisabledSet = new Set(requiredDisabled);
+  if (context.disabledChannels) {
+    for (const channelId of disabled) {
+      if (!requiredDisabledSet.has(channelId)) {
+        return invalid(`disabled channel '${channelId}' is not disabled in registry`);
+      }
+    }
+  }
   for (const channelId of requiredDisabled) {
     if (!disabled.has(channelId)) {
       return invalid(`disabled channel '${channelId}' is missing from plan`);

@@ -732,6 +732,59 @@ describe("MessagingWorkflowPlanner", () => {
     ).rejects.toThrow(/Stored messaging plan.*providerEnvKey/);
   });
 
+  it("rejects stored active channels that are not recorded in registry messagingChannels", async () => {
+    const existingPlan = await planner().buildPlan({
+      sandboxName: "demo",
+      agent: "openclaw",
+      workflow: "onboard",
+      isInteractive: false,
+      configuredChannels: ["telegram", "slack"],
+      credentialAvailability: {
+        TELEGRAM_BOT_TOKEN: true,
+        SLACK_BOT_TOKEN: true,
+        SLACK_APP_TOKEN: true,
+      },
+    });
+
+    await expect(
+      planner().buildRebuildPlanFromSandboxEntry({
+        sandboxName: "demo",
+        agent: "openclaw",
+        sandboxEntry: {
+          ...makeSandboxEntry(existingPlan),
+          messagingChannels: ["telegram"],
+        },
+      }),
+    ).rejects.toThrow(/Stored messaging plan.*slack/);
+  });
+
+  it("rejects stored disabledChannels that disagree with registry disabledChannels", async () => {
+    const existingPlan = await planner().buildPlan({
+      sandboxName: "demo",
+      agent: "openclaw",
+      workflow: "onboard",
+      isInteractive: false,
+      configuredChannels: ["telegram"],
+      disabledChannels: ["telegram"],
+      credentialAvailability: {
+        TELEGRAM_BOT_TOKEN: true,
+      },
+    });
+
+    await expect(
+      planner().buildChannelStartPlanFromSandboxEntry({
+        sandboxName: "demo",
+        agent: "openclaw",
+        sandboxEntry: {
+          ...makeSandboxEntry(existingPlan),
+          messagingChannels: ["telegram"],
+          disabledChannels: [],
+        },
+        channelId: "telegram",
+      }),
+    ).rejects.toThrow(/Stored messaging plan.*not disabled in registry/);
+  });
+
   it.each(["add", "start", "stop", "remove"] as const)(
     "rejects stored undeclared network policy metadata before %s-channel planning",
     async (operation) => {

@@ -128,9 +128,13 @@ const gatewayRuntime = require(${j("gateway-runtime-action.js")});
 gatewayRuntime.recoverNamedGatewayRuntime = async () => ({ recovered: true });
 
 const credentials = require(${j("credentials/store.js")});
+const deletedCredentialKeys = [];
 credentials.getCredential = () => null;
 credentials.saveCredential = () => true;
-credentials.deleteCredential = () => true;
+credentials.deleteCredential = (key) => {
+  deletedCredentialKeys.push(key);
+  return true;
+};
 credentials.prompt = async (msg) => { throw new Error("unexpected prompt: " + msg); };
 
 const onboard = require(${j("onboard.js")});
@@ -210,6 +214,7 @@ module.exports = {
   registryUpdates,
   sessionStore,
   gatewayProviderCalls,
+  deletedCredentialKeys,
   callOrder,
   getExitCode: () => exitCode,
 };
@@ -769,6 +774,7 @@ const messaging = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "m
   const dumpState = () => ({
     registryUpdates: ctx.registryUpdates,
     gatewayProviderCalls: ctx.gatewayProviderCalls,
+    deletedCredentialKeys: ctx.deletedCredentialKeys,
     exitCode: ctx.getExitCode(),
   });
   try {
@@ -795,6 +801,11 @@ const messaging = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "m
       payload.gatewayProviderCalls,
       [],
       "tampered providerName must not reach OpenShell detach/delete",
+    );
+    assert.deepEqual(
+      payload.deletedCredentialKeys,
+      [],
+      "tampered stored plan must be rejected before local credentials are deleted",
     );
     assert.deepEqual(payload.registryUpdates, [], "registry must not be updated after plan rejection");
     assert.ok(
