@@ -48,10 +48,17 @@ info "Logging Docker stderr to: $LOG_FILE"
 # The entrypoint patches config and starts the gateway — we only need the
 # config patch, so we override CMD to just cat the config and exit.
 # Docker stderr is captured to the log file for CI artifact visibility.
+#
+# The entrypoint redirects stdout through a `tee` process substitution
+# (exec > >(tee …)), which can race with container teardown: when PID 1
+# exits quickly (baseline, no overrides), Docker may SIGTERM the tee
+# process before it flushes to fd 3 (the real Docker stdout). Writing
+# directly to fd 3 bypasses the tee pipe entirely, making the capture
+# deterministic regardless of container lifetime.
 run_override() {
   local env_args=("$@")
   docker run --rm "${env_args[@]}" "$IMAGE" \
-    bash -c 'cat /sandbox/.openclaw/openclaw.json; printf "\n"' 2>>"$LOG_FILE"
+    bash -c 'cat /sandbox/.openclaw/openclaw.json >&3; printf "\n" >&3' 2>>"$LOG_FILE"
 }
 
 # Helper: run entrypoint with env vars and capture stderr for validation messages.
