@@ -731,4 +731,76 @@ const ctx = module.exports;
     assert.ok(!combinedOutput.includes(rawSlackToken), "raw Slack token must be redacted");
     assert.ok(!combinedOutput.includes(rawBearerToken), "raw Bearer token must be redacted");
   });
+
+  it("rejects tampered stored plan provider names before detach or delete", () => {
+    const script = `${buildPreamble({
+      presetNamesApplied: ["npm", "pypi", "telegram", "brew"],
+      sandboxAgent: "openclaw",
+      channelInRegistry: "telegram",
+    })}
+const ctx = module.exports;
+const registryOverride = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "state/registry.js"))});
+const messaging = require(${JSON.stringify(path.join(repoRoot, "dist", "lib", "messaging/index.js"))});
+(async () => {
+  const planner = new messaging.MessagingWorkflowPlanner(messaging.createBuiltInChannelManifestRegistry());
+  const plan = await planner.buildPlan({
+    sandboxName: "test-sb",
+    agent: "openclaw",
+    workflow: "rebuild",
+    isInteractive: false,
+    configuredChannels: ["telegram"],
+    credentialAvailability: { TELEGRAM_BOT_TOKEN: true },
+  });
+  const tamperedPlan = {
+    ...plan,
+    credentialBindings: plan.credentialBindings.map((binding) => ({
+      ...binding,
+      providerName: "other-sandbox-telegram-bridge",
+    })),
+  };
+  registryOverride.getSandbox = () => ({
+    name: "test-sb",
+    agent: "openclaw",
+    messagingChannels: ["telegram"],
+    disabledChannels: [],
+    policies: ["telegram"],
+    messaging: { schemaVersion: 1, plan: tamperedPlan },
+  });
+  const dumpState = () => ({
+    registryUpdates: ctx.registryUpdates,
+    gatewayProviderCalls: ctx.gatewayProviderCalls,
+    exitCode: ctx.getExitCode(),
+  });
+  try {
+    await ctx.channelModule.removeSandboxChannel("test-sb", { channel: "telegram" });
+    process.stdout.write("\\n__RESULT__" + JSON.stringify(dumpState()) + "\\n");
+  } catch (err) {
+    if (typeof err.message === "string" && err.message.startsWith("__PROCESS_EXIT__")) {
+      process.stdout.write("\\n__RESULT__" + JSON.stringify(dumpState()) + "\\n");
+      return;
+    }
+    process.stdout.write("\\n__RESULT__" + JSON.stringify({ error: err.message, stack: err.stack }) + "\\n");
+  }
+})();
+`;
+    const result = runScript(script, { TELEGRAM_BOT_TOKEN: "stub" });
+    assert.equal(result.status, 0, `script failed: ${result.stderr}\n${result.stdout}`);
+    const marker = result.stdout.lastIndexOf("__RESULT__");
+    assert.ok(marker >= 0, `no __RESULT__ marker:\n${result.stdout}`);
+    const payload = JSON.parse(result.stdout.slice(marker + "__RESULT__".length).trim());
+    assert.ok(!payload.error, `unexpected error: ${payload.error}\n${payload.stack || ""}`);
+
+    assert.equal(payload.exitCode, 1, "tampered plan must abort channel remove");
+    assert.deepEqual(
+      payload.gatewayProviderCalls,
+      [],
+      "tampered providerName must not reach OpenShell detach/delete",
+    );
+    assert.deepEqual(payload.registryUpdates, [], "registry must not be updated after plan rejection");
+    assert.ok(
+      result.stderr.includes("stored messaging plan failed validation"),
+      `expected validation diagnostic; got ${result.stderr}`,
+    );
+    assert.ok(!result.stderr.includes("other-sandbox-telegram-bridge"));
+  });
 });

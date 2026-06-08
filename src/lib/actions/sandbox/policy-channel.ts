@@ -13,7 +13,6 @@ import {
   type ChannelManifest,
   createBuiltInChannelManifestRegistry,
   createBuiltInMessagingHookRegistry,
-  getManifestProviderNamesForChannel,
   getProviderNamesFromMessagingPlan,
   getMessagingManifestAvailabilityContext,
   MessagingHostStateApplier,
@@ -31,7 +30,6 @@ import {
   sanitizeMessagingChannelConfig,
 } from "../../messaging-channel-config";
 import { hashCredential } from "../../security/credential-hash";
-import { redact } from "../../security/redact";
 
 const { isNonInteractive } = require("../../onboard") as { isNonInteractive: () => boolean };
 const onboardProviders = require("../../onboard/providers");
@@ -59,11 +57,12 @@ import {
   persistChannelTokens,
 } from "../../sandbox/channels";
 import * as registry from "../../state/registry";
-import type { SandboxEntry } from "../../state/registry";
+import { resolveChannelProviderNamesForRemove } from "./channel-remove-provider-names";
 import {
   isDockerRuntimeDown,
   printDockerRuntimeDownGuidance,
 } from "./gateway-failure-classifier";
+import { compactOpenShellOutput } from "./openshell-output";
 import { executeSandboxCommand, executeSandboxExecCommand } from "./process-recovery";
 import { rebuildSandbox } from "./rebuild";
 import { printTelegramDirectMessageAllowlistWarning } from "./telegram-channel-bridge-verification";
@@ -631,13 +630,6 @@ async function applyChannelRemoveToGatewayAndRegistry(
   return { ok: residual.length === 0, residual };
 }
 
-function compactOpenShellOutput(result: { readonly stdout?: unknown; readonly stderr?: unknown }): string {
-  const output = redact(`${String(result.stderr ?? "")}${String(result.stdout ?? "")}`)
-    .replace(/\r/g, "")
-    .trim();
-  return output || "OpenShell command failed.";
-}
-
 async function promptAndRebuild(sandboxName: string, actionDesc: string): Promise<boolean> {
   if (isNonInteractive()) {
     console.log("");
@@ -906,33 +898,6 @@ function filterPlanToChannel(
     stateUpdates: plan.stateUpdates.filter((entry) => entry.channelId === channelId),
     healthChecks: plan.healthChecks.filter((entry) => entry.channelId === channelId),
   };
-}
-
-function channelProviderNamesForRemove(
-  sandboxName: string,
-  entry: SandboxEntry | null,
-  channelId: string,
-): string[] {
-  const planned = getProviderNamesFromMessagingPlan(entry?.messaging?.plan, channelId);
-  if (planned.length > 0) return planned;
-
-  // Pre-plan registry rows still record active channels in messagingChannels.
-  // Their gateway providers used the same deterministic manifest names, so
-  // derive those names before allowing local registry/policy cleanup.
-  const legacyEnabled = (entry?.messagingChannels || []).includes(channelId);
-  if (!legacyEnabled) return [];
-
-  const legacyProviderNames = getManifestProviderNamesForChannel(sandboxName, channelId);
-  if (legacyProviderNames === null) {
-    console.error(
-      `  Cannot remove legacy channel '${channelId}': no messaging plan or manifest is available to identify OpenShell provider cleanup.`,
-    );
-    console.error(
-      "  Registry and policy state were not updated; re-run after repairing channel manifests.",
-    );
-    process.exit(1);
-  }
-  return legacyProviderNames;
 }
 
 function assertAddChannelPlanActive(
@@ -1489,7 +1454,21 @@ export async function removeSandboxChannel(
     process.exit(1);
   }
 
-  const providerNames = channelProviderNamesForRemove(sandboxName, registryEntry, canonical);
+  const agent = resolveAgentForSandbox(sandboxName);
+  const providerNameResult = resolveChannelProviderNamesForRemove({
+    sandboxName,
+    entry: registryEntry,
+    channelId: canonical,
+    agent,
+  });
+  if (!providerNameResult.ok) {
+    console.error(`  Cannot remove channel '${canonical}': ${providerNameResult.reason}.`);
+    console.error(
+      "  Registry and policy state were not updated; re-run after repairing the messaging plan.",
+    );
+    process.exit(1);
+  }
+  const providerNames = providerNameResult.providerNames;
   await applyChannelRemoveToGatewayAndRegistry(sandboxName, canonical, providerNames);
   if (providerNames.length > 0) {
     console.log(`  ${G}✓${R} Removed ${canonical} bridge from the OpenShell gateway.`);
