@@ -50,4 +50,39 @@ describe("live Vitest registry discovery support", () => {
       reasons: ["runtime 'docker-missing' is not wired for live Vitest fixtures"],
     });
   });
+
+  it("keeps unwhitelisted lifecycle profiles skipped with the lifecycle reason", () => {
+    const scenario = listScenarios().find((entry) => entry.id === "ubuntu-rebuild-openclaw");
+
+    expect(scenario).toBeTruthy();
+    expect(liveScenarioSupport(scenario!)).toMatchObject({
+      supported: false,
+      reasons: [
+        "lifecycle 'rebuild-current-version' is not wired for live Vitest fixtures",
+      ],
+    });
+  });
+
+  it("accepts whitelisted lifecycle profiles when the rest of the environment matches", () => {
+    // Synthesised scenario stands in for the not-yet-registered
+    // post-reboot-recovery scenario so this test pins the whitelist
+    // contract independently of when the scenario lands. Once the
+    // post-reboot-recovery scenario is registered, prefer asserting on
+    // the registry entry directly and remove this synthetic.
+    const supported = liveScenarioSupport({
+      id: "synthetic-post-reboot-recovery",
+      assertionGroups: [],
+      expectedStateId: "cloud-openclaw-ready",
+      environment: {
+        platform: "ubuntu-local",
+        install: "repo-current",
+        runtime: "docker-running",
+        onboarding: "cloud-openclaw",
+        lifecycle: "post-reboot-recovery",
+      },
+    });
+
+    expect(supported.supported).toBe(true);
+    expect(supported.reasons).toEqual([]);
+  });
 });
