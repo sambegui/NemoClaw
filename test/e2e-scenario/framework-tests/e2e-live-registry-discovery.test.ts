@@ -57,9 +57,7 @@ describe("live Vitest registry discovery support", () => {
     expect(scenario).toBeTruthy();
     expect(liveScenarioSupport(scenario!)).toMatchObject({
       supported: false,
-      reasons: [
-        "lifecycle 'rebuild-current-version' is not wired for live Vitest fixtures",
-      ],
+      reasons: ["lifecycle 'rebuild-current-version' is not wired for live Vitest fixtures"],
     });
   });
 
