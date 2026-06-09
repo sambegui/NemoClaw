@@ -39,12 +39,12 @@
       "legacyScript": "test/e2e/test-inference-routing.sh",
       "domain": "inference",
       "ownerIssue": "#4349",
-      "status": "not-migrated",
-      "targetVitestScenarios": [],
+      "status": "covered",
+      "targetVitestScenarios": ["test/e2e-scenario/live/registry-scenarios.test.ts"],
       "bridgeProbes": [],
       "retiredReason": "",
       "deletionReady": false,
-      "notes": "Provider routing and inference.local checks need typed inference/provider fixtures before deletion."
+      "notes": "Covered by the ubuntu-repo-cloud-openclaw live Vitest scenario via RuntimePhaseFixture suite 'inference-routing'. Do not delete until #4357 records cutover approval and downstream shell entrypoints are retired together."
     },
     {
       "legacyScript": "test/e2e/test-openclaw-inference-switch.sh",
@@ -193,12 +193,12 @@
       "legacyScript": "test/e2e/test-cloud-inference-e2e.sh",
       "domain": "inference",
       "ownerIssue": "#4349",
-      "status": "not-migrated",
-      "targetVitestScenarios": [],
+      "status": "covered",
+      "targetVitestScenarios": ["test/e2e-scenario/live/registry-scenarios.test.ts"],
       "bridgeProbes": [],
       "retiredReason": "",
       "deletionReady": false,
-      "notes": "Initial completeness row; classify detailed coverage and deletion evidence in the owning migration issue before deleting."
+      "notes": "Covered by the ubuntu-repo-cloud-openclaw live Vitest scenario via RuntimePhaseFixture suite 'inference'. Do not delete until #4357 records cutover approval and downstream shell entrypoints are retired together."
     },
     {
       "legacyScript": "test/e2e/test-common-egress-agent-e2e.sh",

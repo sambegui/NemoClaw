@@ -22,11 +22,11 @@ describe("live Vitest registry discovery support", () => {
 
     expect(scenario).toBeTruthy();
     expect(liveScenarioSupport(scenario!).supported).toBe(true);
-    expect(liveScenarioSupport(scenario!).pendingRuntimeSuites).toEqual([
-      "smoke",
+    expect(liveScenarioSupport(scenario!).runtimeSuites).toEqual([
       "inference",
-      "credentials",
+      "inference-routing",
     ]);
+    expect(liveScenarioSupport(scenario!).pendingRuntimeSuites).toEqual(["smoke", "credentials"]);
   });
 
   it("keeps unsupported onboarding profiles skipped with a concrete reason", () => {

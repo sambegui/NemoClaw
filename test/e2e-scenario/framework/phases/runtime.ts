@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { buildAvailabilityProbeEnv } from "../availability-env.ts";
-import { assertExitZero } from "../clients/command.ts";
+import { artifactLabel, assertExitZero } from "../clients/command.ts";
 import type {
   ProviderClient,
   ProviderJsonRequestOptions,
@@ -17,6 +17,23 @@ export type InferenceRoute = "inference-local" | "inference.local";
 export interface InferenceRuntimeProbeResult {
   readonly endpoint: string;
   readonly result: ShellProbeResult;
+}
+
+export const SUPPORTED_RUNTIME_SUITE_IDS = [
+  "inference",
+  "cloud-inference",
+  "inference-routing",
+] as const;
+
+export type RuntimeSuiteId = (typeof SUPPORTED_RUNTIME_SUITE_IDS)[number];
+
+export interface RuntimeSuiteAssertionResult extends InferenceRuntimeProbeResult {
+  readonly id: string;
+}
+
+export interface RuntimeSuiteResult {
+  readonly suiteId: RuntimeSuiteId;
+  readonly assertions: RuntimeSuiteAssertionResult[];
 }
 
 export interface InferenceRuntimeRequestOptions {
@@ -53,6 +70,9 @@ const DEFAULT_CURL_MAX_TIME_SECONDS = 20;
 const DEFAULT_CHAT_MODEL = "default";
 const DEFAULT_CHAT_PROMPT = "Say ok";
 const DEFAULT_CHAT_MAX_TOKENS = 8;
+const CLOUD_INFERENCE_CHAT_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+const CLOUD_INFERENCE_CHAT_PROMPT = "Reply with exactly one word: PONG";
+const CLOUD_INFERENCE_CHAT_MAX_TOKENS = 100;
 const MODELS_PATH = "/v1/models";
 const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 const SENSITIVE_HEADER_NAME = /(authorization|api[-_]?key|token|secret|credential|password)/i;
@@ -240,11 +260,111 @@ function providerRequestOptions(
   };
 }
 
+export function isRuntimeSuiteSupported(suiteId: string): suiteId is RuntimeSuiteId {
+  return (SUPPORTED_RUNTIME_SUITE_IDS as readonly string[]).includes(suiteId);
+}
+
+function suiteArtifactName(suiteId: string, assertion: string): string {
+  return `runtime-${artifactLabel(suiteId)}-${artifactLabel(assertion)}`;
+}
+
+function assertionResult(
+  id: string,
+  probe: InferenceRuntimeProbeResult,
+): RuntimeSuiteAssertionResult {
+  return { id, endpoint: probe.endpoint, result: probe.result };
+}
+
 export class RuntimePhaseFixture {
   constructor(
     private readonly sandbox: SandboxClient,
     private readonly provider: ProviderClient,
   ) {}
+
+  async runSuite(suiteId: string, instance: NemoClawInstance): Promise<RuntimeSuiteResult> {
+    switch (suiteId) {
+      case "inference":
+      case "cloud-inference":
+        return await this.runCloudInferenceSuite(suiteId, instance);
+      case "inference-routing":
+        return await this.runInferenceRoutingSuite(instance);
+      default:
+        throw new Error(`runtime suite '${suiteId}' is not wired for RuntimePhaseFixture`);
+    }
+  }
+
+  private async runCloudInferenceSuite(
+    suiteId: "inference" | "cloud-inference",
+    instance: NemoClawInstance,
+  ): Promise<RuntimeSuiteResult> {
+    const assertions: RuntimeSuiteAssertionResult[] = [];
+    assertions.push(
+      assertionResult(
+        "runtime.inference.models-health",
+        await this.expectInferenceLocalModels(instance, {
+          artifactName: suiteArtifactName(suiteId, "models-health"),
+          curlMaxTimeSeconds: 20,
+          timeoutMs: 30_000,
+        }),
+      ),
+    );
+    assertions.push(
+      assertionResult(
+        "runtime.inference.chat-completion",
+        await this.expectInferenceLocalChatCompletion(instance, {
+          artifactName: suiteArtifactName(suiteId, "chat-completion"),
+          curlMaxTimeSeconds: 40,
+          maxTokens: CLOUD_INFERENCE_CHAT_MAX_TOKENS,
+          model: CLOUD_INFERENCE_CHAT_MODEL,
+          prompt: CLOUD_INFERENCE_CHAT_PROMPT,
+          timeoutMs: 50_000,
+        }),
+      ),
+    );
+    assertions.push(
+      assertionResult(
+        "runtime.inference.sandbox-local",
+        await this.expectInferenceLocalModels(instance, {
+          artifactName: suiteArtifactName(suiteId, "sandbox-local"),
+          curlMaxTimeSeconds: 25,
+          route: "inference-local",
+          timeoutMs: 35_000,
+        }),
+      ),
+    );
+    return { suiteId, assertions };
+  }
+
+  private async runInferenceRoutingSuite(instance: NemoClawInstance): Promise<RuntimeSuiteResult> {
+    const suiteId = "inference-routing";
+    const assertions: RuntimeSuiteAssertionResult[] = [];
+    assertions.push(
+      assertionResult(
+        "runtime.inference-routing.provider-route-health",
+        await this.expectInferenceLocalStatus(instance, {
+          artifactName: suiteArtifactName(suiteId, "provider-route-health"),
+          curlMaxTimeSeconds: 20,
+          route: "inference-local",
+          timeoutMs: 30_000,
+        }),
+      ),
+    );
+    assertions.push(
+      assertionResult(
+        "runtime.inference-routing.inference-local-chat-completion",
+        await this.expectInferenceLocalChatCompletion(instance, {
+          artifactName: suiteArtifactName(suiteId, "inference-local-chat-completion"),
+          curlMaxTimeSeconds: 40,
+          maxTokens: CLOUD_INFERENCE_CHAT_MAX_TOKENS,
+          model: CLOUD_INFERENCE_CHAT_MODEL,
+          prompt: CLOUD_INFERENCE_CHAT_PROMPT,
+          route: "inference-local",
+          timeoutMs: 50_000,
+        }),
+      ),
+    );
+    return { suiteId, assertions };
+  }
 
   async expectInferenceLocalModels(
     instance: NemoClawInstance,

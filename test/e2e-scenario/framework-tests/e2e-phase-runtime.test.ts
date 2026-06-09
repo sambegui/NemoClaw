@@ -233,6 +233,54 @@ describe("runtime phase fixture", () => {
     });
   });
 
+  it("runs the cloud inference suite with stable assertion IDs", async () => {
+    const runner = new FakeRunner();
+    runner.enqueue(shellResult(0, JSON.stringify({ data: [{ id: "nvidia/model" }] })));
+    runner.enqueue(shellResult(0, JSON.stringify({ choices: [{ message: { content: "PONG" } }] })));
+    runner.enqueue(shellResult(0, JSON.stringify({ data: [{ id: "nvidia/model" }] })));
+
+    const result = await fixture(runner).runSuite("inference", instance());
+
+    expect(result.suiteId).toBe("inference");
+    expect(result.assertions.map((assertion) => assertion.id)).toEqual([
+      "runtime.inference.models-health",
+      "runtime.inference.chat-completion",
+      "runtime.inference.sandbox-local",
+    ]);
+    expect(runner.calls.map((call) => call.options?.artifactName)).toEqual([
+      "runtime-inference-models-health",
+      "runtime-inference-chat-completion",
+      "runtime-inference-sandbox-local",
+    ]);
+  });
+
+  it("runs the inference-routing suite with route health and chat assertions", async () => {
+    const runner = new FakeRunner();
+    runner.enqueue(shellResult(0, "200"));
+    runner.enqueue(shellResult(0, JSON.stringify({ choices: [{ message: { content: "PONG" } }] })));
+
+    const result = await fixture(runner).runSuite("inference-routing", instance());
+
+    expect(result.suiteId).toBe("inference-routing");
+    expect(result.assertions.map((assertion) => assertion.id)).toEqual([
+      "runtime.inference-routing.provider-route-health",
+      "runtime.inference-routing.inference-local-chat-completion",
+    ]);
+    expect(runner.calls.map((call) => call.options?.artifactName)).toEqual([
+      "runtime-inference-routing-provider-route-health",
+      "runtime-inference-routing-inference-local-chat-completion",
+    ]);
+  });
+
+  it("rejects unwired runtime suites before command execution", async () => {
+    const runner = new FakeRunner();
+
+    await expect(fixture(runner).runSuite("credentials", instance())).rejects.toThrow(
+      "runtime suite 'credentials' is not wired for RuntimePhaseFixture",
+    );
+    expect(runner.calls).toEqual([]);
+  });
+
   it("calls a trusted compatible provider endpoint with request artifacts and redaction", async () => {
     const runner = new FakeRunner();
     runner.enqueue(shellResult(0, JSON.stringify({ choices: [{ message: { content: "pong" } }] })));
