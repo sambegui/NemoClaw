@@ -178,8 +178,13 @@ describe("onboarding phase fixture", () => {
 
     expect(cleanup.calls).toHaveLength(1);
     expect(cleanup.calls[0]?.name).toBe("destroy NemoClaw sandbox e2e-partial-onboard");
-    runner.enqueue(shellResult(1, "Error: sandbox e2e-partial-onboard not found"));
-    await cleanup.calls[0]?.run();
+    runner.enqueue(
+      shellResult(
+        1,
+        "Sandbox 'e2e-partial-onboard' does not exist.\nRun 'nemoclaw onboard' to create one.",
+      ),
+    );
+    await expect(cleanup.calls[0]?.run()).resolves.toBeUndefined();
     expect(runner.calls[1]).toMatchObject({
       command: "nemoclaw",
       args: ["e2e-partial-onboard", "destroy", "--yes"],
@@ -340,7 +345,12 @@ describe("onboarding phase fixture", () => {
 
   it("runs the gateway port conflict negative path with a local port holder", async () => {
     const runner = new FakeRunner();
-    runner.enqueue(shellResult(1, "listen tcp 127.0.0.1:18080: bind: address already in use"));
+    runner.enqueue(
+      shellResult(
+        1,
+        "Port 18080 is not available.\nOpenShell gateway needs this port.\nDetail: lsof reports node listening on port 18080",
+      ),
+    );
     const onboard = new OnboardingPhaseFixture(
       new HostCliClient(runner),
       new FakeSecrets({ NVIDIA_API_KEY: "secret-token" }),

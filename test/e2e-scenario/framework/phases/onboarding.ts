@@ -49,6 +49,7 @@ const MISSING_SANDBOX_DELETE_PATTERNS = [
   /sandbox not found/i,
   /sandbox .* not found/i,
   /sandbox .* not present/i,
+  /sandbox .* does not exist/i,
   /sandbox does not exist/i,
   /no such sandbox/i,
 ];
@@ -68,7 +69,7 @@ const INVALID_NVIDIA_API_KEY_PATTERNS = [
 ];
 const GATEWAY_PORT_CONFLICT_PATTERNS = [
   /address already in use/i,
-  /port .*18080.*(?:in use|occupied|unavailable)/i,
+  /port .*18080.*(?:in use|occupied|unavailable|not available)/i,
   /gateway port .*18080/i,
   /port conflict/i,
 ];
