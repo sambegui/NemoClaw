@@ -129,6 +129,22 @@ describe("runtime phase fixture", () => {
     ]);
   });
 
+  it("rejects inference.local model probes without compatible model data", async () => {
+    const invalidJson = new FakeRunner();
+    invalidJson.enqueue(shellResult(0, "not-json"));
+
+    await expect(fixture(invalidJson).expectInferenceLocalModels(instance())).rejects.toThrow(
+      "inference.local models response was not JSON",
+    );
+
+    const missingModels = new FakeRunner();
+    missingModels.enqueue(shellResult(0, '{"error":"unavailable"}'));
+
+    await expect(fixture(missingModels).expectInferenceLocalModels(instance())).rejects.toThrow(
+      "inference.local models response missing model data",
+    );
+  });
+
   it("posts an OpenAI-compatible chat completion to inference.local without shell interpolation", async () => {
     const runner = new FakeRunner();
     runner.enqueue(shellResult(0, JSON.stringify({ choices: [{ message: { content: "ok" } }] })));
@@ -240,6 +256,18 @@ describe("runtime phase fixture", () => {
         timeoutMs: 60_000,
       },
     });
+  });
+
+  it("rejects provider model probes without compatible model data", async () => {
+    const runner = new FakeRunner();
+    runner.enqueue(shellResult(0, JSON.stringify({ error: "unavailable" })));
+    const endpoint = trustedProviderEndpoint("https://api.example.test/v1/models", {
+      allowedHosts: ["api.example.test"],
+    });
+
+    await expect(fixture(runner).expectProviderModels(endpoint)).rejects.toThrow(
+      "provider models response missing model data",
+    );
   });
 
   it("fails chat probes on malformed compatible responses without echoing the body", async () => {

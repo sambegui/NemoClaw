@@ -156,6 +156,27 @@ function assertChatCompletionShape(json: unknown, label: string): void {
   }
 }
 
+function hasModelIdentifier(entry: unknown): boolean {
+  if (typeof entry === "string") return entry.trim().length > 0;
+  if (!entry || typeof entry !== "object") return false;
+  for (const key of ["id", "model", "name"]) {
+    const value = (entry as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim().length > 0) return true;
+  }
+  return false;
+}
+
+function assertModelListShape(json: unknown, label: string): void {
+  if (!json || typeof json !== "object") {
+    throw new Error(`${label} response was not an object`);
+  }
+  const body = json as { data?: unknown; models?: unknown };
+  const candidates = [body.data, body.models].filter(Array.isArray);
+  if (!candidates.some((items) => items.some(hasModelIdentifier))) {
+    throw new Error(`${label} response missing model data`);
+  }
+}
+
 function providerRequestOptions(
   options: ProviderRuntimeRequestOptions,
   body?: string,
@@ -202,9 +223,10 @@ export class RuntimePhaseFixture {
       shellOptions(options, "runtime-inference-local-models"),
     );
     assertExitZero(result, "inference.local models probe");
-    if (result.stdout.trim().length === 0) {
-      throw new Error("inference.local models probe returned an empty response");
-    }
+    assertModelListShape(
+      parseJsonBody(result.stdout, "inference.local models"),
+      "inference.local models",
+    );
     return { endpoint, result };
   }
 
@@ -274,6 +296,7 @@ export class RuntimePhaseFixture {
     options: ProviderRuntimeRequestOptions = {},
   ): Promise<InferenceRuntimeProbeResult> {
     const response = await this.provider.requestJson(endpoint, providerRequestOptions(options));
+    assertModelListShape(response.json, "provider models");
     return { endpoint: endpoint.logLabel, result: response.result };
   }
 
