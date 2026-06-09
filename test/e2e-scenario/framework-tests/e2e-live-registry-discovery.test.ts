@@ -63,26 +63,16 @@ describe("live Vitest registry discovery support", () => {
     });
   });
 
-  it("accepts whitelisted lifecycle profiles when the rest of the environment matches", () => {
-    // Synthesised scenario stands in for the not-yet-registered
-    // post-reboot-recovery scenario so this test pins the whitelist
-    // contract independently of when the scenario lands. Once the
-    // post-reboot-recovery scenario is registered, prefer asserting on
-    // the registry entry directly and remove this synthetic.
-    const supported = liveScenarioSupport({
-      id: "synthetic-post-reboot-recovery",
-      assertionGroups: [],
-      expectedStateId: "cloud-openclaw-ready",
-      environment: {
-        platform: "ubuntu-local",
-        install: "repo-current",
-        runtime: "docker-running",
-        onboarding: "cloud-openclaw",
-        lifecycle: "post-reboot-recovery",
-      },
-    });
+  it("accepts the whitelisted post-reboot-recovery lifecycle scenario", () => {
+    const scenario = listScenarios().find(
+      (entry) => entry.id === "ubuntu-repo-docker-post-reboot-recovery",
+    );
 
-    expect(supported.supported).toBe(true);
-    expect(supported.reasons).toEqual([]);
+    expect(scenario).toBeTruthy();
+    expect(scenario!.environment?.lifecycle).toBe("post-reboot-recovery");
+    expect(liveScenarioSupport(scenario!)).toMatchObject({
+      supported: true,
+      reasons: [],
+    });
   });
 });
