@@ -54,6 +54,26 @@ export class SandboxClient {
     assertExitZero(result, `openshell sandbox status ${name}`);
     return result;
   }
+
+  /**
+   * Assert the named sandbox was not created — the negative-scenario
+   * counterpart to `expectRunning`. Mirrors the `sandbox-absent` probe: it
+   * fails closed if `openshell sandbox list` reports the sandbox, so a
+   * preflight/onboarding failure that leaks a sandbox is caught.
+   */
+  async expectAbsent(name: string): Promise<ShellProbeResult> {
+    validateSandboxName(name);
+    const result = await this.list();
+    const present = new RegExp(`(^|\\s)${escapeRegExp(name)}(\\s|$)`, "m").test(result.stdout);
+    if (present) {
+      throw new Error(`expected sandbox '${name}' to be absent, but \`openshell sandbox list\` reports it`);
+    }
+    return result;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function validateSandboxName(name: string): void {

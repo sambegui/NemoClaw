@@ -12,6 +12,7 @@ import {
   GatewayClient,
   HostCliClient,
   ProviderClient,
+  RepoClient,
   SandboxClient,
   StateClient,
   trustedProviderEndpoint,
@@ -114,6 +115,84 @@ describe("E2E fixture clients", () => {
         artifactName: "sandbox-exec-assistant",
       },
     });
+  });
+
+  it("gateway expectAbsent passes when status reports the gateway is not running", async () => {
+    const runner = new FakeRunner();
+    runner.exitCode = 1;
+    runner.stderr = "gateway is not running";
+    const host = new HostCliClient(runner, { cliPath: "nemoclaw" });
+    const gateway = new GatewayClient(host);
+
+    await expect(gateway.expectAbsent()).resolves.toMatchObject({ exitCode: 1 });
+    expect(runner.calls[0]).toEqual({
+      command: "nemoclaw",
+      args: ["gateway", "status"],
+      options: { artifactName: "gateway-status" },
+    });
+  });
+
+  it("gateway expectAbsent throws when status reports a running gateway", async () => {
+    const runner = new FakeRunner();
+    runner.exitCode = 0;
+    runner.stdout = "gateway running on :8080";
+    const host = new HostCliClient(runner, { cliPath: "nemoclaw" });
+    const gateway = new GatewayClient(host);
+
+    await expect(gateway.expectAbsent()).rejects.toThrow(/expected gateway to be absent/);
+  });
+
+  it("sandbox expectAbsent passes when the sandbox is not listed", async () => {
+    const runner = new FakeRunner();
+    runner.stdout = "NAME      STATUS\nother     running\n";
+    const sandbox = new SandboxClient(runner, { openshellPath: "openshell" });
+
+    await expect(sandbox.expectAbsent("assistant")).resolves.toBeDefined();
+    expect(runner.calls[0]).toEqual({
+      command: "openshell",
+      args: ["sandbox", "list"],
+      options: { artifactName: "sandbox-list" },
+    });
+  });
+
+  it("sandbox expectAbsent throws when the sandbox is listed", async () => {
+    const runner = new FakeRunner();
+    runner.stdout = "NAME        STATUS\nassistant   running\n";
+    const sandbox = new SandboxClient(runner, { openshellPath: "openshell" });
+
+    await expect(sandbox.expectAbsent("assistant")).rejects.toThrow(/expected sandbox 'assistant' to be absent/);
+  });
+
+  it("sandbox expectAbsent rejects invalid sandbox names before listing", async () => {
+    const runner = new FakeRunner();
+    const sandbox = new SandboxClient(runner, { openshellPath: "openshell" });
+
+    await expect(sandbox.expectAbsent("--bad")).rejects.toThrow(/sandbox name is invalid/);
+    expect(runner.calls).toEqual([]);
+  });
+
+  it("repo client installs from the current checkout via install.sh", async () => {
+    const runner = new FakeRunner();
+    const repo = new RepoClient(runner, { repoRoot: "/work/nemoclaw", bashPath: "bash" });
+
+    await repo.installCurrent();
+
+    const call = runner.calls[0];
+    expect(call?.command).toBe("bash");
+    expect(call?.args).toEqual(["/work/nemoclaw/install.sh"]);
+    expect(call?.options?.artifactName).toBe("repo-install-current");
+    expect(call?.options?.cwd).toBe("/work/nemoclaw");
+    expect(call?.options?.inheritEnv).toBe(true);
+    expect(call?.options?.env).toEqual({ NEMOCLAW_REPO_ROOT: "/work/nemoclaw" });
+  });
+
+  it("repo client lets callers override the install timeout", async () => {
+    const runner = new FakeRunner();
+    const repo = new RepoClient(runner, { repoRoot: "/work/nemoclaw" });
+
+    await repo.installCurrent({ timeoutMs: 1000 });
+
+    expect(runner.calls[0]?.options?.timeoutMs).toBe(1000);
   });
 
   it("sandbox client rejects flag-shaped sandbox names before command construction", async () => {

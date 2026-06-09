@@ -8,6 +8,7 @@ import {
   GatewayClient,
   HostCliClient,
   ProviderClient,
+  RepoClient,
   SandboxClient,
   StateClient,
 } from "./clients/index.ts";
@@ -24,6 +25,7 @@ export interface E2EScenarioFixtures {
   gateway: GatewayClient;
   sandbox: SandboxClient;
   provider: ProviderClient;
+  repo: RepoClient;
   state: StateClient;
 }
 
@@ -74,9 +76,14 @@ export const test = base.extend<E2EScenarioFixtures>({
   provider: async ({ shellProbe }, use) => {
     await use(new ProviderClient(shellProbe));
   },
+  repo: async ({ shellProbe }, use) => {
+    await use(new RepoClient(shellProbe));
+  },
   state: async ({}, use) => {
     await use(new StateClient());
   },
 });
 
 export { expect };
+export { expectFailure } from "./expect-failure.ts";
+export type { ExpectFailureContract, ExpectFailureOutcome, ExpectFailurePhase } from "./expect-failure.ts";

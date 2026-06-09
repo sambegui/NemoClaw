@@ -5,5 +5,6 @@ export { assertExitZero, type CommandRunner } from "./command.ts";
 export { GatewayClient } from "./gateway.ts";
 export { HostCliClient } from "./host.ts";
 export { ProviderClient, trustedProviderEndpoint, type TrustedProviderEndpoint } from "./provider.ts";
+export { RepoClient, type RepoClientOptions } from "./repo.ts";
 export { SandboxClient } from "./sandbox.ts";
 export { StateClient } from "./state.ts";
