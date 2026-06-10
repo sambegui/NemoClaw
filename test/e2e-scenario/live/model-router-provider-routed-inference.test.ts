@@ -4,9 +4,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test } from "../framework/e2e-test.ts";
-import { shouldRunLiveE2EScenarios } from "../framework/live-project-gate.ts";
-import type { ShellProbeResult } from "../framework/shell-probe.ts";
+import { expect, test } from "../fixtures/e2e-test.ts";
+import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
+import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
 
 // Migrated from test/e2e/test-model-router-provider-routed-inference.sh. This
 // regression guard for #3255 provisions a real cloud-backed sandbox through the
