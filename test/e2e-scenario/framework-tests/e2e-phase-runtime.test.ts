@@ -192,6 +192,32 @@ describe("runtime phase fixture", () => {
     expect(call?.options?.artifactName).toBe("custom-chat");
   });
 
+  it("checks host model-router health has a healthy endpoint", async () => {
+    const runner = new FakeRunner();
+    runner.enqueue(shellResult(0, JSON.stringify({ healthy_count: 1 })));
+
+    const result = await fixture(runner).expectModelRouterHealthyEndpoint();
+
+    expect(result.endpoint).toBe("http://127.0.0.1:4000/health");
+    expect(runner.calls[0]).toEqual({
+      command: "curl",
+      args: ["-fsS", "--max-time", "10", "http://127.0.0.1:4000/health"],
+      options: {
+        artifactName: "runtime-model-router-health",
+        redactionValues: [],
+      },
+    });
+  });
+
+  it("rejects host model-router health without a healthy endpoint", async () => {
+    const runner = new FakeRunner();
+    runner.enqueue(shellResult(0, JSON.stringify({ healthy_count: 0 })));
+
+    await expect(fixture(runner).expectModelRouterHealthyEndpoint()).rejects.toThrow(
+      "model-router health response reported no healthy endpoints",
+    );
+  });
+
   it("checks provider-routed Model Router completion semantics", async () => {
     const runner = new FakeRunner();
     runner.enqueue(

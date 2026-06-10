@@ -3,11 +3,12 @@
 
 import { buildAvailabilityProbeEnv } from "../availability-env.ts";
 import { assertExitZero } from "../clients/command.ts";
-import type {
-  ProviderClient,
-  ProviderJsonRequestOptions,
-  SandboxClient,
-  TrustedProviderEndpoint,
+import {
+  trustedProviderEndpoint,
+  type ProviderClient,
+  type ProviderJsonRequestOptions,
+  type SandboxClient,
+  type TrustedProviderEndpoint,
 } from "../clients/index.ts";
 import type { ShellProbeResult, ShellProbeRunOptions } from "../shell-probe.ts";
 import type { NemoClawInstance } from "./onboarding.ts";
@@ -55,6 +56,7 @@ const DEFAULT_CHAT_PROMPT = "Say ok";
 const DEFAULT_CHAT_MAX_TOKENS = 8;
 const MODELS_PATH = "/v1/models";
 const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+const MODEL_ROUTER_HEALTH_ENDPOINT = trustedProviderEndpoint("http://127.0.0.1:4000/health");
 const SENSITIVE_HEADER_NAME = /(authorization|api[-_]?key|token|secret|credential|password)/i;
 
 function inferenceHost(route: InferenceRoute = "inference-local"): string {
@@ -238,6 +240,16 @@ function assertModelListShape(json: unknown, label: string): void {
   }
 }
 
+function assertModelRouterHealthyEndpoint(json: unknown, label: string): void {
+  if (!json || typeof json !== "object") {
+    throw new Error(`${label} response was not an object`);
+  }
+  const healthyCount = (json as { healthy_count?: unknown }).healthy_count;
+  if (typeof healthyCount !== "number" || healthyCount < 1) {
+    throw new Error(`${label} response reported no healthy endpoints`);
+  }
+}
+
 function providerRequestOptions(
   options: ProviderRuntimeRequestOptions,
   body?: string,
@@ -357,6 +369,18 @@ export class RuntimePhaseFixture {
       "model-router provider-routed completion",
     );
     return { endpoint, result };
+  }
+
+  async expectModelRouterHealthyEndpoint(
+    options: ProviderRuntimeRequestOptions = {},
+  ): Promise<InferenceRuntimeProbeResult> {
+    const response = await this.provider.requestJson(MODEL_ROUTER_HEALTH_ENDPOINT, {
+      artifactName: "runtime-model-router-health",
+      curlMaxTimeSeconds: 10,
+      ...options,
+    });
+    assertModelRouterHealthyEndpoint(response.json, "model-router health");
+    return { endpoint: MODEL_ROUTER_HEALTH_ENDPOINT.logLabel, result: response.result };
   }
 
   async expectInferenceLocalStatus(
