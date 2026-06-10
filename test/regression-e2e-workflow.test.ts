@@ -36,4 +36,28 @@ describe("Regression E2E workflow contract", () => {
     expect(selectorScript).not.toContain("docker-unreachable-gateway-start-e2e");
     expect(selectorScript).not.toContain("docker_unreachable_gateway_start");
   });
+
+  it("runs strict tool-call probe through Vitest artifacts", () => {
+    const job = workflow.jobs?.["strict-tool-call-probe-e2e"];
+    const checkoutStep = job?.steps?.find((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout@"),
+    );
+    const runStep = job?.steps?.find(
+      (step) => step.name === "Run strict tool-call probe Vitest E2E test",
+    );
+    const uploadStep = job?.steps?.find(
+      (step) => step.name === "Upload strict tool-call probe artifacts",
+    );
+
+    expect(checkoutStep?.with?.["persist-credentials"]).toBe(false);
+    expect(runStep?.run).toContain("npx vitest run --project e2e-scenarios-live");
+    expect(runStep?.run).toContain("test/e2e-scenario/live/strict-tool-call-probe.test.ts");
+    expect(runStep?.run).not.toContain("test/e2e/test-strict-tool-call-probe.sh");
+    expect(runStep?.env?.NEMOCLAW_RUN_E2E_SCENARIOS).toBe("1");
+    expect(runStep?.env?.E2E_ARTIFACT_DIR).toBe(
+      "${{ github.workspace }}/e2e-artifacts/vitest/strict-tool-call-probe",
+    );
+    expect(uploadStep?.with?.path).toBe("e2e-artifacts/vitest/strict-tool-call-probe/");
+    expect(uploadStep?.with?.["include-hidden-files"]).toBe(false);
+  });
 });
