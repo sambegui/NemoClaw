@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -56,7 +56,6 @@ const LEGACY_E2E_SHELL_ALLOWLIST = [
   "test/e2e/test-onboard-resume.sh",
   "test/e2e/test-openclaw-discord-pairing.sh",
   "test/e2e/test-openclaw-inference-switch.sh",
-  "test/e2e/test-openclaw-plugin-runtime-exdev.sh",
   "test/e2e/test-openclaw-skill-cli-e2e.sh",
   "test/e2e/test-openclaw-slack-pairing.sh",
   "test/e2e/test-openclaw-tui-chat-correlation.sh",

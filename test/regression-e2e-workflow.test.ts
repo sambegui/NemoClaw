@@ -36,4 +36,47 @@ describe("Regression E2E workflow contract", () => {
     expect(selectorScript).not.toContain("docker-unreachable-gateway-start-e2e");
     expect(selectorScript).not.toContain("docker_unreachable_gateway_start");
   });
+
+  it("runs OpenClaw plugin runtime-deps EXDEV coverage through Vitest artifacts", () => {
+    const jobsDescription = workflow.on?.workflow_dispatch?.inputs?.jobs?.description ?? "";
+    const selectorScript =
+      workflow.jobs?.select_regression_jobs?.steps?.find((step) => step.id === "select")?.run ?? "";
+    const job = workflow.jobs?.["openclaw-plugin-runtime-exdev-e2e"];
+    const checkoutStep = job?.steps?.find((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout@"),
+    );
+    const setupNodeStep = job?.steps?.find((step) =>
+      String(step.uses ?? "").startsWith("actions/setup-node@"),
+    );
+    const installStep = job?.steps?.find((step) => step.name === "Install root dependencies");
+    const buildStep = job?.steps?.find((step) => step.name === "Build CLI");
+    const installOpenShellStep = job?.steps?.find((step) => step.name === "Install OpenShell");
+    const runStep = job?.steps?.find(
+      (step) => step.name === "Run OpenClaw plugin runtime-deps EXDEV Vitest E2E test",
+    );
+    const uploadStep = job?.steps?.find(
+      (step) => step.name === "Upload OpenClaw plugin runtime-deps EXDEV artifacts",
+    );
+
+    expect(jobsDescription).toContain("openclaw-plugin-runtime-exdev-e2e");
+    expect(selectorScript).toContain("openclaw-plugin-runtime-exdev-e2e");
+    expect(selectorScript).toContain("openclaw_plugin_runtime_exdev=true");
+    expect(checkoutStep?.with?.["persist-credentials"]).toBe(false);
+    expect(setupNodeStep?.uses).toMatch(/^actions\/setup-node@[0-9a-f]{40}$/);
+    expect(setupNodeStep?.with?.cache).toBe("npm");
+    expect(installStep?.run).toBe("npm ci --ignore-scripts");
+    expect(buildStep?.run).toBe("npm run build:cli");
+    expect(installOpenShellStep?.run).toContain("bash scripts/install-openshell.sh");
+    expect(runStep?.run).toContain("npx vitest run --project e2e-scenarios-live");
+    expect(runStep?.run).toContain("test/e2e-scenario/live/openclaw-plugin-runtime-exdev.test.ts");
+    expect(runStep?.run).not.toContain("test/e2e/test-openclaw-plugin-runtime-exdev.sh");
+    expect(runStep?.env?.NEMOCLAW_RUN_E2E_SCENARIOS).toBe("1");
+    expect(runStep?.env?.NEMOCLAW_CLI_BIN).toBe("${{ github.workspace }}/bin/nemoclaw.js");
+    expect(runStep?.env?.E2E_ARTIFACT_DIR).toBe(
+      "${{ github.workspace }}/e2e-artifacts/vitest/openclaw-plugin-runtime-exdev",
+    );
+    expect(uploadStep?.with?.path).toBe("e2e-artifacts/vitest/openclaw-plugin-runtime-exdev/");
+    expect(uploadStep?.with?.["include-hidden-files"]).toBe(false);
+    expect(uploadStep?.with?.["retention-days"]).toBe(14);
+  });
 });
