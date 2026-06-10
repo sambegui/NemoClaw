@@ -19,6 +19,7 @@ export interface SandboxCreateFailure {
     | "image_upload_container_missing"
     | "sandbox_create_incomplete"
     | "tls_cert_mismatch"
+    | "cdi_injection_failed"
     | "unknown";
   uploadedToGateway: boolean;
 }
@@ -112,6 +113,16 @@ export function classifySandboxCreateFailure(output = ""): SandboxCreateFailure 
     )
   ) {
     return { kind: "tls_cert_mismatch", uploadedToGateway };
+  }
+  // The OpenShell gateway runs its own CDI device injection when `--gpu` is
+  // issued (`docker create --device nvidia.com/gpu=all`). On Docker Desktop
+  // WSL the CDI spec directories are advertised but the spec itself is not
+  // readable from inside the WSL distro, so injection fails. This is distinct
+  // from the NemoClaw docker-gpu-patch path: NEMOCLAW_DOCKER_GPU_PATCH=0 only
+  // skips the patch, leaving the gateway to attempt (and fail) CDI injection.
+  // The actionable escape hatch is to disable GPU passthrough entirely. See #5180.
+  if (/CDI device injection failed|unresolvable CDI devices|failed to inject .*CDI/i.test(text)) {
+    return { kind: "cdi_injection_failed", uploadedToGateway };
   }
   // Misleading "container does not exist" 404 raised while OpenShell streams the
   // built image tar into the (healthy) gateway container. Reported on Linux

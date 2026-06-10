@@ -289,6 +289,19 @@ describe("classifySandboxCreateFailure", () => {
     ).toBe("unknown");
     expect(classifySandboxCreateFailure("HTTP 404: model not found").kind).toBe("unknown");
   });
+
+  it("detects the gateway CDI injection failure on Docker Desktop WSL (#5180)", () => {
+    const result = classifySandboxCreateFailure(
+      "CDI device injection failed: unresolvable CDI devices nvidia.com/gpu=all",
+    );
+    expect(result.kind).toBe("cdi_injection_failed");
+  });
+
+  it("detects CDI injection failure from the 'unresolvable CDI devices' phrase alone (#5180)", () => {
+    expect(classifySandboxCreateFailure("unresolvable CDI devices nvidia.com/gpu=all").kind).toBe(
+      "cdi_injection_failed",
+    );
+  });
 });
 
 describe("planSandboxCreateRecovery", () => {

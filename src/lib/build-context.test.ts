@@ -79,6 +79,19 @@ describe("printSandboxCreateRecoveryHints", () => {
     expect(stderr()).toContain("reached the gateway");
   });
 
+  it("points to --no-gpu when the gateway CDI injection fails on Docker Desktop WSL (#5180)", () => {
+    printSandboxCreateRecoveryHints(
+      "CDI device injection failed: unresolvable CDI devices nvidia.com/gpu=all",
+    );
+
+    const out = stderr();
+    expect(out).toContain("could not inject the NVIDIA GPU via CDI");
+    expect(out).toContain("onboard --no-gpu");
+    expect(out).toContain("NEMOCLAW_SANDBOX_GPU=0");
+    // The escape hatch the issue calls out as misleading must be flagged as not helpful here.
+    expect(out).toContain("NEMOCLAW_DOCKER_GPU_PATCH=0 does not help here");
+  });
+
   // Manual / ARM64 E2E note (#3266):
   //
   // The misleading "failed to upload image tar into container" Docker 404 only

@@ -206,6 +206,25 @@ export function printSandboxCreateRecoveryHints(
     console.error(`  Then: ${CLI_NAME} onboard --resume`);
     return;
   }
+  if (failure.kind === "cdi_injection_failed") {
+    console.error(
+      "  Hint: the OpenShell gateway could not inject the NVIDIA GPU via CDI (nvidia.com/gpu).",
+    );
+    console.error(
+      "        This is common on Docker Desktop WSL, where the CDI spec is advertised but not",
+    );
+    console.error("        readable from inside the WSL distro.");
+    console.error(
+      "  Note: NEMOCLAW_DOCKER_GPU_PATCH=0 does not help here — it only skips NemoClaw's own",
+    );
+    console.error(
+      "        patch and still leaves the gateway to attempt (and fail) CDI injection.",
+    );
+    console.error("  Fix:  disable GPU passthrough and re-onboard with a CPU sandbox:");
+    console.error(`          ${CLI_NAME} onboard --no-gpu`);
+    console.error("        (equivalently, set NEMOCLAW_SANDBOX_GPU=0)");
+    return;
+  }
   console.error(`  Recovery: ${CLI_NAME} onboard --resume`);
   console.error(`  Or:      ${CLI_NAME} onboard`);
 }
