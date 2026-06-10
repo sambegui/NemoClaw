@@ -38,13 +38,13 @@ describe("Vitest E2E scenario advisor — prompt construction", () => {
     const prompt = buildPrompt({
       baseRef: "origin/main",
       headRef: "HEAD",
-      changedFiles: ["test/e2e-scenario/framework/phases/onboarding.ts"],
+      changedFiles: ["test/e2e-scenario/fixtures/phases/onboarding.ts"],
       diff: "+ echo ok",
     });
     // Caller of normalizeScenarioAdvisorResult re-injects metadata, but the
     // prompt must still surface enough context for the model to reason.
     expect(prompt).toContain("origin/main");
-    expect(prompt).toContain("test/e2e-scenario/framework/phases/onboarding.ts");
+    expect(prompt).toContain("test/e2e-scenario/fixtures/phases/onboarding.ts");
     expect(prompt).toContain("+ echo ok");
   });
 

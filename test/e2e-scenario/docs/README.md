@@ -25,7 +25,7 @@ runner cutover; migrate them by contract using the rules in `MIGRATION.md`.
 | Live scenario IDs and metadata | `test/e2e-scenario/scenarios/registry.ts`, `test/e2e-scenario/scenarios/scenarios/baseline.ts` |
 | GitHub Actions matrix emission | `test/e2e-scenario/scenarios/run.ts --emit-live-matrix` |
 | Live scenario execution | `test/e2e-scenario/live/registry-scenarios.test.ts` |
-| Phase fixtures and clients | `test/e2e-scenario/framework/` |
+| Phase fixtures and clients | `test/e2e-scenario/fixtures/` |
 | Expected-state probes | `test/e2e-scenario/scenarios/expected-states.ts` |
 | Product-facing setup/onboarding state | `test/e2e-scenario/manifests/*.yaml` |
 | Legacy direct E2E coverage | `test/e2e/test-*.sh` and their workflows |
@@ -52,8 +52,8 @@ Live execution happens through Vitest fixtures:
 - `artifacts`, `secrets`, `cleanup`, and `shellProbe` provide shared fixture
   services.
 
-The historical `test/e2e-scenario/framework/` path is a fixture/support layer,
-not a separate E2E framework or runner. Vitest remains the only test harness.
+The `test/e2e-scenario/fixtures/` path is fixture/support code, not a test
+harness or runner. Vitest remains the only test harness.
 
 `suiteIds` remain metadata for reporting and migration planning. They do not
 dispatch shell validation suites.
@@ -86,7 +86,7 @@ paths must not be reintroduced.
 ```text
 test/e2e-scenario/
   docs/                  # Fixture guide, migration notes, retirement record
-  framework/             # Vitest fixtures, clients, redaction, artifacts, cleanup
+  fixtures/              # Vitest fixtures, clients, redaction, artifacts, cleanup
   live/                  # Opt-in live Vitest scenario tests
   manifests/             # Product-facing NemoClawInstance desired state
   scenarios/             # Typed registry, matrix helpers, expected states

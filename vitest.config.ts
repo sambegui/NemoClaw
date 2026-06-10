@@ -7,7 +7,7 @@ import {
   shouldRunBranchValidationE2E,
   shouldRunInstallerIntegration,
   shouldRunLiveE2EScenarios,
-} from "./test/e2e-scenario/framework/live-project-gate.ts";
+} from "./test/e2e-scenario/fixtures/live-project-gate.ts";
 import { testTimeout } from "./test/helpers/timeouts";
 
 const isGithubActions = process.env.GITHUB_ACTIONS === "true";

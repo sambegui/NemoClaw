@@ -21,7 +21,7 @@ The scenario runner cutover is complete:
 - `e2e-vitest-scenarios.yaml` is the scenario workflow.
 - `test/e2e-scenario/live/registry-scenarios.test.ts` is the registry-driven
   live scenario entrypoint.
-- `test/e2e-scenario/framework/` owns phase fixtures, clients, artifact
+- `test/e2e-scenario/fixtures/` owns phase fixtures, clients, artifact
   capture, redaction, cleanup, and shell-probe bridges.
 - `test/e2e-scenario/scenarios/run.ts` only lists scenarios and emits the live
   Vitest matrix.
@@ -44,8 +44,8 @@ The durable E2E system has one execution path:
 - NemoClaw fixtures own setup, onboarding, lifecycle mutations,
   expected-state probes, assertion helpers, expected-failure evidence,
   cleanup, artifacts, and secret redaction.
-- The historical `test/e2e-scenario/framework/` path is fixture/support code,
-  not a separate E2E framework or runner.
+- `test/e2e-scenario/fixtures/` is fixture/support code, not a test harness
+  or runner.
 - Typed scenario definitions and matrix helpers describe stable scenario IDs
   and supported combinations without becoming a second runner.
 - Product-facing manifests describe desired setup/onboarding state, not test

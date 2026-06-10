@@ -7,7 +7,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { assertExitZero, type CommandRunner } from "../framework/clients/index.ts";
+import { assertExitZero, type CommandRunner } from "../fixtures/clients/index.ts";
 import {
   GatewayClient,
   HostCliClient,
@@ -15,12 +15,12 @@ import {
   SandboxClient,
   StateClient,
   trustedProviderEndpoint,
-} from "../framework/clients/index.ts";
+} from "../fixtures/clients/index.ts";
 import type {
   ShellProbeResult,
   ShellProbeRunOptions,
   TrustedShellCommand,
-} from "../framework/shell-probe.ts";
+} from "../fixtures/shell-probe.ts";
 
 interface RunnerCall {
   command: string;

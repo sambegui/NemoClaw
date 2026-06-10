@@ -42,7 +42,7 @@ describe("E2E migration tracking policy", () => {
     expect(docs).toContain("machine-checkable boundary");
     expect(docs).toContain("existing `.test.ts` file");
     expect(docs).toContain("generated legacy assertion inventories");
-    expect(docs).toContain("not a separate E2E framework or runner");
+    expect(docs).toMatch(/not a test\s+harness or runner/);
   });
 
   it("keeps durable taxonomy out of the repo-local migration docs", () => {

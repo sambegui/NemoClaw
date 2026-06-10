@@ -45,7 +45,7 @@ and artifact shape operators needed from the retired workflows:
 - `.github/workflows/e2e-vitest-scenarios.yaml` runs the live matrix.
 - `test/e2e-scenario/live/registry-scenarios.test.ts` executes supported
   registry scenarios through Vitest.
-- `test/e2e-scenario/framework/` owns fixtures, clients, shell-probe bridges,
+- `test/e2e-scenario/fixtures/` owns fixtures, clients, shell-probe bridges,
   artifact writing, cleanup, and redaction.
 
 ## What Was Not Removed
