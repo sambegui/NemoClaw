@@ -357,7 +357,9 @@ export class RuntimePhaseFixture {
           ...options,
           maxTokens: options.maxTokens ?? 256,
           model: options.model ?? "nvidia-routed",
-          prompt: options.prompt ?? "Reply with exactly one word: PONG. Do not explain or include any other text.",
+          prompt:
+            options.prompt ??
+            "Reply with exactly one word: PONG. Do not explain or include any other text.",
         }),
         endpoint,
       ],
