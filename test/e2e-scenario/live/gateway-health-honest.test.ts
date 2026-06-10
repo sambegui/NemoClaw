@@ -6,10 +6,10 @@ import fsp from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 
-import type { HostCliClient } from "../framework/clients/index.ts";
-import { expect, test } from "../framework/e2e-test.ts";
-import { shouldRunLiveE2EScenarios } from "../framework/live-project-gate.ts";
-import type { ShellProbeResult } from "../framework/shell-probe.ts";
+import type { HostCliClient } from "../fixtures/clients/index.ts";
+import { expect, test } from "../fixtures/e2e-test.ts";
+import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
+import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
 
 // Migrated from test/e2e/test-gateway-health-honest.sh. This hermetic
 // regression guard for #3111 drives startGateway() in a child Node process with
