@@ -12,26 +12,27 @@
  *   /nemoclaw          - show help
  */
 
+import { loadState } from "../blueprint/state.js";
 import {
   getPluginConfig,
   type OpenClawPluginApi,
   type PluginCommandContext,
   type PluginCommandResult,
 } from "../index.js";
-import { loadState } from "../blueprint/state.js";
 import {
   describeOnboardEndpoint,
   describeOnboardProvider,
   loadOnboardConfig,
 } from "../onboard/config.js";
-import { slashShieldsStatus } from "./shields-status.js";
 import { slashConfigShow } from "./config-show.js";
+import { slashShieldsStatus } from "./shields-status.js";
 
 export function handleSlashCommand(
   ctx: PluginCommandContext,
   api: OpenClawPluginApi,
 ): PluginCommandResult {
-  const subcommand = ctx.args?.trim().split(/\s+/)[0] ?? "";
+  const tokens = ctx.args?.trim().split(/\s+/).filter(Boolean) ?? [];
+  const subcommand = tokens[0] ?? "";
 
   switch (subcommand) {
     case "status":
@@ -41,11 +42,48 @@ export function handleSlashCommand(
     case "onboard":
       return slashOnboard();
     case "shields":
-      return slashShieldsStatus();
+      return slashShields(tokens[1] ?? "");
     case "config":
       return slashConfigShow();
     default:
       return slashHelp();
+  }
+}
+
+function slashShields(action: string): PluginCommandResult {
+  // `/nemoclaw shields` is read-only inside the sandbox — it reports status only.
+  // Shields can only be raised or lowered from the host CLI (security invariant;
+  // see ./shields-status.ts). Instead of silently ignoring any sub-argument
+  // (#5117), route status/empty to the status view, send up/down to the host CLI,
+  // and reject anything else as an unknown argument.
+  switch (action) {
+    case "":
+    case "status":
+      return slashShieldsStatus();
+    case "up":
+    case "down": {
+      const verb = action === "up" ? "raise" : "lower";
+      return {
+        text: [
+          "**Shields are managed from the host.**",
+          "",
+          `\`/nemoclaw shields\` is read-only here. To ${verb} shields, run on the host:`,
+          "",
+          "```",
+          `nemoclaw <name> shields ${action}`,
+          "```",
+        ].join("\n"),
+      };
+    }
+    default:
+      return {
+        text: [
+          `**Unknown argument:** \`${action}\``,
+          "",
+          "Usage: `/nemoclaw shields [status]` (read-only).",
+          "To change shields, use the host CLI: `nemoclaw <name> shields up|down|status`.",
+        ].join("\n"),
+      };
   }
 }
 

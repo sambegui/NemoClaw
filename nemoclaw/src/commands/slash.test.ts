@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { PluginCommandContext, OpenClawPluginApi } from "../index.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NemoClawState } from "../blueprint/state.js";
+import type { OpenClawPluginApi, PluginCommandContext } from "../index.js";
 import type { NemoClawOnboardConfig } from "../onboard/config.js";
 
 vi.mock("../blueprint/state.js", () => ({
@@ -24,18 +24,20 @@ vi.mock("./config-show.js", () => ({
   slashConfigShow: vi.fn(() => ({ text: "**NemoClaw Config**" })),
 }));
 
-import { handleSlashCommand } from "./slash.js";
 import { loadState } from "../blueprint/state.js";
 import {
-  loadOnboardConfig,
   describeOnboardEndpoint,
   describeOnboardProvider,
+  loadOnboardConfig,
 } from "../onboard/config.js";
+import { slashShieldsStatus } from "./shields-status.js";
+import { handleSlashCommand } from "./slash.js";
 
 const mockedLoadState = vi.mocked(loadState);
 const mockedLoadOnboardConfig = vi.mocked(loadOnboardConfig);
 const mockedDescribeOnboardEndpoint = vi.mocked(describeOnboardEndpoint);
 const mockedDescribeOnboardProvider = vi.mocked(describeOnboardProvider);
+const mockedShieldsStatus = vi.mocked(slashShieldsStatus);
 
 function makeCtx(args?: string): PluginCommandContext {
   return {
@@ -116,9 +118,43 @@ describe("commands/slash", () => {
   // -------------------------------------------------------------------------
 
   describe("shields", () => {
-    it("routes to shields status handler", () => {
+    it("routes bare `shields` to the read-only status handler", () => {
       const result = handleSlashCommand(makeCtx("shields"), makeApi());
+      expect(mockedShieldsStatus).toHaveBeenCalledTimes(1);
       expect(result.text).toContain("Shields");
+    });
+
+    it("routes `shields status` to the read-only status handler", () => {
+      const result = handleSlashCommand(makeCtx("shields status"), makeApi());
+      expect(mockedShieldsStatus).toHaveBeenCalledTimes(1);
+      expect(result.text).toContain("Shields");
+    });
+
+    it("does not mutate on `shields down`; points to the host CLI (#5117)", () => {
+      const result = handleSlashCommand(makeCtx("shields down"), makeApi());
+      expect(mockedShieldsStatus).not.toHaveBeenCalled();
+      expect(result.text).toContain("managed from the host");
+      expect(result.text).toContain("nemoclaw <name> shields down");
+    });
+
+    it("does not mutate on `shields up`; points to the host CLI (#5117)", () => {
+      const result = handleSlashCommand(makeCtx("shields up"), makeApi());
+      expect(mockedShieldsStatus).not.toHaveBeenCalled();
+      expect(result.text).toContain("managed from the host");
+      expect(result.text).toContain("nemoclaw <name> shields up");
+    });
+
+    it("reports an unknown argument instead of silently showing status (#5117)", () => {
+      const result = handleSlashCommand(makeCtx("shields hihi"), makeApi());
+      expect(mockedShieldsStatus).not.toHaveBeenCalled();
+      expect(result.text).toContain("Unknown argument");
+      expect(result.text).toContain("hihi");
+    });
+
+    it("tolerates extra whitespace between tokens", () => {
+      const result = handleSlashCommand(makeCtx("shields   down"), makeApi());
+      expect(mockedShieldsStatus).not.toHaveBeenCalled();
+      expect(result.text).toContain("nemoclaw <name> shields down");
     });
   });
 
