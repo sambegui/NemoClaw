@@ -255,6 +255,27 @@ if insertion not in text:
 PY
 }
 
+reclaim_runner_disk_space() {
+  # The old v0.0.36 installer builds a ~2.6 GB Docker image and imports it
+  # into K3s containerd via `ctr images import`, which extracts OCI layers
+  # into overlayfs under /var/lib/rancher/k3s/.  GitHub-hosted ubuntu-latest
+  # runners ship with ~30 GB of pre-installed toolchains we don't need; free
+  # that space so the import doesn't hit "no space left on device".
+  info "Reclaiming disk space on GitHub Actions runner"
+  local before
+  before=$(df --output=avail / | tail -1)
+  sudo rm -rf /usr/share/dotnet            2>/dev/null || true
+  sudo rm -rf /usr/local/lib/android       2>/dev/null || true
+  sudo rm -rf /opt/ghc                     2>/dev/null || true
+  sudo rm -rf /usr/share/swift             2>/dev/null || true
+  sudo rm -rf /usr/local/share/powershell  2>/dev/null || true
+  sudo rm -rf /usr/local/.ghcup            2>/dev/null || true
+  docker system prune -af --volumes        >/dev/null 2>&1 || true
+  local after
+  after=$(df --output=avail / | tail -1)
+  info "Disk reclaim: ${before} → ${after} KiB available"
+}
+
 cleanup() {
   set +e
   cleanup_pid "$FAKE_MOCK_PID"
@@ -776,6 +797,8 @@ if [ "$(uname -s)" != "Linux" ]; then
   pass "Skipping live Docker-driver gateway restart regression on non-Linux host"
   exit 0
 fi
+
+reclaim_runner_disk_space
 
 info "Preparing real old-install upgrade scenario"
 rm -f "$INSTALL_LOG" "$OLD_INSTALL_LOG" "$CURRENT_INSTALL_LOG" "$START_LOG" "$GATEWAY_LOG"
