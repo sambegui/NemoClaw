@@ -26,11 +26,7 @@ PATCH = '''    # NemoClaw-managed sandbox image hardening.
         args.trust_project_mcp = False
     if hasattr(args, "shell_allow_list"):
         args.shell_allow_list = None
-    nemoclaw_shell_allow = os.environ.get("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST")
-    if nemoclaw_shell_allow:
-        os.environ["DEEPAGENTS_CODE_SHELL_ALLOW_LIST"] = nemoclaw_shell_allow
-    else:
-        os.environ.pop("DEEPAGENTS_CODE_SHELL_ALLOW_LIST", None)
+    os.environ.pop("DEEPAGENTS_CODE_SHELL_ALLOW_LIST", None)
 '''
 
 MARKER = "    args = parser.parse_args()\n"

@@ -63,7 +63,6 @@ prepare_runtime_env() {
     write_export_if_set SSL_CERT_FILE
     write_export_if_set REQUESTS_CA_BUNDLE
     write_export_if_set NODE_EXTRA_CA_CERTS
-    write_export_if_set NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST
     write_export_if_set LANGSMITH_TRACING
     write_export_if_set LANGSMITH_PROJECT
     write_export_if_set DEEPAGENTS_CODE_LANGSMITH_PROJECT

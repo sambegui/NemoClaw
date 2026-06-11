@@ -23,11 +23,7 @@ case "${1:-}" in
     ;;
 esac
 
-if [ -n "${NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST:-}" ]; then
-  export DEEPAGENTS_CODE_SHELL_ALLOW_LIST="${NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST}"
-else
-  unset DEEPAGENTS_CODE_SHELL_ALLOW_LIST
-fi
+unset DEEPAGENTS_CODE_SHELL_ALLOW_LIST
 
 reject_managed_override() {
   local posture="$1"

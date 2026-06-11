@@ -47,6 +47,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(startScript).toContain('chmod 400 "$tmp"');
     expect(startScript).toContain("write_proxy_export_if_set HTTPS_PROXY");
     expect(startScript).not.toContain("write_export_if_set DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
+    expect(startScript).not.toContain("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(startScript).not.toMatch(
       /write_export_if_set (?:NVIDIA_API_KEY|OPENAI_API_KEY|TAVILY_API_KEY|DEEPAGENTS_CODE_TAVILY_API_KEY|LANGSMITH_API_KEY)\b/,
     );
@@ -64,6 +65,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
         HTTPS_PROXY: "https://user:pass@proxy.example:8443",
         http_proxy: "user:pass@proxy.example:8080",
         https_proxy: "https://safe-proxy.example:8443",
+        NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST: "all",
       },
       encoding: "utf8",
     });
@@ -73,6 +75,8 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(envFileText).toContain("export https_proxy=https://safe-proxy.example:8443");
     expect(envFileText).not.toContain("HTTPS_PROXY");
     expect(envFileText).not.toContain("http_proxy");
+    expect(envFileText).not.toContain("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
+    expect(envFileText).not.toContain("DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(envFileText).not.toContain("user:pass");
     expect(envFileText).not.toContain("user:pass@proxy.example:8443");
     expect(envFileText).not.toContain("user:pass@proxy.example:8080");
@@ -87,6 +91,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(dockerfile).toContain("patch-managed-deepagents-code.py");
     expect(dockerfile).not.toContain("NEMOCLAW_WEB_SEARCH_ENABLED");
     expect(wrapper).toContain("unset DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
+    expect(wrapper).not.toContain("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(dockerfile).toContain(
       "install -m 0755 /usr/local/lib/nemoclaw/dcode-wrapper.sh /usr/local/bin/dcode.real",
     );
@@ -131,6 +136,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(patched).toContain("args.mcp_config = None");
     expect(patched).toContain("args.shell_allow_list = None");
     expect(patched).toContain('os.environ.pop("DEEPAGENTS_CODE_SHELL_ALLOW_LIST", None)');
+    expect(patched).not.toContain("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(patched).toContain('getattr(args, "command", None) == "mcp"');
   });
 });
