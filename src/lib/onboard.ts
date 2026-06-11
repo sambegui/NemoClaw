@@ -69,8 +69,7 @@ const {
   agentSupportsWebSearch,
 }: typeof import("./onboard/web-search-support") = require("./onboard/web-search-support");
 const onboardDashboard: typeof import("./onboard/dashboard") = require("./onboard/dashboard");
-const dashboardRuntime: typeof import("./onboard/dashboard-runtime") =
-  require("./onboard/dashboard-runtime");
+const dashboardRuntime: typeof import("./onboard/dashboard-runtime") = require("./onboard/dashboard-runtime");
 const {
   buildGatewayBootstrapSecretsScript,
   createGatewayBootstrapRepairHelpers,
@@ -2551,8 +2550,8 @@ async function createSandbox(
   const effectiveSandboxGpuConfig =
     sandboxGpuConfig ?? resolveSandboxGpuConfig(gpu, { flag: null, device: null });
   const manageDashboard = dashboardRuntime.shouldManageDashboardForAgent(agent);
-  let effectivePort = 0;
-  let chatUiUrl = "";
+  let effectivePort = 0,
+    chatUiUrl = "";
   if (manageDashboard) {
     ({ effectivePort, chatUiUrl } = resolveCreateSandboxDashboardPort({
       sandboxName,
@@ -3271,11 +3270,6 @@ async function createSandbox(
   }
 
   if (manageDashboard) {
-    // Wait for the branded dashboard to become fully ready (web server live)
-    // This prevents port forwards from connecting to a non-existent port
-    // or seeing 502/503 errors during initial load.
-    // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
-    // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
     console.log("  Waiting for NemoClaw dashboard to become ready...");
     sandboxReadinessTracing.waitForDashboardReadyWithTrace({
       sandboxName,
@@ -3300,20 +3294,12 @@ async function createSandbox(
     });
   }
 
-  // Release any stale forward on the dashboard port before claiming it for the new sandbox.
-  // A previous onboard run may have left the port forwarded to a different sandbox,
-  // which would silently prevent the new sandbox's dashboard from being reachable.
-  // Auto-allocates the next free port if the preferred one is taken (Fixes #2174).
-  // Roll back the just-created openshell sandbox on unrecoverable allocation
-  // failure so the registry and `openshell sandbox list` don't drift (#2174).
   let actualDashboardPort = 0;
   let finalHermesDashboardState = hermesDashboardState;
   if (manageDashboard) {
     actualDashboardPort = ensureDashboardForward(sandboxName, chatUiUrl, {
       rollbackSandboxOnFailure: true,
     });
-    // Update chatUiUrl and CHAT_UI_URL env so printDashboard / getDashboardAccessInfo
-    // see the final port (they re-read process.env.CHAT_UI_URL independently).
     if (actualDashboardPort !== Number(getDashboardForwardPort(chatUiUrl))) {
       chatUiUrl = `http://127.0.0.1:${actualDashboardPort}`;
     }
