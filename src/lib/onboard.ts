@@ -72,6 +72,8 @@ const {
   agentSupportsWebSearch,
 }: typeof import("./onboard/web-search-support") = require("./onboard/web-search-support");
 const onboardDashboard: typeof import("./onboard/dashboard") = require("./onboard/dashboard");
+const dashboardRuntime: typeof import("./onboard/dashboard-runtime") =
+  require("./onboard/dashboard-runtime");
 const {
   buildGatewayBootstrapSecretsScript,
   createGatewayBootstrapRepairHelpers,
@@ -2852,47 +2854,18 @@ async function createSandbox(
   enabledChannels = filterEnabledChannelsByAgent(enabledChannels, agent);
   const effectiveSandboxGpuConfig =
     sandboxGpuConfig ?? resolveSandboxGpuConfig(gpu, { flag: null, device: null });
-
-  // Port priority: --control-ui-port > CHAT_UI_URL env > registry (resume) > agent.forwardPort > default
-  // Pre-resolve port availability so CHAT_UI_URL baked into the Dockerfile,
-  // the sandbox env, and the readiness probe all use the final forwarded port.
-  const persistedPort = registry.getSandbox(sandboxName)?.dashboardPort ?? null;
-  // When CHAT_UI_URL is set, extract its port so the allocator and the URL stay in sync.
-  let envPort: number | null = null;
-  if (process.env.CHAT_UI_URL) {
-    try {
-      const u = new URL(
-        process.env.CHAT_UI_URL.includes("://")
-          ? process.env.CHAT_UI_URL
-          : `http://${process.env.CHAT_UI_URL}`,
-      );
-      const p = Number(u.port);
-      if (p > 0) envPort = p;
-    } catch {
-      /* malformed URL — ignore */
-    }
-  }
-  const preferredPort =
-    controlUiPort ?? envPort ?? persistedPort ?? (agent ? agent.forwardPort : DASHBOARD_PORT);
-  const earlyForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
-  const effectivePort = findAvailableDashboardPort(sandboxName, preferredPort, earlyForwards);
-  if (effectivePort !== preferredPort) {
-    console.warn(`  ! Port ${preferredPort} is taken. Using port ${effectivePort} instead.`);
-  }
-  // Build chatUiUrl: preserve the hostname from CHAT_UI_URL when set, but
-  // always use effectivePort so the Dockerfile, env, and readiness probe agree.
-  let chatUiUrl: string;
-  if (process.env.CHAT_UI_URL && controlUiPort == null) {
-    const parsed = new URL(
-      process.env.CHAT_UI_URL.includes("://")
-        ? process.env.CHAT_UI_URL
-        : `http://${process.env.CHAT_UI_URL}`,
-    );
-    parsed.port = String(effectivePort);
-    chatUiUrl = parsed.toString().replace(/\/$/, "");
-  } else {
-    chatUiUrl = `http://127.0.0.1:${effectivePort}`;
-  }
+  const dashboardPlan = dashboardRuntime.resolveDashboardRuntimePlan({
+    agent,
+    sandboxName,
+    controlUiPort,
+    env: process.env,
+    registry,
+    findAvailableDashboardPort,
+    runCaptureOpenshell,
+    warn: console.warn,
+  });
+  const { manageDashboard, effectivePort } = dashboardPlan;
+  let { chatUiUrl } = dashboardPlan;
   const hermesDashboardForwarding = onboardHermesDashboard.createHermesDashboardOnboardForwarding({
     agentName: agent?.name,
     env: process.env,
@@ -3182,9 +3155,15 @@ async function createSandbox(
                 "  Pass --recreate-sandbox or set NEMOCLAW_RECREATE_SANDBOX=1 to force recreation.",
               );
             }
-            const reusedPort = ensureDashboardForward(sandboxName, chatUiUrl);
-            chatUiUrl = `http://127.0.0.1:${reusedPort}`;
-            process.env.CHAT_UI_URL = chatUiUrl;
+            const reusedDashboard = dashboardRuntime.resolveReusedDashboardForward({
+              manageDashboard,
+              sandboxName,
+              chatUiUrl,
+              ensureDashboardForward,
+              env: process.env,
+            });
+            const reusedPort = reusedDashboard.port;
+            chatUiUrl = reusedDashboard.chatUiUrl;
             const reusedHermesDashboardState =
               hermesDashboardForwarding.resolveStateForPort(reusedPort);
             hermesDashboardForwarding.ensureForState(reusedHermesDashboardState, sandboxName);
@@ -3231,9 +3210,15 @@ async function createSandbox(
           if (await promptYesNoOrDefault("  Reuse existing sandbox?", null, true)) {
             policyPresetCarry.seedReusedSandboxPolicyPresets(sandboxName, isNonInteractive());
             upsertMessagingProviders(messagingTokenDefs);
-            const reusedPort2 = ensureDashboardForward(sandboxName, chatUiUrl);
-            chatUiUrl = `http://127.0.0.1:${reusedPort2}`;
-            process.env.CHAT_UI_URL = chatUiUrl;
+            const reusedDashboard2 = dashboardRuntime.resolveReusedDashboardForward({
+              manageDashboard,
+              sandboxName,
+              chatUiUrl,
+              ensureDashboardForward,
+              env: process.env,
+            });
+            const reusedPort2 = reusedDashboard2.port;
+            chatUiUrl = reusedDashboard2.chatUiUrl;
             const reusedHermesDashboardState2 =
               hermesDashboardForwarding.resolveStateForPort(reusedPort2);
             hermesDashboardForwarding.ensureForState(reusedHermesDashboardState2, sandboxName);
@@ -3627,14 +3612,12 @@ async function createSandbox(
   // For sandbox create, also strip KUBECONFIG and SSH_AUTH_SOCK: the generic
   // allowlist needs them for host-side subprocesses, but sandbox code must not
   // access host Kubernetes or SSH-agent credentials.
-  const envArgs = [formatEnvAssignment("CHAT_UI_URL", chatUiUrl)];
-  // Always pass the effective dashboard port into the sandbox so
-  // nemoclaw-start.sh starts the gateway on the correct port. When the
-  // user sets CHAT_UI_URL with a custom port (e.g. :18790), the port
-  // must reach the container — otherwise _DASHBOARD_PORT defaults to
-  // 18789 and the gateway listens on the wrong port. (#2267, #1925)
-  const effectiveDashboardPort = getDashboardForwardPort(chatUiUrl);
-  envArgs.push(formatEnvAssignment("NEMOCLAW_DASHBOARD_PORT", effectiveDashboardPort));
+  const { envArgs, effectiveDashboardPort } = dashboardRuntime.createDashboardEnvPlan({
+    manageDashboard,
+    chatUiUrl,
+    getDashboardForwardPort,
+    formatEnvAssignment,
+  });
   require("./onboard/openclaw-runtime-env").appendOpenClawRuntimeEnvArgs(envArgs, agent);
   onboardHermesDashboard.appendHermesDashboardEnvArgs(
     envArgs,
@@ -3798,18 +3781,20 @@ async function createSandbox(
     process.exit(1);
   }
 
-  // Wait for the branded dashboard to become fully ready (web server live)
-  // This prevents port forwards from connecting to a non-existent port
-  // or seeing 502/503 errors during initial load.
-  // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
-  // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
-  console.log("  Waiting for NemoClaw dashboard to become ready...");
-  sandboxReadinessTracing.waitForDashboardReadyWithTrace({
-    sandboxName,
-    port: effectiveDashboardPort,
-    runCaptureOpenshell,
-    sleep: sleepSeconds,
-  });
+  if (manageDashboard) {
+    // Wait for the branded dashboard to become fully ready (web server live)
+    // This prevents port forwards from connecting to a non-existent port
+    // or seeing 502/503 errors during initial load.
+    // Probes /health endpoint and accepts 200 or 401 (device auth) as "alive".
+    // Previously used `curl -sf` which failed on 401, causing false negatives. Fixes #2342.
+    console.log("  Waiting for NemoClaw dashboard to become ready...");
+    sandboxReadinessTracing.waitForDashboardReadyWithTrace({
+      sandboxName,
+      port: effectiveDashboardPort,
+      runCaptureOpenshell,
+      sleep: sleepSeconds,
+    });
+  }
 
   if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
     // Runs the GPU proof, preserving Docker-GPU patch Error-phase diagnostics
@@ -3832,18 +3817,21 @@ async function createSandbox(
   // Auto-allocates the next free port if the preferred one is taken (Fixes #2174).
   // Roll back the just-created openshell sandbox on unrecoverable allocation
   // failure so the registry and `openshell sandbox list` don't drift (#2174).
-  const actualDashboardPort = ensureDashboardForward(sandboxName, chatUiUrl, {
-    rollbackSandboxOnFailure: true,
-  });
-  // Update chatUiUrl and CHAT_UI_URL env so printDashboard / getDashboardAccessInfo
-  // see the final port (they re-read process.env.CHAT_UI_URL independently).
-  if (actualDashboardPort !== Number(getDashboardForwardPort(chatUiUrl))) {
-    chatUiUrl = `http://127.0.0.1:${actualDashboardPort}`;
+  let actualDashboardPort = 0;
+  let finalHermesDashboardState = hermesDashboardState;
+  if (manageDashboard) {
+    actualDashboardPort = ensureDashboardForward(sandboxName, chatUiUrl, {
+      rollbackSandboxOnFailure: true,
+    });
+    // Update chatUiUrl and CHAT_UI_URL env so printDashboard / getDashboardAccessInfo
+    // see the final port (they re-read process.env.CHAT_UI_URL independently).
+    if (actualDashboardPort !== Number(getDashboardForwardPort(chatUiUrl))) {
+      chatUiUrl = `http://127.0.0.1:${actualDashboardPort}`;
+    }
+    process.env.CHAT_UI_URL = chatUiUrl;
+    finalHermesDashboardState = hermesDashboardForwarding.resolveStateForPort(actualDashboardPort);
+    hermesDashboardForwarding.ensureForState(finalHermesDashboardState, sandboxName, true);
   }
-  process.env.CHAT_UI_URL = chatUiUrl;
-  const finalHermesDashboardState =
-    hermesDashboardForwarding.resolveStateForPort(actualDashboardPort);
-  hermesDashboardForwarding.ensureForState(finalHermesDashboardState, sandboxName, true);
 
   // Register only after confirmed ready — prevents phantom entries
   const providerCredentialHashes: Record<string, string> = {};
