@@ -24,6 +24,7 @@ is_credential_bearing_url() {
   local value="$1"
   case "$value" in
     *://*@*) return 0 ;;
+    *:*@*) return 0 ;;
     *) return 1 ;;
   esac
 }

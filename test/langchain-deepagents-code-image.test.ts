@@ -62,7 +62,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HTTP_PROXY: "http://proxy.example:8080",
         HTTPS_PROXY: "https://user:pass@proxy.example:8443",
-        http_proxy: "http://token@proxy.example:8080",
+        http_proxy: "user:pass@proxy.example:8080",
         https_proxy: "https://safe-proxy.example:8443",
       },
       encoding: "utf8",
@@ -74,7 +74,8 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(envFileText).not.toContain("HTTPS_PROXY");
     expect(envFileText).not.toContain("http_proxy");
     expect(envFileText).not.toContain("user:pass");
-    expect(envFileText).not.toContain("token@");
+    expect(envFileText).not.toContain("user:pass@proxy.example:8443");
+    expect(envFileText).not.toContain("user:pass@proxy.example:8080");
   });
 
   it("keeps all Deep Agents Code entry points behind the managed wrapper boundary", () => {
