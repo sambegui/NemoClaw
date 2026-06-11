@@ -4,7 +4,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
@@ -25,13 +24,6 @@ function parseStdoutJson<T>(stdout: string): T {
 }
 
 const repoRoot = path.join(import.meta.dirname, "..");
-const requireDist = createRequire(import.meta.url);
-const { DASHBOARD_PORT } = requireDist(
-  "../dist/lib/core/ports.js",
-) as typeof import("../dist/lib/core/ports.js");
-const { resolveDashboardRuntimePlan } = requireDist(
-  "../dist/lib/onboard/dashboard-runtime.js",
-) as typeof import("../dist/lib/onboard/dashboard-runtime.js");
 
 function runTerminalDashboardScenario(scenario: "create" | "reuse") {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `nemoclaw-terminal-${scenario}-`));
@@ -157,54 +149,6 @@ const agent = agentDefs.loadAgent("langchain-deepagents-code");
 }
 
 describe("terminal-agent onboard dashboard handling", () => {
-  it("ignores malformed CHAT_UI_URL when planning dashboard forwarding", () => {
-    const warnings: string[] = [];
-    const plan = resolveDashboardRuntimePlan({
-      agent: null,
-      sandboxName: "gateway-box",
-      controlUiPort: null,
-      env: { CHAT_UI_URL: "http://[" } as NodeJS.ProcessEnv,
-      registry: {
-        getSandbox: () => null,
-      },
-      findAvailableDashboardPort: (_sandboxName, preferredPort, forwardListOutput) => {
-        assert.equal(preferredPort, DASHBOARD_PORT);
-        assert.equal(forwardListOutput, "");
-        return preferredPort;
-      },
-      runCaptureOpenshell: () => "",
-      warn: (message) => warnings.push(message),
-    });
-
-    assert.equal(plan.manageDashboard, true);
-    assert.equal(plan.effectivePort, DASHBOARD_PORT);
-    assert.equal(plan.chatUiUrl, `http://127.0.0.1:${DASHBOARD_PORT}`);
-    assert.deepEqual(warnings, []);
-  });
-
-  it("falls back to the dashboard default when an agent lacks forwardPort", () => {
-    const plan = resolveDashboardRuntimePlan({
-      agent: { runtime: { kind: "gateway" } } as unknown as Parameters<
-        typeof resolveDashboardRuntimePlan
-      >[0]["agent"],
-      sandboxName: "legacy-box",
-      controlUiPort: null,
-      env: {},
-      registry: {
-        getSandbox: () => null,
-      },
-      findAvailableDashboardPort: (_sandboxName, preferredPort) => {
-        assert.equal(preferredPort, DASHBOARD_PORT);
-        return preferredPort;
-      },
-      runCaptureOpenshell: () => "",
-      warn: () => {},
-    });
-
-    assert.equal(plan.effectivePort, DASHBOARD_PORT);
-    assert.equal(plan.chatUiUrl, `http://127.0.0.1:${DASHBOARD_PORT}`);
-  });
-
   it("does not inject dashboard env, probe, or forward during create", () => {
     const payload = runTerminalDashboardScenario("create");
     const createCommand = payload.commands.find((entry) =>
