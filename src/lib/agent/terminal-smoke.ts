@@ -25,6 +25,8 @@ export function runAgentSmokeCommands(
   agent: AgentDefinition,
   runCaptureOpenshell: RunCaptureOpenshell,
 ): AgentSmokeCommandResult {
+  // smoke_commands are shell-form commands from repository-shipped agents/*/manifest.yaml files.
+  // Switch to argv-form commands before accepting custom or user-provided manifests here.
   const commands = agent.runtime?.smoke_commands ?? [];
   const smokeRunner = `sh -lc "$1"; rc=$?; printf '\\n${SMOKE_EXIT_MARKER}%s\\n' "$rc"; exit 0`;
   for (const command of commands) {

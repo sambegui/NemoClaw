@@ -14,6 +14,20 @@ function readAgentFile(name: string): string {
   return fs.readFileSync(path.join(agentDir, name), "utf8");
 }
 
+function makeStartScriptFixture(tempDir: string): { envFile: string; scriptPath: string } {
+  const envFile = path.join(tempDir, "proxy-env.sh");
+  const scriptPath = path.join(tempDir, "start.sh");
+  const fixture = readAgentFile("start.sh")
+    .replace("local target=/tmp/nemoclaw-proxy-env.sh", `local target="${envFile}"`)
+    .replace(
+      'tmp="$(mktemp /tmp/nemoclaw-proxy-env.XXXXXX)"',
+      `tmp="$(mktemp "${tempDir}/nemoclaw-proxy-env.XXXXXX")"`,
+    );
+  fs.writeFileSync(scriptPath, fixture, "utf8");
+  fs.chmodSync(scriptPath, 0o755);
+  return { envFile, scriptPath };
+}
+
 describe("LangChain Deep Agents Code image contracts", () => {
   it("hardens copied NemoClaw blueprints against sandbox-user mutation", () => {
     const dockerfile = readAgentFile("Dockerfile");
@@ -31,10 +45,36 @@ describe("LangChain Deep Agents Code image contracts", () => {
     const startScript = readAgentFile("start.sh");
 
     expect(startScript).toContain('chmod 400 "$tmp"');
+    expect(startScript).toContain("write_proxy_export_if_set HTTPS_PROXY");
     expect(startScript).not.toContain("write_export_if_set DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(startScript).not.toMatch(
       /write_export_if_set (?:NVIDIA_API_KEY|OPENAI_API_KEY|TAVILY_API_KEY|DEEPAGENTS_CODE_TAVILY_API_KEY|LANGSMITH_API_KEY)\b/,
     );
+  });
+
+  it("omits credential-bearing proxy URLs from the shell env file", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-dcode-start-"));
+    const { envFile, scriptPath } = makeStartScriptFixture(tempDir);
+
+    execFileSync("bash", [scriptPath, "sh", "-c", 'cat "$NEMOCLAW_TEST_PROXY_ENV"'], {
+      env: {
+        NEMOCLAW_TEST_PROXY_ENV: envFile,
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HTTP_PROXY: "http://proxy.example:8080",
+        HTTPS_PROXY: "https://user:pass@proxy.example:8443",
+        http_proxy: "http://token@proxy.example:8080",
+        https_proxy: "https://safe-proxy.example:8443",
+      },
+      encoding: "utf8",
+    });
+
+    const envFileText = fs.readFileSync(envFile, "utf8");
+    expect(envFileText).toContain("export HTTP_PROXY=http://proxy.example:8080");
+    expect(envFileText).toContain("export https_proxy=https://safe-proxy.example:8443");
+    expect(envFileText).not.toContain("HTTPS_PROXY");
+    expect(envFileText).not.toContain("http_proxy");
+    expect(envFileText).not.toContain("user:pass");
+    expect(envFileText).not.toContain("token@");
   });
 
   it("keeps all Deep Agents Code entry points behind the managed wrapper boundary", () => {
