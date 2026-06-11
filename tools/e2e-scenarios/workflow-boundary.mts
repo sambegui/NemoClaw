@@ -28,6 +28,7 @@ const FREE_STANDING_SCENARIO_JOBS = new Map([
 ]);
 const ALLOWED_FREE_STANDING_JOBS = new Set([
   ...FREE_STANDING_SCENARIO_JOBS.values(),
+  "credential-migration-vitest",
   "gateway-guard-recovery",
 ]);
 
@@ -274,6 +275,7 @@ function validateJobsSelector(errors: string[], jobs: WorkflowRecord): void {
   requireRunContains(errors, validate, "allowed_jobs=");
   requireRunContains(errors, validate, "openshell-version-pin-vitest");
   requireRunContains(errors, validate, "onboard-negative-paths-vitest");
+  requireRunContains(errors, validate, "credential-migration-vitest");
   requireRunContains(errors, validate, "hermes-e2e-vitest");
   requireRunContains(errors, validate, "network-policy-vitest");
   requireRunContains(errors, validate, "token-rotation-vitest");
@@ -1015,6 +1017,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
 
   validateOpenShellVersionPinVitestJob(errors, jobs);
   validateOnboardNegativePathsVitestJob(errors, jobs);
+  validateFreeStandingJobSelector(errors, jobs, "credential-migration-vitest");
   validateHermesE2EVitestJob(errors, jobs);
   validateNetworkPolicyVitestJob(errors, jobs);
   validateTokenRotationVitestJob(errors, jobs);
@@ -1037,6 +1040,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
       "live-scenarios",
       "openshell-version-pin-vitest",
       "onboard-negative-paths-vitest",
+      "credential-migration-vitest",
       "hermes-e2e-vitest",
       "network-policy-vitest",
       "token-rotation-vitest",
