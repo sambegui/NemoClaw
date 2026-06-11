@@ -24,8 +24,9 @@ import {
 } from "../sandbox-base-image";
 import { describeAgentBinaryFailure, verifyAgentBinaryAvailable } from "./binary-availability";
 import { printOptionalDashboardUi } from "./dashboard-ui";
-import { type AgentDefinition, loadAgent, resolveAgentName } from "./defs";
+import { type AgentDefinition, isTerminalAgent, loadAgent, resolveAgentName } from "./defs";
 import { runAgentSmokeCommands } from "./terminal-smoke";
+
 export { verifyAgentBinaryAvailable } from "./binary-availability";
 
 export interface OnboardContext {
@@ -336,7 +337,7 @@ export async function handleAgentSetup(
   };
 
   if (resume && sandboxName) {
-    if (agent.runtime?.kind === "terminal") {
+    if (isTerminalAgent(agent)) {
       const binaryAvailability = verifyAgentBinaryAvailable(
         sandboxName,
         agent,
@@ -392,7 +393,7 @@ export async function handleAgentSetup(
 
   syncNemoClawConfig();
 
-  if (agent.runtime?.kind === "terminal") {
+  if (isTerminalAgent(agent)) {
     const smokeResult = runAgentSmokeCommands(sandboxName, agent, runCaptureOpenshell);
     if (!smokeResult.ok) {
       await failAgentSetup(
