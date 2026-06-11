@@ -1,13 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { type AgentDefinition, isTerminalAgent } from "../agent/defs";
+import { isTerminalAgent } from "../agent/defs";
 import { DASHBOARD_PORT } from "../core/ports";
 
 type RunCaptureOpenshell = (args: string[], options: { ignoreError: true }) => string;
 type RegistryReader = {
   getSandbox(sandboxName: string): { dashboardPort?: number | null } | null | undefined;
 };
+
+export type DashboardRuntimeAgent = {
+  forwardPort?: number | null;
+  forward_ports?: number[] | null;
+  runtime?: { kind?: unknown } | null;
+} | null;
 
 export type DashboardRuntimePlan = {
   manageDashboard: boolean;
@@ -25,13 +31,41 @@ export type DashboardForwardPlan = {
   chatUiUrl: string;
 };
 
-export function shouldManageDashboardForAgent(agent: AgentDefinition | null): boolean {
-  if (!agent || !isTerminalAgent(agent)) return true;
-  const ports = [
+export function isValidForwardPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
+export function getAgentDeclaredForwardPorts(agent: DashboardRuntimeAgent): number[] {
+  if (!agent) return [];
+  return [
     agent.forwardPort,
     ...(Array.isArray(agent.forward_ports) ? agent.forward_ports : []),
-  ];
-  return ports.some((port) => Number.isInteger(port) && port >= 1 && port <= 65535);
+  ].filter((port, index, ports): port is number => {
+    return isValidForwardPort(port) && ports.indexOf(port) === index;
+  });
+}
+
+export function getAgentPrimaryForwardPort(agent: DashboardRuntimeAgent, fallback: number): number {
+  return isValidForwardPort(agent?.forwardPort) ? agent.forwardPort : fallback;
+}
+
+function parseChatUiUrl(value: string | undefined): URL | null {
+  if (!value) return null;
+  try {
+    return new URL(value.includes("://") ? value : `http://${value}`);
+  } catch {
+    return null;
+  }
+}
+
+function getParsedUrlPort(url: URL | null): number | null {
+  const port = Number(url?.port);
+  return isValidForwardPort(port) ? port : null;
+}
+
+export function shouldManageDashboardForAgent(agent: DashboardRuntimeAgent): boolean {
+  if (!agent || !isTerminalAgent(agent)) return true;
+  return getAgentDeclaredForwardPorts(agent).length > 0;
 }
 
 export function resolveDashboardRuntimePlan({
@@ -44,7 +78,7 @@ export function resolveDashboardRuntimePlan({
   runCaptureOpenshell,
   warn,
 }: {
-  agent: AgentDefinition | null;
+  agent: DashboardRuntimeAgent;
   sandboxName: string;
   controlUiPort: number | null;
   env: NodeJS.ProcessEnv;
@@ -60,22 +94,13 @@ export function resolveDashboardRuntimePlan({
   const manageDashboard = shouldManageDashboardForAgent(agent);
   if (!manageDashboard) return { manageDashboard, effectivePort: 0, chatUiUrl: "" };
 
-  const persistedPort = registry.getSandbox(sandboxName)?.dashboardPort ?? null;
-  let envPort: number | null = null;
-  if (env.CHAT_UI_URL) {
-    try {
-      const u = new URL(
-        env.CHAT_UI_URL.includes("://") ? env.CHAT_UI_URL : `http://${env.CHAT_UI_URL}`,
-      );
-      const p = Number(u.port);
-      if (p > 0) envPort = p;
-    } catch {
-      /* malformed URL — ignore */
-    }
-  }
+  const rawPersistedPort = registry.getSandbox(sandboxName)?.dashboardPort ?? null;
+  const persistedPort = isValidForwardPort(rawPersistedPort) ? rawPersistedPort : null;
+  const parsedChatUiUrl = parseChatUiUrl(env.CHAT_UI_URL);
+  const envPort = getParsedUrlPort(parsedChatUiUrl);
 
   const preferredPort =
-    controlUiPort ?? envPort ?? persistedPort ?? agent?.forwardPort ?? DASHBOARD_PORT;
+    controlUiPort ?? envPort ?? persistedPort ?? getAgentPrimaryForwardPort(agent, DASHBOARD_PORT);
   const earlyForwards = runCaptureOpenshell(["forward", "list"], { ignoreError: true });
   const effectivePort = findAvailableDashboardPort(sandboxName, preferredPort, earlyForwards);
   if (effectivePort !== preferredPort) {
@@ -83,16 +108,9 @@ export function resolveDashboardRuntimePlan({
   }
 
   let chatUiUrl = `http://127.0.0.1:${effectivePort}`;
-  if (env.CHAT_UI_URL && controlUiPort == null) {
-    try {
-      const parsed = new URL(
-        env.CHAT_UI_URL.includes("://") ? env.CHAT_UI_URL : `http://${env.CHAT_UI_URL}`,
-      );
-      parsed.port = String(effectivePort);
-      chatUiUrl = parsed.toString().replace(/\/$/, "");
-    } catch {
-      /* malformed URL - keep the local default */
-    }
+  if (parsedChatUiUrl && controlUiPort == null) {
+    parsedChatUiUrl.port = String(effectivePort);
+    chatUiUrl = parsedChatUiUrl.toString().replace(/\/$/, "");
   }
   return { manageDashboard, effectivePort, chatUiUrl };
 }

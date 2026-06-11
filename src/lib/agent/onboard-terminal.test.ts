@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from "vitest";
+import { loadAgent } from "../../../dist/lib/agent/defs";
 // Import from compiled dist/ so coverage is attributed correctly.
 import { handleAgentSetup } from "../../../dist/lib/agent/onboard";
 import type { AgentDefinition } from "./defs";
@@ -9,50 +10,7 @@ import type { AgentDefinition } from "./defs";
 type RunCaptureOpenshell = (args: string[], opts?: { ignoreError?: boolean }) => string | null;
 
 function makeDeepAgentsCodeAgent(): AgentDefinition {
-  return {
-    name: "langchain-deepagents-code",
-    displayName: "LangChain Deep Agents Code",
-    binary_path: "/usr/local/bin/dcode",
-    healthProbe: null,
-    forwardPort: 0,
-    dashboard: { kind: "ui", label: "UI", path: "/", healthPath: "/health", auth: "url_token" },
-    configPaths: {
-      dir: "/sandbox/.deepagents",
-      configFile: "config.toml",
-      envFile: ".env",
-      format: "toml",
-    },
-    inferenceProviderOptions: [],
-    stateDirs: [".state", "skills"],
-    stateFiles: [
-      { path: "config.toml", strategy: "copy" },
-      { path: "hooks.json", strategy: "copy" },
-      { path: ".mcp.json", strategy: "copy" },
-    ],
-    versionCommand: "dcode --version",
-    expectedVersion: "0.1.12",
-    hasDevicePairing: false,
-    phoneHomeHosts: [],
-    messagingPlatforms: [],
-    dockerfileBasePath: null,
-    dockerfilePath: null,
-    startScriptPath: null,
-    policyAdditionsPath: null,
-    policyPermissivePath: null,
-    pluginDir: null,
-    legacyPaths: null,
-    agentDir: "/tmp/langchain-deepagents-code",
-    manifestPath: "/tmp/langchain-deepagents-code/manifest.yaml",
-    runtime: {
-      kind: "terminal",
-      interactive_command: "dcode",
-      headless_command: "dcode -n",
-      smoke_commands: [
-        "dcode --version",
-        "test -s /sandbox/.deepagents/config.toml && echo NEMOCLAW_DEEPAGENTS_CONFIG_OK",
-      ],
-    },
-  };
+  return loadAgent("langchain-deepagents-code");
 }
 
 function createAgentSetupContext(

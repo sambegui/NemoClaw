@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DASHBOARD_PORT } from "../core/ports";
+import {
+  type DashboardRuntimeAgent,
+  getAgentDeclaredForwardPorts,
+  getAgentPrimaryForwardPort,
+  shouldManageDashboardForAgent,
+} from "./dashboard-runtime";
 
 export type EnsureDashboardForward = (
   sandboxName: string,
@@ -12,11 +18,7 @@ export type EnsureDashboardForward = (
   },
 ) => number;
 
-export interface AgentDashboardForwardConfig {
-  forwardPort?: number | null;
-  forward_ports?: number[] | null;
-  runtime?: { kind?: unknown } | null;
-}
+export type AgentDashboardForwardConfig = NonNullable<DashboardRuntimeAgent>;
 
 export function ensureAgentDashboardForward(options: {
   sandboxName: string;
@@ -32,27 +34,13 @@ export function ensureAgentDashboardForward(options: {
     controlUiPort = DASHBOARD_PORT,
     warn = (message: string) => console.warn(message),
   } = options;
-  const declaredPorts = Array.isArray(agent.forward_ports) ? agent.forward_ports : [];
-  const rawForwardPort = agent.forwardPort;
-  const configuredForwardPort =
-    typeof rawForwardPort === "number" &&
-    Number.isInteger(rawForwardPort) &&
-    rawForwardPort >= 1 &&
-    rawForwardPort <= 65535
-      ? rawForwardPort
-      : null;
-  if (
-    agent.runtime?.kind === "terminal" &&
-    configuredForwardPort === null &&
-    declaredPorts.length === 0
-  ) {
+  if (!shouldManageDashboardForAgent(agent)) {
     return 0;
   }
 
-  const agentDashboardPort = configuredForwardPort ?? controlUiPort;
-  const preservePorts = [...new Set([agentDashboardPort, ...declaredPorts])].filter(
-    (port) => Number.isInteger(port) && port >= 1 && port <= 65535,
-  );
+  const declaredPorts = getAgentDeclaredForwardPorts(agent);
+  const agentDashboardPort = getAgentPrimaryForwardPort(agent, controlUiPort);
+  const preservePorts = [...new Set([agentDashboardPort, ...declaredPorts])];
   const actualAgentDashboardPort = ensureDashboardForward(
     sandboxName,
     `http://127.0.0.1:${agentDashboardPort}`,
