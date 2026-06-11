@@ -219,6 +219,17 @@ export async function showSandboxStatus(sandboxName: string): Promise<void> {
     }
     console.log(`    OpenShell: ${openshellVersion} (${openshellDriver})`);
     console.log(`    Policies: ${(sb.policies || []).join(", ") || "none"}`);
+    const statusAgent = agentRuntime.getSessionAgent(sandboxName);
+    const statusAgentName = agentRuntime.getAgentDisplayName(statusAgent);
+    const statusAgentRuntime = agentRuntime.hasGatewayRuntime(statusAgent) ? "gateway" : "terminal";
+    console.log(`    Harness:  ${statusAgentName} (${statusAgentRuntime})`);
+    if (statusAgent && !agentRuntime.hasGatewayRuntime(statusAgent)) {
+      const interactiveCommand = agentRuntime.getTerminalCommand(statusAgent, "interactive");
+      const headlessCommand = agentRuntime.getTerminalCommand(statusAgent, "headless");
+      if (interactiveCommand) console.log(`    Interactive: ${interactiveCommand}`);
+      if (headlessCommand) console.log(`    Headless: ${headlessCommand} "<prompt>"`);
+      console.log("    Updates: managed by NemoClaw image rebuilds");
+    }
 
     // Active session indicator
     try {
@@ -419,24 +430,32 @@ export async function showSandboxStatus(sandboxName: string): Promise<void> {
 
   // OpenClaw process health inside the sandbox
   if (lookup.state === "present") {
-    const running = await isSandboxGatewayRunningForStatus(sandboxName);
-    if (running !== null) {
-      const sessionAgent = agentRuntime.getSessionAgent(sandboxName);
-      const sessionAgentName = agentRuntime.getAgentDisplayName(sessionAgent);
-      if (running) {
-        console.log(`    ${sessionAgentName}: ${G}running${R}`);
-      } else {
-        console.log(`    ${sessionAgentName}: ${RD}not running${R}`);
-        console.log("");
-        console.log(
-          `  The sandbox is alive but the ${sessionAgentName} gateway process is not running.`,
-        );
-        console.log("  This typically happens after a gateway restart (e.g., laptop close/open).");
-        console.log("");
-        console.log("  To recover, run:");
-        console.log(`    ${D}${CLI_NAME} ${sandboxName} connect${R}  (auto-recovers on connect)`);
-        console.log("  Or manually inside the sandbox:");
-        console.log(`    ${D}${agentRuntime.getGatewayCommand(sessionAgent)}${R}`);
+    const sessionAgent = agentRuntime.getSessionAgent(sandboxName);
+    if (sessionAgent && !agentRuntime.hasGatewayRuntime(sessionAgent)) {
+      console.log(
+        `    ${agentRuntime.getAgentDisplayName(sessionAgent)} runtime: ${G}terminal${R}`,
+      );
+    } else {
+      const running = await isSandboxGatewayRunningForStatus(sandboxName);
+      if (running !== null) {
+        const sessionAgentName = agentRuntime.getAgentDisplayName(sessionAgent);
+        if (running) {
+          console.log(`    ${sessionAgentName}: ${G}running${R}`);
+        } else {
+          console.log(`    ${sessionAgentName}: ${RD}not running${R}`);
+          console.log("");
+          console.log(
+            `  The sandbox is alive but the ${sessionAgentName} gateway process is not running.`,
+          );
+          console.log(
+            "  This typically happens after a gateway restart (e.g., laptop close/open).",
+          );
+          console.log("");
+          console.log("  To recover, run:");
+          console.log(`    ${D}${CLI_NAME} ${sandboxName} connect${R}  (auto-recovers on connect)`);
+          console.log("  Or manually inside the sandbox:");
+          console.log(`    ${D}${agentRuntime.getGatewayCommand(sessionAgent)}${R}`);
+        }
       }
     }
   }

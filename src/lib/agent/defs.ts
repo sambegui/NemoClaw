@@ -25,6 +25,15 @@ export interface AgentHealthProbe {
   timeout_seconds: number;
 }
 
+export type AgentRuntimeKind = "gateway" | "terminal";
+
+export interface AgentRuntime {
+  kind: AgentRuntimeKind;
+  interactive_command?: string;
+  headless_command?: string;
+  smoke_commands?: string[];
+}
+
 export interface AgentConfigPaths {
   dir: string;
   configFile: string;
@@ -70,6 +79,7 @@ export interface AgentDefinition {
   version_command?: string;
   expected_version?: string;
   gateway_command?: string;
+  runtime?: AgentRuntime;
   device_pairing?: boolean;
   phone_home_hosts?: string[];
   forward_ports?: number[];
@@ -83,7 +93,7 @@ export interface AgentDefinition {
   agentDir: string;
   manifestPath: string;
   readonly displayName: string;
-  readonly healthProbe: AgentHealthProbe;
+  readonly healthProbe: AgentHealthProbe | null;
   readonly forwardPort: number;
   readonly dashboard: AgentDashboard;
   readonly dashboardUi?: AgentDashboardUi | null;
@@ -262,6 +272,34 @@ function readMessagingPlatforms(record: ManifestRecord): { supported?: string[] 
   return supported ? { supported } : {};
 }
 
+function readRuntime(record: ManifestRecord): AgentRuntime {
+  const runtime = readObject(record, "runtime");
+  if (!runtime) return { kind: "gateway" };
+
+  const rawKind = runtime.kind;
+  if (rawKind !== undefined && rawKind !== "gateway" && rawKind !== "terminal") {
+    throw new Error("Agent manifest field 'runtime.kind' must be gateway or terminal");
+  }
+
+  const kind: AgentRuntimeKind = rawKind === "terminal" ? "terminal" : "gateway";
+  const interactiveCommand = readString(runtime, "interactive_command")?.trim();
+  const headlessCommand = readString(runtime, "headless_command")?.trim();
+  const smokeCommands = readStringArray(runtime, "smoke_commands");
+
+  if (kind === "terminal" && !interactiveCommand && !headlessCommand) {
+    throw new Error(
+      "Agent manifest field 'runtime' must define interactive_command or headless_command for terminal agents",
+    );
+  }
+
+  return {
+    kind,
+    ...(interactiveCommand ? { interactive_command: interactiveCommand } : {}),
+    ...(headlessCommand ? { headless_command: headlessCommand } : {}),
+    ...(smokeCommands && smokeCommands.length > 0 ? { smoke_commands: smokeCommands } : {}),
+  };
+}
+
 function readDashboard(record: ManifestRecord): AgentDashboard {
   const d = readObject(record, "dashboard") ?? {};
   const rawKind = d.kind;
@@ -372,6 +410,7 @@ export function loadAgent(name: string): AgentDefinition {
   const versionCommand = readString(raw, "version_command");
   const expectedVersion = readString(raw, "expected_version");
   const gatewayCommand = readString(raw, "gateway_command");
+  const runtime = readRuntime(raw);
   const forwardPorts = readPortArray(raw, "forward_ports");
   const dashboard = readDashboard(raw);
   const healthProbe = readHealthProbe(raw);
@@ -393,6 +432,7 @@ export function loadAgent(name: string): AgentDefinition {
     version_command: versionCommand,
     expected_version: expectedVersion,
     gateway_command: gatewayCommand,
+    runtime,
     device_pairing: readBoolean(raw, "device_pairing"),
     phone_home_hosts: phoneHomeHosts,
     forward_ports: forwardPorts,
@@ -410,7 +450,10 @@ export function loadAgent(name: string): AgentDefinition {
       return displayName ?? manifestName;
     },
 
-    get healthProbe(): AgentHealthProbe {
+    get healthProbe(): AgentHealthProbe | null {
+      if (runtime.kind === "terminal" && !healthProbe) {
+        return null;
+      }
       return (
         healthProbe ?? {
           url: `http://localhost:${String(DASHBOARD_PORT)}/`,
@@ -421,6 +464,9 @@ export function loadAgent(name: string): AgentDefinition {
     },
 
     get forwardPort(): number {
+      if (runtime.kind === "terminal" && !forwardPorts?.[0]) {
+        return 0;
+      }
       return forwardPorts?.[0] ?? DASHBOARD_PORT;
     },
 
@@ -523,6 +569,18 @@ export function loadAgent(name: string): AgentDefinition {
 
   _cache.set(name, agent);
   return agent;
+}
+
+export function getAgentRuntimeKind(
+  agent: { runtime?: { kind?: unknown } | null } | null | undefined,
+): AgentRuntimeKind {
+  return agent?.runtime?.kind === "terminal" ? "terminal" : "gateway";
+}
+
+export function isTerminalAgent(
+  agent: { runtime?: { kind?: unknown } | null } | null | undefined,
+): boolean {
+  return getAgentRuntimeKind(agent) === "terminal";
 }
 
 /**

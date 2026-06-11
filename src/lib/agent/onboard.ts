@@ -209,6 +209,8 @@ type AgentBinaryAvailability =
       resolvedPath?: string;
     };
 
+type AgentSmokeCommandResult = { ok: true } | { ok: false; command: string; output: string | null };
+
 const AGENT_BINARY_CHECK_PREFIX = "NEMOCLAW_AGENT_BINARY_CHECK:";
 const HERMES_TIRITH_MARKER_ABSENT = "tirith marker: absent";
 const HERMES_STARTUP_DIAGNOSTICS_SCRIPT = `
@@ -322,6 +324,24 @@ function describeAgentBinaryFailure(
   return `${agent.displayName} binary '${executable}' is missing inside sandbox '${sandboxName}'`;
 }
 
+function runAgentSmokeCommands(
+  sandboxName: string,
+  agent: AgentDefinition,
+  runCaptureOpenshell: OnboardContext["runCaptureOpenshell"],
+): AgentSmokeCommandResult {
+  const commands = agent.runtime?.smoke_commands ?? [];
+  for (const command of commands) {
+    const output = runCaptureOpenshell(
+      ["sandbox", "exec", "-n", sandboxName, "--", "sh", "-lc", command],
+      { ignoreError: true },
+    );
+    if (!output || /not found|error|failed/i.test(output)) {
+      return { ok: false, command, output };
+    }
+  }
+  return { ok: true };
+}
+
 /**
  * Collect read-only Hermes startup diagnostics for Step 7 health timeouts.
  * Returns no extra lines when the Tirith marker is absent so non-Tirith
@@ -426,6 +446,20 @@ export async function handleAgentSetup(
   };
 
   if (resume && sandboxName) {
+    if (agent.runtime?.kind === "terminal") {
+      const binaryAvailability = verifyAgentBinaryAvailable(
+        sandboxName,
+        agent,
+        runCaptureOpenshell,
+      );
+      if (binaryAvailability.available) {
+        skippedStepMessage("agent_setup", sandboxName);
+        syncNemoClawConfig();
+        await recordStepComplete("agent_setup", { sandboxName, provider, model });
+        return;
+      }
+    }
+
     const probe = agent.healthProbe;
     if (probe?.url) {
       const result = runCaptureOpenshell(
@@ -467,6 +501,22 @@ export async function handleAgentSetup(
   }
 
   syncNemoClawConfig();
+
+  if (agent.runtime?.kind === "terminal") {
+    const smokeResult = runAgentSmokeCommands(sandboxName, agent, runCaptureOpenshell);
+    if (!smokeResult.ok) {
+      await failAgentSetup(
+        sandboxName,
+        agent,
+        `${agent.displayName} terminal smoke command failed: ${smokeResult.command}`,
+        recordStepFailed,
+        smokeResult.output ? [String(redact(smokeResult.output)).slice(0, 500)] : [],
+      );
+    }
+    console.log(`  \u2713 ${agent.displayName} terminal runtime is ready`);
+    await recordStepComplete("agent_setup", { sandboxName, provider, model });
+    return;
+  }
 
   const probe = agent.healthProbe;
   if (probe?.url) {

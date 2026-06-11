@@ -39,7 +39,7 @@ export type SandboxCommandResult = {
   stderr: string;
 };
 
-type SandboxPortAgent = { forwardPort?: unknown } | null;
+type SandboxPortAgent = { forwardPort?: unknown; runtime?: { kind?: unknown } } | null;
 
 type SandboxPortDeps = {
   getSandbox?: typeof registry.getSandbox;
@@ -66,7 +66,7 @@ export function resolveSandboxDashboardPort(
 ): number {
   const getSessionAgent = deps.getSessionAgent ?? agentRuntime.getSessionAgent;
   const agent = getSessionAgent(sandboxName);
-  if (agent && isValidPort(agent.forwardPort)) {
+  if (agent && agentRuntime.hasGatewayRuntime(agent) && isValidPort(agent.forwardPort)) {
     return agent.forwardPort;
   }
 
@@ -77,7 +77,7 @@ export function resolveSandboxDashboardPort(
 
 function getSandboxHealthProbeUrl(sandboxName: string): string {
   const agent = agentRuntime.getSessionAgent(sandboxName);
-  if (agent) return agentRuntime.getHealthProbeUrl(agent);
+  if (agent && agentRuntime.hasGatewayRuntime(agent)) return agentRuntime.getHealthProbeUrl(agent);
   return `http://127.0.0.1:${resolveSandboxDashboardPort(sandboxName)}/health`;
 }
 
@@ -211,6 +211,8 @@ function parseSandboxGatewayProbe(result: SandboxCommandResult | null): boolean 
  * "Health Offline" readings.
  */
 function isSandboxGatewayRunning(sandboxName: string): boolean | null {
+  const agent = agentRuntime.getSessionAgent(sandboxName);
+  if (agent && !agentRuntime.hasGatewayRuntime(agent)) return null;
   const probeUrl = getSandboxHealthProbeUrl(sandboxName);
   const command = `HTTP_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 3 ${shellQuote(probeUrl)} 2>/dev/null || echo 000); case "$HTTP_CODE" in 200|401) echo RUNNING ;; *) echo STOPPED ;; esac`;
   const execProbe = parseSandboxGatewayProbe(executeSandboxExecCommand(sandboxName, command));
@@ -221,6 +223,8 @@ function isSandboxGatewayRunning(sandboxName: string): boolean | null {
 export async function isSandboxGatewayRunningForStatus(
   sandboxName: string,
 ): Promise<boolean | null> {
+  const agent = agentRuntime.getSessionAgent(sandboxName);
+  if (agent && !agentRuntime.hasGatewayRuntime(agent)) return null;
   const probeUrl = getSandboxHealthProbeUrl(sandboxName);
   const command = `HTTP_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 3 ${shellQuote(probeUrl)} 2>/dev/null || echo 000); case "$HTTP_CODE" in 200|401) echo RUNNING ;; *) echo STOPPED ;; esac`;
   return parseSandboxGatewayProbe(await executeSandboxExecCommandForStatus(sandboxName, command));
@@ -419,11 +423,20 @@ export function checkAndRecoverSandboxProcesses(
   sandboxName: string,
   { quiet = false }: { quiet?: boolean } = {},
 ) {
+  const recoveryAgent = agentRuntime.getSessionAgent(sandboxName);
+  if (recoveryAgent && !agentRuntime.hasGatewayRuntime(recoveryAgent)) {
+    return {
+      checked: true,
+      wasRunning: null,
+      recovered: false,
+      forwardRecovered: false,
+      runtime: "terminal" as const,
+    };
+  }
   const running = isSandboxGatewayRunning(sandboxName);
   if (running === null) {
     return { checked: false, wasRunning: null, recovered: false, forwardRecovered: false };
   }
-  const recoveryAgent = agentRuntime.getSessionAgent(sandboxName);
   const recoveryPort = resolveSandboxDashboardPort(sandboxName);
   if (running) {
     // Gateway is alive but the host-side forward can still be dead or

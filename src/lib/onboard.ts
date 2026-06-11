@@ -3475,6 +3475,7 @@ async function createSandbox(
       directGpu: effectiveSandboxGpuConfig.sandboxGpuEnabled,
       dockerGpuPatch: useDockerGpuPatch,
       additionalPresets: hermesToolGateways,
+      agentName: agent?.name,
     },
   );
   if (initialSandboxPolicy.cleanup) {
@@ -6323,7 +6324,7 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         getChatUiUrl: () => process.env.CHAT_UI_URL || `http://127.0.0.1:${DASHBOARD_PORT}`,
         buildVerifyChain: (chatUiUrl) =>
           // biome-ignore format: keep src/lib/onboard.ts net-neutral for growth guardrail.
-          buildChain({ chatUiUrl, isWsl: isWsl(), wslHostAddress: getWslHostAddress(), dashboardHealthEndpoint: agent?.dashboard.healthPath, gatewayPort: agent?.healthProbe.port, gatewayHealthEndpoint: agent?.healthProbe.url }),
+          buildChain({ chatUiUrl, isWsl: isWsl(), wslHostAddress: getWslHostAddress(), dashboardHealthEndpoint: agent?.dashboard.healthPath, gatewayPort: agent?.healthProbe?.port, gatewayHealthEndpoint: agent?.healthProbe?.url }),
         verifyDeployment: async (name, chain) => {
           const verifyDeploymentModule: typeof import("./verify-deployment") =
             require("./verify-deployment");

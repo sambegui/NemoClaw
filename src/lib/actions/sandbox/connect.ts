@@ -183,9 +183,17 @@ export function parseSandboxConnectArgs(
 }
 
 function runSandboxConnectProbe(sandboxName: string): void {
-  const processCheck = checkAndRecoverSandboxProcesses(sandboxName, { quiet: true });
   const agent = agentRuntime.getSessionAgent(sandboxName);
   const agentName = agentRuntime.getAgentDisplayName(agent);
+  if (agent && !agentRuntime.hasGatewayRuntime(agent)) {
+    ensureSandboxInferenceRoute(sandboxName, { quiet: true });
+    const command = agentRuntime.getTerminalCommand(agent);
+    const commandText = command ? ` (${command})` : "";
+    console.log(`  Probe complete: ${agentName} terminal runtime is available${commandText}.`);
+    return;
+  }
+
+  const processCheck = checkAndRecoverSandboxProcesses(sandboxName, { quiet: true });
   if (!processCheck.checked) {
     console.error(
       `  Probe failed: could not inspect the ${agentName} gateway inside sandbox '${sandboxName}'.`,

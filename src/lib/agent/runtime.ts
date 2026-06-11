@@ -11,7 +11,7 @@ import { DASHBOARD_PORT } from "../core/ports";
 import { shellQuote } from "../runner";
 import * as onboardSession from "../state/onboard-session";
 import * as registry from "../state/registry";
-import { loadAgent, type AgentDefinition } from "./defs";
+import { isTerminalAgent, loadAgent, type AgentDefinition } from "./defs";
 import {
   buildHermesEnvFileBoundaryGuard,
   buildHermesRuntimeEnvBoundaryGuard,
@@ -53,7 +53,23 @@ export function getSessionAgent(sandboxName?: string): AgentDefinition | null {
  */
 export function getHealthProbeUrl(agent: AgentDefinition | null): string {
   if (!agent) return `http://127.0.0.1:${DASHBOARD_PORT}/health`;
+  if (isTerminalAgent(agent)) return "";
   return agent.healthProbe?.url || `http://127.0.0.1:${DASHBOARD_PORT}/health`;
+}
+
+export function hasGatewayRuntime(
+  agent: { runtime?: { kind?: unknown } | null } | null | undefined,
+): boolean {
+  return !isTerminalAgent(agent);
+}
+
+export function getTerminalCommand(
+  agent: AgentDefinition | null,
+  mode: "interactive" | "headless" = "interactive",
+): string | null {
+  if (!agent || !isTerminalAgent(agent)) return null;
+  if (mode === "headless") return agent.runtime?.headless_command ?? null;
+  return agent.runtime?.interactive_command ?? agent.runtime?.headless_command ?? null;
 }
 
 function escapeEre(value: string): string {
@@ -223,6 +239,7 @@ export function buildRecoveryScript(
   options: { hermesDashboard?: HermesDashboardRecoveryConfig | null } = {},
 ): string | null {
   if (!agent) return null;
+  if (isTerminalAgent(agent)) return null;
 
   const probeUrl = getHealthProbeUrl(agent);
   const binaryPath = agent.binary_path || "/usr/local/bin/openclaw";
@@ -299,6 +316,7 @@ export function getAgentDisplayName(agent: AgentDefinition | null): string {
  * Get the gateway command for the current agent.
  */
 export function getGatewayCommand(agent: AgentDefinition | null): string {
+  if (agent && isTerminalAgent(agent)) return getTerminalCommand(agent) ?? agent.versionCommand;
   return agent?.gateway_command || "openclaw gateway run";
 }
 
@@ -308,6 +326,7 @@ export function getGatewayCommand(agent: AgentDefinition | null): string {
  * process alive after disconnect and preserves the agent-specific launch shape.
  */
 export function buildManualRecoveryCommand(agent: AgentDefinition | null, port: number): string {
+  if (agent && isTerminalAgent(agent)) return getTerminalCommand(agent) ?? agent.versionCommand;
   const binaryPath = agent?.binary_path || "/usr/local/bin/openclaw";
   const defaultGatewayCommand = `${shellQuote(binaryPath)} gateway run`;
   const gatewayCmd = agent?.gateway_command?.trim() || defaultGatewayCommand;

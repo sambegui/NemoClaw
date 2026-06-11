@@ -15,6 +15,7 @@ export type EnsureDashboardForward = (
 export interface AgentDashboardForwardConfig {
   forwardPort?: number | null;
   forward_ports?: number[] | null;
+  runtime?: { kind?: unknown } | null;
 }
 
 export function ensureAgentDashboardForward(options: {
@@ -31,8 +32,24 @@ export function ensureAgentDashboardForward(options: {
     controlUiPort = DASHBOARD_PORT,
     warn = (message: string) => console.warn(message),
   } = options;
-  const agentDashboardPort = agent.forwardPort ?? controlUiPort;
   const declaredPorts = Array.isArray(agent.forward_ports) ? agent.forward_ports : [];
+  const rawForwardPort = agent.forwardPort;
+  const configuredForwardPort =
+    typeof rawForwardPort === "number" &&
+    Number.isInteger(rawForwardPort) &&
+    rawForwardPort >= 1 &&
+    rawForwardPort <= 65535
+      ? rawForwardPort
+      : null;
+  if (
+    agent.runtime?.kind === "terminal" &&
+    configuredForwardPort === null &&
+    declaredPorts.length === 0
+  ) {
+    return 0;
+  }
+
+  const agentDashboardPort = configuredForwardPort ?? controlUiPort;
   const preservePorts = [...new Set([agentDashboardPort, ...declaredPorts])].filter(
     (port) => Number.isInteger(port) && port >= 1 && port <= 65535,
   );

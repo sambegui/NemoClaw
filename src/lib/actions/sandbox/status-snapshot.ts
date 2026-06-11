@@ -6,6 +6,7 @@ import {
   type OpenShellStateRpcIssue,
 } from "../../adapters/openshell/gateway-drift";
 import { captureOpenshellForStatus, isCommandTimeout } from "../../adapters/openshell/runtime";
+import { getAgentRuntimeKind, loadAgent } from "../../agent/defs";
 import { parseGatewayInference } from "../../inference/config";
 import {
   type ProviderHealthProbeOptions,
@@ -69,6 +70,9 @@ export interface SandboxStatusReport {
   schemaVersion: 1;
   name: string;
   found: boolean;
+  agent: string;
+  agentDisplayName: string;
+  agentRuntime: "gateway" | "terminal";
   model: string;
   provider: string;
   phase: string | null;
@@ -223,10 +227,23 @@ async function buildSandboxStatusReport(
     sb && Array.isArray(sb.policies)
       ? sb.policies.filter((policy): policy is string => typeof policy === "string")
       : [];
+  const agentName = sb?.agent || "openclaw";
+  let agentDisplayName = agentName === "openclaw" ? "OpenClaw" : agentName;
+  let agentRuntime: "gateway" | "terminal" = "gateway";
+  try {
+    const agent = loadAgent(agentName);
+    agentDisplayName = agent.displayName;
+    agentRuntime = getAgentRuntimeKind(agent);
+  } catch {
+    /* keep registry fallback values */
+  }
   return {
     schemaVersion: 1,
     name: sandboxName,
     found: !!sb,
+    agent: agentName,
+    agentDisplayName,
+    agentRuntime,
     model: currentModel,
     provider: currentProvider,
     phase,
