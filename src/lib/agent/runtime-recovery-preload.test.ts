@@ -17,7 +17,7 @@ const [SAFETY_NET_GUARD, CIAO_GUARD] = GATEWAY_PRELOAD_GUARDS;
 
 function writeStub(dir: string, name: string, body: string) {
   const stub = path.join(dir, name);
-  fs.writeFileSync(stub, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  fs.writeFileSync(stub, `#!/usr/bin/env sh\n${body}\n`, { mode: 0o755 });
   return stub;
 }
 
@@ -61,6 +61,7 @@ function runGuardRecovery(opts: {
   proxyEnvContent?: string;
   beforeScript?: (paths: ReturnType<typeof makeHarness>) => void;
   fakeRoot?: boolean;
+  shell?: "bash" | "sh";
 }) {
   const paths = makeHarness();
   if (opts.fakeRoot) {
@@ -89,7 +90,6 @@ function runGuardRecovery(opts: {
 
   const script = rewriteRuntimePaths(
     [
-      "#!/usr/bin/env bash",
       "set -u",
       `export _GATEWAY_LOG=${JSON.stringify(paths.gatewayLog)}`,
       ': > "$_GATEWAY_LOG"',
@@ -101,11 +101,8 @@ function runGuardRecovery(opts: {
     ].join("\n"),
     paths,
   );
-  const scriptPath = path.join(paths.root, "recovery.sh");
-  fs.writeFileSync(scriptPath, script, { mode: 0o700 });
-
   try {
-    const result = spawnSync("bash", [scriptPath], {
+    const result = spawnSync(opts.shell ?? "sh", ["-c", script], {
       encoding: "utf-8",
       timeout: 10000,
       env: {
@@ -164,6 +161,15 @@ function mode(pathname: string): number {
 }
 
 describe("gateway recovery preload repair", () => {
+  it("runs the generated recovery helper through /bin/sh -c", () => {
+    const result = runGuardRecovery({ fakeRoot: true, shell: "sh" });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("PE_MISSING=0");
+    expect(result.stderr).not.toContain("Bad substitution");
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpSafetyNet}`);
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpCiao}`);
+  });
+
   it("restores missing proxy-env.sh from trusted packaged preloads", () => {
     const result = runGuardRecovery({});
     expect(result.status).toBe(0);
@@ -298,6 +304,43 @@ describe("gateway recovery preload repair", () => {
       expect(script).toContain("/usr/local/lib/nemoclaw/preloads/sandbox-safety-net.js");
       expect(script).toContain("/usr/local/lib/nemoclaw/preloads/ciao-network-guard.js");
       expect(script).not.toContain("gateway launching without library guards");
+    }
+  });
+
+  it("validates proxy-env.sh before sourcing it in gateway recovery scripts", () => {
+    for (const script of [
+      buildRecoveryScript(minimalAgent, 19000),
+      buildOpenClawRecoveryScript(18789),
+    ]) {
+      expect(script).not.toContain("[ -r /tmp/nemoclaw-proxy-env.sh ]; then .");
+      const validateIdx = script!.indexOf(
+        "_nemoclaw_validate_recovery_proxy_env /tmp/nemoclaw-proxy-env.sh",
+      );
+      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
+      expect(validateIdx).toBeGreaterThanOrEqual(0);
+      expect(sourceIdx).toBeGreaterThanOrEqual(0);
+      expect(validateIdx).toBeLessThan(sourceIdx);
+    }
+  });
+
+  it("repairs guard files before health probing and the ALREADY_RUNNING fast path", () => {
+    for (const script of [
+      buildRecoveryScript(minimalAgent, 19000),
+      buildOpenClawRecoveryScript(18789),
+    ]) {
+      expect(script).not.toBeNull();
+      const repairIdx = script!.indexOf("_NEMOCLAW_CRITICAL_GUARDS_READY=1");
+      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
+      const healthIdx = script!.indexOf("_GW_CODE=");
+      const alreadyRunningIdx = script!.indexOf("echo ALREADY_RUNNING; exit 0");
+      expect(repairIdx).toBeGreaterThanOrEqual(0);
+      expect(sourceIdx).toBeGreaterThanOrEqual(0);
+      expect(healthIdx).toBeGreaterThanOrEqual(0);
+      expect(alreadyRunningIdx).toBeGreaterThanOrEqual(0);
+      expect(sourceIdx).toBeLessThan(repairIdx);
+      expect(repairIdx).toBeLessThan(healthIdx);
+      expect(sourceIdx).toBeLessThan(healthIdx);
+      expect(healthIdx).toBeLessThan(alreadyRunningIdx);
     }
   });
 });

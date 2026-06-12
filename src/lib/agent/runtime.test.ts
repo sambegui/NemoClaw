@@ -228,35 +228,6 @@ describe("buildRecoveryScript", () => {
       expect(script).toContain("or ciao preload");
     });
 
-    it("validates proxy-env.sh before sourcing it", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).not.toContain("[ -r /tmp/nemoclaw-proxy-env.sh ]; then .");
-      const validateIdx = script!.indexOf(
-        "_nemoclaw_validate_recovery_proxy_env /tmp/nemoclaw-proxy-env.sh",
-      );
-      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
-      expect(validateIdx).toBeGreaterThanOrEqual(0);
-      expect(sourceIdx).toBeGreaterThanOrEqual(0);
-      expect(validateIdx).toBeLessThan(sourceIdx);
-    });
-
-    it("repairs guard files before the ALREADY_RUNNING fast path", () => {
-      for (const script of [
-        buildRecoveryScript(minimalAgent, 19000),
-        buildOpenClawRecoveryScript(18789),
-      ]) {
-        expect(script).not.toBeNull();
-        const repairIdx = script!.indexOf("_NEMOCLAW_CRITICAL_GUARDS_READY=1");
-        const healthIdx = script!.indexOf("_GW_CODE=");
-        const alreadyRunningIdx = script!.indexOf("echo ALREADY_RUNNING; exit 0");
-        expect(repairIdx).toBeGreaterThanOrEqual(0);
-        expect(healthIdx).toBeGreaterThanOrEqual(0);
-        expect(alreadyRunningIdx).toBeGreaterThanOrEqual(0);
-        expect(repairIdx).toBeLessThan(healthIdx);
-        expect(healthIdx).toBeLessThan(alreadyRunningIdx);
-      }
-    });
-
     it("stops stale launcher and gateway processes before relaunch", () => {
       const script = buildRecoveryScript(minimalAgent, 19000);
       expect(script).toContain(
@@ -265,19 +236,6 @@ describe("buildRecoveryScript", () => {
       expect(script).toContain('pkill -TERM -f "$_GATEWAY_PROC_PATTERN"');
       expect(script).toContain('pkill -KILL -f "$_GATEWAY_PROC_PATTERN"');
       expect(script).toContain("GATEWAY_STALE_PROCESSES");
-    });
-
-    it("sources proxy-env.sh before health probing and launching the gateway binary", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).not.toBeNull();
-      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
-      const healthIdx = script!.indexOf("_GW_CODE=");
-      const launchIdx = script!.indexOf("nohup");
-      expect(sourceIdx).toBeGreaterThanOrEqual(0);
-      expect(healthIdx).toBeGreaterThanOrEqual(0);
-      expect(launchIdx).toBeGreaterThanOrEqual(0);
-      expect(sourceIdx).toBeLessThan(healthIdx);
-      expect(sourceIdx).toBeLessThan(launchIdx);
     });
 
     it("fails recovery when trusted guard restoration cannot install required guards", () => {
