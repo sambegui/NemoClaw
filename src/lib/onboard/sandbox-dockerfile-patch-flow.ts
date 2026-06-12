@@ -145,8 +145,6 @@ export async function prepareSandboxDockerfilePatch({
     preferredInferenceApi,
     webSearchConfig,
     resolved ? resolved.ref : null,
-    // Docker-on-Colima uses normal container ownership; keep the old VM chmod
-    // compatibility path disabled unless a future VM-specific flow opts in.
     false,
     null,
     hermesToolGateways,
