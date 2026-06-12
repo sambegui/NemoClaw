@@ -169,6 +169,28 @@ describe("gateway recovery preload self-heal (#5253)", () => {
       expect(script).toContain("has unsafe mode=");
       expect(script).toContain("owner=$owner (expected root)");
     });
+
+    it("final guard check matches the trusted --require path, not just the marker substring", () => {
+      const script = buildRecoveryScript(minimalAgent, 19000);
+      expect(script).toContain(
+        '*"--require /tmp/nemoclaw-sandbox-safety-net.js"*) _SN_MISSING=0 ;;',
+      );
+      expect(script).toContain(
+        '*"--require /tmp/nemoclaw-ciao-network-guard.js"*) _CIAO_MISSING=0 ;;',
+      );
+      expect(script).not.toContain("*nemoclaw-sandbox-safety-net*) _SN_MISSING=0 ;;");
+      expect(script).not.toContain("*nemoclaw-ciao-network-guard*) _CIAO_MISSING=0 ;;");
+    });
+
+    it("OpenClaw recovery also pins the guard check to the trusted --require path", () => {
+      const script = buildOpenClawRecoveryScript(18789);
+      expect(script).toContain(
+        '*"--require /tmp/nemoclaw-sandbox-safety-net.js"*) _SN_MISSING=0 ;;',
+      );
+      expect(script).toContain(
+        '*"--require /tmp/nemoclaw-ciao-network-guard.js"*) _CIAO_MISSING=0 ;;',
+      );
+    });
   });
 
   describe("behavioural — install from trusted source", () => {
