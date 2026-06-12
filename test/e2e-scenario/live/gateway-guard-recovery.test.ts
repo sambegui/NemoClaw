@@ -22,6 +22,24 @@
  * "guards are present after recovery." The aarch64 ciao crash is a
  * downstream consequence of the same broken contract.
  *
+ * #2701 acceptance scope for this PR:
+ *   - Covered: the default OpenClaw production recovery route
+ *     (`nemoclaw <sandbox> connect --probe-only` →
+ *     checkAndRecoverSandboxProcesses() → `openshell sandbox exec -- sh -c`
+ *     buildOpenClawRecoveryScript()) after the pod-recreate-equivalent state
+ *     of an empty guard-chain `/tmp` plus no running gateway process. This
+ *     proves the user no longer needs `nemoclaw <sandbox> rebuild --yes` for
+ *     that recovered runtime state.
+ *   - Deliberately out of scope for this merge gate: physical DGX Spark /
+ *     GB10 / aarch64 hardware, provider breadth beyond `cloud-openclaw`, and
+ *     destructive host reboot / OOM / supervisor crash / manual
+ *     `kubectl delete pod` triggers. The current live Vitest runner exposes a
+ *     Docker-driver OpenShell sandbox and does not provide a stable per-test
+ *     Kubernetes pod handle that can be deleted without destabilizing shared
+ *     gateway state. Those trigger/hardware/provider clauses need a dedicated
+ *     platform-runtime job; this test locks down the shared recovery contract
+ *     they all depend on.
+ *
  * The corresponding legacy bash phase remains in
  * `test/e2e/test-issue-2478-crash-loop-recovery.sh` Phase 4 with both the
  * #2478 WARNING assertion (current contract) and the new #2701 guard-chain
@@ -61,6 +79,19 @@ test("gateway recovery restores /tmp guard chain after pod-recreate wipe (#2701)
     runner: "vitest",
     boundary: "sandbox-lifecycle",
     issues: ["#2701", "#2478"],
+    acceptanceCoverage: {
+      covered: [
+        "production connect --probe-only recovery route",
+        "openshell sandbox exec -- sh -c OpenClaw recovery script",
+        "pod-recreate-equivalent empty /tmp guard chain plus missing gateway process",
+        "no rebuild required for the recovered runtime state",
+      ],
+      intentionallyOutOfScope: [
+        "DGX Spark / GB10 / aarch64 hardware matrix",
+        "provider breadth beyond cloud-openclaw",
+        "host reboot / OOM / supervisor crash / manual kubectl delete pod triggers",
+      ],
+    },
   });
 
   // ── Setup ────────────────────────────────────────────────────────
@@ -73,8 +104,10 @@ test("gateway recovery restores /tmp guard chain after pod-recreate wipe (#2701)
   await gateway.expectGuardChainActive(instance);
 
   // ── Disrupt ──────────────────────────────────────────────────────
-  // Same shape as a fresh container after pod recreate: /tmp is empty of
-  // the guard chain, and the openclaw process tree is gone.
+  // Deterministic pod-recreate-equivalent state: /tmp is empty of the guard
+  // chain, and the OpenClaw process tree is gone. This avoids coupling the
+  // merge gate to a host-specific pod/container delete primitive while still
+  // exercising the production sandbox-exec recovery route below.
   await sandbox.wipeGuardChain(instance.sandboxName);
   await sandbox.killGatewayTree(instance.sandboxName);
 
