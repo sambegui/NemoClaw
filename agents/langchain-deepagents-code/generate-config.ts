@@ -21,7 +21,9 @@ type Settings = {
 function readSettings(env: NodeJS.ProcessEnv): Settings {
   return {
     model: readRequiredEnv(env, "NEMOCLAW_MODEL"),
-    baseUrl: env.NEMOCLAW_INFERENCE_BASE_URL || "https://inference.local/v1",
+    baseUrl: normalizeInferenceBaseUrl(
+      env.NEMOCLAW_INFERENCE_BASE_URL || "https://inference.local/v1",
+    ),
     providerKey: env.NEMOCLAW_PROVIDER_KEY || "inference",
     upstreamProvider: env.NEMOCLAW_UPSTREAM_PROVIDER || env.NEMOCLAW_PROVIDER_KEY || "inference",
     inferenceApi: env.NEMOCLAW_INFERENCE_API || "openai-completions",
@@ -32,6 +34,31 @@ function readRequiredEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function normalizeInferenceBaseUrl(value: string): string {
+  if (/[\r\n]/.test(value)) {
+    throw new Error("NEMOCLAW_INFERENCE_BASE_URL must not contain line breaks.");
+  }
+  const text = value.trim();
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error("NEMOCLAW_INFERENCE_BASE_URL must be a valid URL.");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("NEMOCLAW_INFERENCE_BASE_URL must use HTTP or HTTPS.");
+  }
+  if (url.username || url.password) {
+    throw new Error("NEMOCLAW_INFERENCE_BASE_URL must not include credentials.");
+  }
+  if (url.search || url.hash) {
+    throw new Error("NEMOCLAW_INFERENCE_BASE_URL must not include query strings or fragments.");
+  }
+
+  return text;
 }
 
 function tomlString(value: string): string {

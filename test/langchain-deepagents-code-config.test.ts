@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { spawnSync } from "node:child_process";
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +16,9 @@ afterEach(() => {
   }
 });
 
-function runGenerator(env: Record<string, string>): string {
+function runGeneratorProcess(
+  env: Record<string, string>,
+): SpawnSyncReturns<string> & { home: string } {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-dcode-config-"));
   tmpHomes.push(home);
   const script = path.join(
@@ -25,22 +27,29 @@ function runGenerator(env: Record<string, string>): string {
     "langchain-deepagents-code",
     "generate-config.ts",
   );
-  const result = spawnSync(process.execPath, ["--experimental-strip-types", script], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      HOME: home,
-      NEMOCLAW_MODEL: "nvidia/nemotron-3-super-120b-a12b",
-      NEMOCLAW_PROVIDER_KEY: "inference",
-      NEMOCLAW_UPSTREAM_PROVIDER: "nvidia-prod",
-      NEMOCLAW_INFERENCE_BASE_URL: "https://inference.local/v1",
-      NEMOCLAW_INFERENCE_API: "openai-completions",
-      ...env,
-    },
-  });
+  return {
+    ...spawnSync(process.execPath, ["--experimental-strip-types", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: home,
+        NEMOCLAW_MODEL: "nvidia/nemotron-3-super-120b-a12b",
+        NEMOCLAW_PROVIDER_KEY: "inference",
+        NEMOCLAW_UPSTREAM_PROVIDER: "nvidia-prod",
+        NEMOCLAW_INFERENCE_BASE_URL: "https://inference.local/v1",
+        NEMOCLAW_INFERENCE_API: "openai-completions",
+        ...env,
+      },
+    }),
+    home,
+  };
+}
+
+function runGenerator(env: Record<string, string>): string {
+  const result = runGeneratorProcess(env);
   expect(result.status).toBe(0);
-  return fs.readFileSync(path.join(home, ".deepagents", "config.toml"), "utf8");
+  return fs.readFileSync(path.join(result.home, ".deepagents", "config.toml"), "utf8");
 }
 
 describe("LangChain Deep Agents Code config generator", () => {
@@ -63,5 +72,31 @@ describe("LangChain Deep Agents Code config generator", () => {
 
     expect(config).toContain('default = "openai:gpt-oss-120b"');
     expect(config).toContain('models = ["gpt-oss-120b"]');
+  });
+
+  it("rejects credential-bearing inference base URLs before writing config", () => {
+    const result = runGeneratorProcess({
+      NEMOCLAW_INFERENCE_BASE_URL: "https://user:pass@example.test/v1",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      "NEMOCLAW_INFERENCE_BASE_URL must not include credentials.",
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("user:pass");
+    expect(fs.existsSync(path.join(result.home, ".deepagents", "config.toml"))).toBe(false);
+  });
+
+  it("rejects inference base URLs with query strings before writing config", () => {
+    const result = runGeneratorProcess({
+      NEMOCLAW_INFERENCE_BASE_URL: "https://example.test/v1?api_key=sk-test-secret",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      "NEMOCLAW_INFERENCE_BASE_URL must not include query strings or fragments.",
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("sk-test-secret");
+    expect(fs.existsSync(path.join(result.home, ".deepagents", "config.toml"))).toBe(false);
   });
 });
