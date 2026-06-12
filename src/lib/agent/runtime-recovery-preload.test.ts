@@ -6,10 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import {
-  buildOpenClawRecoveryScript,
-  buildRecoveryScript,
-} from "../../../dist/lib/agent/runtime";
+import { buildOpenClawRecoveryScript, buildRecoveryScript } from "../../../dist/lib/agent/runtime";
 import type { AgentDefinition } from "./defs";
 
 function makeAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -211,9 +208,7 @@ describe("gateway recovery preload self-heal (#5253)", () => {
         for (const base of PRELOAD_BASENAMES) {
           expect(result.stdout).toContain(`--require ${fx.tmpPaths[base]}`);
         }
-        const afterMtimes = PRELOAD_BASENAMES.map(
-          (base) => fs.statSync(fx.tmpPaths[base]).mtimeMs,
-        );
+        const afterMtimes = PRELOAD_BASENAMES.map((base) => fs.statSync(fx.tmpPaths[base]).mtimeMs);
         expect(afterMtimes).toEqual(beforeMtimes);
         for (const base of PRELOAD_BASENAMES) {
           expect(fs.readFileSync(fx.tmpPaths[base], "utf-8")).toBe("// already staged\n");
