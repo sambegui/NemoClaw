@@ -113,11 +113,31 @@ function runGuardRecovery(opts: {
         HOME: paths.root,
       },
     });
-    const readIfExists = (pathname: string) =>
-      fs.existsSync(pathname) && fs.statSync(pathname).isFile()
-        ? fs.readFileSync(pathname, "utf-8")
-        : null;
-    const modeIfExists = (pathname: string) => (fs.existsSync(pathname) ? mode(pathname) : null);
+    const readIfExists = (pathname: string) => {
+      try {
+        return fs.readFileSync(pathname, "utf-8");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "EISDIR") return null;
+        throw error;
+      }
+    };
+    const modeIfExists = (pathname: string) => {
+      try {
+        return mode(pathname);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    };
+    const symlinkIfExists = (pathname: string) => {
+      try {
+        return fs.lstatSync(pathname).isSymbolicLink();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+    };
     return {
       ...result,
       paths,
@@ -129,12 +149,8 @@ function runGuardRecovery(opts: {
         tmpSafetyNetMode: modeIfExists(paths.tmpSafetyNet),
         tmpCiaoMode: modeIfExists(paths.tmpCiao),
         proxyEnvMode: modeIfExists(paths.proxyEnv),
-        tmpSafetyNetIsSymlink: fs.existsSync(paths.tmpSafetyNet)
-          ? fs.lstatSync(paths.tmpSafetyNet).isSymbolicLink()
-          : null,
-        proxyEnvIsSymlink: fs.existsSync(paths.proxyEnv)
-          ? fs.lstatSync(paths.proxyEnv).isSymbolicLink()
-          : null,
+        tmpSafetyNetIsSymlink: symlinkIfExists(paths.tmpSafetyNet),
+        proxyEnvIsSymlink: symlinkIfExists(paths.proxyEnv),
         hostileProxyEnvSourced: fs.existsSync(paths.hostileMarker),
       },
     };
