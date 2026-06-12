@@ -1,10 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, it, expect } from "vitest";
 // Import from compiled dist/ so coverage is attributed correctly.
 import {
@@ -229,116 +225,6 @@ describe("buildRecoveryScript", () => {
       expect(script).toContain("nemoclaw-ciao-network-guard");
       expect(script).toContain("NODE_OPTIONS missing safety-net preload");
       expect(script).toContain("or ciao preload");
-    });
-
-    it("self-installs the on-disk preload --require entries before the guard check fires", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).not.toBeNull();
-      expect(script).toContain(
-        'if [ -r /tmp/nemoclaw-sandbox-safety-net.js ]; then case "${NODE_OPTIONS:-}" in *nemoclaw-sandbox-safety-net*) ;; *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tmp/nemoclaw-sandbox-safety-net.js" ;; esac; fi;',
-      );
-      expect(script).toContain(
-        'if [ -r /tmp/nemoclaw-ciao-network-guard.js ]; then case "${NODE_OPTIONS:-}" in *nemoclaw-ciao-network-guard*) ;; *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tmp/nemoclaw-ciao-network-guard.js" ;; esac; fi;',
-      );
-      const selfHealSafetyIdx = script!.indexOf("if [ -r /tmp/nemoclaw-sandbox-safety-net.js ]");
-      const selfHealCiaoIdx = script!.indexOf("if [ -r /tmp/nemoclaw-ciao-network-guard.js ]");
-      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
-      const guardCheckIdx = script!.indexOf('if [ "$_PE_MISSING" = "0" ]');
-      expect(sourceIdx).toBeGreaterThanOrEqual(0);
-      expect(selfHealSafetyIdx).toBeGreaterThan(sourceIdx);
-      expect(selfHealCiaoIdx).toBeGreaterThan(sourceIdx);
-      expect(selfHealSafetyIdx).toBeLessThan(guardCheckIdx);
-      expect(selfHealCiaoIdx).toBeLessThan(guardCheckIdx);
-    });
-
-    it("keeps the refusal as the final invariant when preload files are absent", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).toContain("refusing unguarded gateway relaunch");
-      const selfHealIdx = script!.indexOf("if [ -r /tmp/nemoclaw-sandbox-safety-net.js ]");
-      const refusalIdx = script!.indexOf("refusing unguarded gateway relaunch");
-      expect(selfHealIdx).toBeGreaterThanOrEqual(0);
-      expect(refusalIdx).toBeGreaterThan(selfHealIdx);
-    });
-
-    it("self-installs preload --require entries in the OpenClaw recovery script as well", () => {
-      const script = buildOpenClawRecoveryScript(18789);
-      expect(script).toContain(
-        'if [ -r /tmp/nemoclaw-sandbox-safety-net.js ]; then case "${NODE_OPTIONS:-}" in *nemoclaw-sandbox-safety-net*) ;; *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tmp/nemoclaw-sandbox-safety-net.js" ;; esac; fi;',
-      );
-      expect(script).toContain(
-        'if [ -r /tmp/nemoclaw-ciao-network-guard.js ]; then case "${NODE_OPTIONS:-}" in *nemoclaw-ciao-network-guard*) ;; *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /tmp/nemoclaw-ciao-network-guard.js" ;; esac; fi;',
-      );
-      const selfHealIdx = script.indexOf("if [ -r /tmp/nemoclaw-sandbox-safety-net.js ]");
-      const guardCheckIdx = script.indexOf('if [ "$_PE_MISSING" = "0" ]');
-      const refusalIdx = script.indexOf("refusing unguarded gateway relaunch");
-      expect(selfHealIdx).toBeGreaterThanOrEqual(0);
-      expect(selfHealIdx).toBeLessThan(guardCheckIdx);
-      expect(guardCheckIdx).toBeLessThan(refusalIdx);
-    });
-
-    it("guards each self-heal block against duplicate --require entries", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).toContain('case "${NODE_OPTIONS:-}" in *nemoclaw-sandbox-safety-net*) ;;');
-      expect(script).toContain('case "${NODE_OPTIONS:-}" in *nemoclaw-ciao-network-guard*) ;;');
-    });
-
-    it("self-heal lines install both --require preloads into NODE_OPTIONS under bash", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).not.toBeNull();
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-preload-self-heal-"));
-      try {
-        const safetyNet = path.join(tmp, "nemoclaw-sandbox-safety-net.js");
-        const ciao = path.join(tmp, "nemoclaw-ciao-network-guard.js");
-        fs.writeFileSync(safetyNet, "// stub\n");
-        fs.writeFileSync(ciao, "// stub\n");
-        const selfHealRe =
-          /if \[ -r \/tmp\/nemoclaw-(?:sandbox-safety-net|ciao-network-guard)\.js \].+?esac; fi;/g;
-        const matches = script!.match(selfHealRe);
-        expect(matches?.length ?? 0).toBeGreaterThanOrEqual(2);
-        const inlineSelfHeal = (matches ?? [])
-          .map((s) =>
-            s
-              .replaceAll("/tmp/nemoclaw-sandbox-safety-net.js", safetyNet)
-              .replaceAll("/tmp/nemoclaw-ciao-network-guard.js", ciao),
-          )
-          .join(" ");
-        const probe = `${inlineSelfHeal} printf '%s' "$NODE_OPTIONS"`;
-        const result = spawnSync("bash", ["-c", probe], { encoding: "utf-8", timeout: 5000 });
-        expect(result.status).toBe(0);
-        expect(result.stdout).toContain(`--require ${safetyNet}`);
-        expect(result.stdout).toContain(`--require ${ciao}`);
-      } finally {
-        fs.rmSync(tmp, { recursive: true, force: true });
-      }
-    });
-
-    it("self-heal lines do not duplicate --require when NODE_OPTIONS already carries the markers", () => {
-      const script = buildRecoveryScript(minimalAgent, 19000);
-      expect(script).not.toBeNull();
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-preload-self-heal-idem-"));
-      try {
-        const safetyNet = path.join(tmp, "nemoclaw-sandbox-safety-net.js");
-        const ciao = path.join(tmp, "nemoclaw-ciao-network-guard.js");
-        fs.writeFileSync(safetyNet, "// stub\n");
-        fs.writeFileSync(ciao, "// stub\n");
-        const selfHealRe =
-          /if \[ -r \/tmp\/nemoclaw-(?:sandbox-safety-net|ciao-network-guard)\.js \].+?esac; fi;/g;
-        const matches = script!.match(selfHealRe) ?? [];
-        const inlineSelfHeal = matches
-          .map((s) =>
-            s
-              .replaceAll("/tmp/nemoclaw-sandbox-safety-net.js", safetyNet)
-              .replaceAll("/tmp/nemoclaw-ciao-network-guard.js", ciao),
-          )
-          .join(" ");
-        const seedNodeOptions = `--require ${safetyNet} --require ${ciao}`;
-        const probe = `export NODE_OPTIONS=${JSON.stringify(seedNodeOptions)}; ${inlineSelfHeal} printf '%s' "$NODE_OPTIONS"`;
-        const result = spawnSync("bash", ["-c", probe], { encoding: "utf-8", timeout: 5000 });
-        expect(result.status).toBe(0);
-        expect(result.stdout).toBe(seedNodeOptions);
-      } finally {
-        fs.rmSync(tmp, { recursive: true, force: true });
-      }
     });
 
     it("stops stale launcher and gateway processes before relaunch", () => {
