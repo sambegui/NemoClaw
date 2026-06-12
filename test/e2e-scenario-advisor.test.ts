@@ -61,9 +61,11 @@ describe("Vitest E2E scenario advisor — prompt construction", () => {
     expect(systemPrompt).toContain("trusted advisor checkout");
     expect(systemPrompt).toContain("recommend the `e2e-scenarios-all` fan-out");
     expect(systemPrompt).toContain("single NemoClaw E2E system");
+    expect(systemPrompt).toContain("workflow only accepts the optional `jobs` selector");
     expect(systemPrompt).not.toContain("non-scenario E2E");
     expect(systemPrompt).not.toContain("e2e-scenarios-all.yaml");
     expect(systemPrompt).not.toContain("e2e-scenarios.yaml");
+    expect(systemPrompt).not.toContain("--field scenarios");
   });
 
   it("exports the Vitest scenario workflow for both targeted and fan-out recommendations", () => {
@@ -116,12 +118,12 @@ describe("Vitest E2E scenario advisor — normalization contract", () => {
     expect(normalized.optional[0]?.dispatchCommand).toBe(
       canonicalDispatchCommand(VITEST_SCENARIO_WORKFLOW, "ubuntu-repo-cloud-openclaw"),
     );
-    // Canonical fan-out command must not contain a scenarios field.
+    // The jobs-only workflow has no scenario selector; typed scenario
+    // recommendations dispatch the default fan-out while preserving scenario
+    // metadata for reviewers.
     expect(normalized.required[0]?.dispatchCommand).not.toContain("--field scenarios=");
-    // Canonical single-scenario command must use plural --field scenarios=<id>
-    // and must never contain the legacy suite_filter input.
-    expect(normalized.optional[0]?.dispatchCommand).toContain(
-      "--field scenarios=ubuntu-repo-cloud-openclaw",
+    expect(normalized.optional[0]?.dispatchCommand).toBe(
+      "gh workflow run e2e-vitest-scenarios.yaml --ref <pr-head-ref>",
     );
     expect(normalized.optional[0]?.dispatchCommand).not.toContain("suite_filter");
   });
@@ -361,7 +363,7 @@ jobs:
     steps:
       - run: npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/registry-scenarios.test.ts
   token-rotation-vitest:
-    if: \${{ (inputs.jobs == '' && inputs.scenarios == '') || contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
+    if: \${{ inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
     steps:
       - run: npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/token-rotation.test.ts
 `),
@@ -399,7 +401,7 @@ jobs:
         vitestWorkflowText: String.raw`
 jobs:
   token-rotation-vitest:
-    if: \${{ (inputs.jobs == '' && inputs.scenarios == '') || contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
+    if: \${{ inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
     steps:
       - run: npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/token-rotation.test.ts
 `,
