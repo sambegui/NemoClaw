@@ -382,7 +382,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
     const proxyEnvFile = path.join(harness.tmp, "nemoclaw-proxy-env.sh");
     fs.writeFileSync(
       proxyEnvFile,
-      "export NODE_OPTIONS='--require=nemoclaw-sandbox-safety-net --require=nemoclaw-ciao-network-guard'\n",
+      "export NODE_OPTIONS='--require /tmp/nemoclaw-sandbox-safety-net.js --require /tmp/nemoclaw-ciao-network-guard.js'\n",
     );
     writeStub(harness.stubsDir, "python3", `${SHARED_PYTHON_STUB_BY_MODE}\n`);
     stubBaselineUtilities(harness.stubsDir, harness.pkillLog, harness.hermesLaunchMarker);
@@ -457,7 +457,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
     fs.writeFileSync(
       proxyEnvFile,
       [
-        "export NODE_OPTIONS='--require=nemoclaw-sandbox-safety-net --require=nemoclaw-ciao-network-guard'",
+        "export NODE_OPTIONS='--require /tmp/nemoclaw-sandbox-safety-net.js --require /tmp/nemoclaw-ciao-network-guard.js'",
         "export TELEGRAM_BOT_TOKEN=1234567890:AAExample-RawSecretValueHere",
         "",
       ].join("\n"),
