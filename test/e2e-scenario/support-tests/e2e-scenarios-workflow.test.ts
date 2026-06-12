@@ -107,6 +107,14 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
       registryScenarios: [],
     });
     expect(
+      evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "credential-sanitization-vitest" }),
+    ).toMatchObject({
+      valid: true,
+      liveScenariosRuns: false,
+      selectedFreeStandingJobs: ["credential-sanitization-vitest"],
+      registryScenarios: [],
+    });
+    expect(
       evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "skill-agent-vitest" }),
     ).toMatchObject({
       valid: true,
@@ -384,6 +392,7 @@ jobs:
           "step 'Validate free-standing job selector' run script must include hermes-e2e-vitest",
           "step 'Validate free-standing job selector' run script must include skill-agent-vitest",
           "step 'Validate free-standing job selector' run script must include model-router-provider-routed-inference-vitest",
+          "step 'Validate free-standing job selector' run script must include credential-sanitization-vitest",
           "step 'Validate free-standing job selector' run script must include sandbox-rebuild-vitest",
           "step 'Validate free-standing job selector' run script must include sandbox-survival-vitest",
           "step 'Validate free-standing job selector' run script must include Invalid jobs input; use comma-separated job ids",
@@ -532,6 +541,7 @@ jobs:
           "report-to-pr job must wait for hermes-e2e-vitest",
           "report-to-pr job must wait for skill-agent-vitest",
           "report-to-pr job must wait for model-router-provider-routed-inference-vitest",
+          "report-to-pr job must wait for credential-sanitization-vitest",
           "report-to-pr job must wait for sandbox-rebuild-vitest",
           "report-to-pr job must wait for sandbox-survival-vitest",
           "openclaw-tui-chat-correlation-vitest job must depend on validate-jobs",
