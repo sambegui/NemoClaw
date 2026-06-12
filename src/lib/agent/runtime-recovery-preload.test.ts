@@ -79,28 +79,29 @@ function runGuardRecovery(opts: {
   }
   opts.beforeScript?.(paths);
 
-  const writeProxyEnv = opts.proxyEnvContent
+  const proxyEnvContent = opts.proxyEnvContent
+    ? rewriteRuntimePaths(opts.proxyEnvContent, paths)
+    : undefined;
+  const writeProxyEnv = proxyEnvContent
     ? [
         `cat > ${JSON.stringify(paths.proxyEnv)} <<'PROXYENV'`,
-        opts.proxyEnvContent,
+        proxyEnvContent,
         "PROXYENV",
         `chmod 444 ${JSON.stringify(paths.proxyEnv)}`,
       ]
     : [];
 
-  const script = rewriteRuntimePaths(
-    [
-      "set -u",
-      `export _GATEWAY_LOG=${JSON.stringify(paths.gatewayLog)}`,
-      ': > "$_GATEWAY_LOG"',
-      ...writeProxyEnv,
-      ...buildGatewayGuardRecoveryLines(),
-      'if [ "$_GUARDS_MISSING" = "1" ]; then echo GUARDS_MISSING; exit 17; fi',
-      'printf "PE_MISSING=%s\\n" "$_PE_MISSING"',
-      'printf "NODE_OPTIONS=%s\\n" "$NODE_OPTIONS"',
-    ].join("\n"),
-    paths,
-  );
+  const recoveryLines = rewriteRuntimePaths(buildGatewayGuardRecoveryLines().join("\n"), paths);
+  const script = [
+    "set -u",
+    `export _GATEWAY_LOG=${JSON.stringify(paths.gatewayLog)}`,
+    ': > "$_GATEWAY_LOG"',
+    ...writeProxyEnv,
+    recoveryLines,
+    'if [ "$_GUARDS_MISSING" = "1" ]; then echo GUARDS_MISSING; exit 17; fi',
+    'printf "PE_MISSING=%s\\n" "$_PE_MISSING"',
+    'printf "NODE_OPTIONS=%s\\n" "$NODE_OPTIONS"',
+  ].join("\n");
   try {
     const result = spawnSync(opts.shell ?? "sh", ["-c", script], {
       encoding: "utf-8",
@@ -205,6 +206,19 @@ describe("gateway recovery preload repair", () => {
     const nodeOptions = result.stdout.match(/^NODE_OPTIONS=(.*)$/m)?.[1] ?? "";
     expect(nodeOptions.match(new RegExp(result.paths.tmpSafetyNet, "g"))?.length).toBe(1);
     expect(nodeOptions.match(new RegExp(result.paths.tmpCiao, "g"))?.length).toBe(1);
+  });
+
+  it("persists repairs for a metadata-safe proxy-env.sh that is missing one guard", () => {
+    const result = runGuardRecovery({
+      proxyEnvContent: `export NODE_OPTIONS="--require ${SAFETY_NET_GUARD.tmpPath}"\n`,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`--require ${result.paths.tmpSafetyNet}`);
+    expect(result.stdout).toContain(`--require ${result.paths.tmpCiao}`);
+    expect(result.files.proxyEnvMode).toBe(0o444);
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpSafetyNet}`);
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpCiao}`);
+    expect(result.files.gatewayLog).toContain("proxy-env.sh incomplete");
   });
 
   it("rebuilds an unsafe proxy-env.sh without sourcing attacker-controlled content", () => {
@@ -329,17 +343,20 @@ describe("gateway recovery preload repair", () => {
       buildOpenClawRecoveryScript(18789),
     ]) {
       expect(script).not.toBeNull();
-      const repairIdx = script!.indexOf("_NEMOCLAW_CRITICAL_GUARDS_READY=1");
-      const sourceIdx = script!.indexOf("then . /tmp/nemoclaw-proxy-env.sh");
+      const safetyNetStageIdx = script!.indexOf(
+        `_nemoclaw_stage_recovery_preload ${SAFETY_NET_GUARD.tmpPath} ${SAFETY_NET_GUARD.sourcePath}`,
+      );
+      const ciaoStageIdx = script!.indexOf(
+        `_nemoclaw_stage_recovery_preload ${CIAO_GUARD.tmpPath} ${CIAO_GUARD.sourcePath}`,
+      );
       const healthIdx = script!.indexOf("_GW_CODE=");
       const alreadyRunningIdx = script!.indexOf("echo ALREADY_RUNNING; exit 0");
-      expect(repairIdx).toBeGreaterThanOrEqual(0);
-      expect(sourceIdx).toBeGreaterThanOrEqual(0);
+      expect(safetyNetStageIdx).toBeGreaterThanOrEqual(0);
+      expect(ciaoStageIdx).toBeGreaterThanOrEqual(0);
       expect(healthIdx).toBeGreaterThanOrEqual(0);
       expect(alreadyRunningIdx).toBeGreaterThanOrEqual(0);
-      expect(sourceIdx).toBeLessThan(repairIdx);
-      expect(repairIdx).toBeLessThan(healthIdx);
-      expect(sourceIdx).toBeLessThan(healthIdx);
+      expect(safetyNetStageIdx).toBeLessThan(healthIdx);
+      expect(ciaoStageIdx).toBeLessThan(healthIdx);
       expect(healthIdx).toBeLessThan(alreadyRunningIdx);
     }
   });

@@ -43,6 +43,10 @@ export function buildGatewayGuardRecoveryLines(): string[] {
     ({ tmpPath }) =>
       `if [ "$_NEMOCLAW_CRITICAL_GUARDS_READY" = "1" ]; then _nemoclaw_append_node_require ${tmpPath}; fi;`,
   );
+  const proxyEnvRewriteChecks = GATEWAY_PRELOAD_GUARDS.map(
+    ({ tmpPath }) =>
+      `_nemoclaw_node_options_has_require ${tmpPath} || _PROXY_ENV_REWRITE_NEEDED=1;`,
+  );
   const guardChecks = GATEWAY_PRELOAD_GUARDS.map(
     ({ tmpPath }) => `_nemoclaw_node_options_has_require ${tmpPath} || _GUARDS_MISSING=1;`,
   );
@@ -143,6 +147,12 @@ export function buildGatewayGuardRecoveryLines(): string[] {
     '_W="[gateway-recovery] WARNING: /tmp/nemoclaw-proxy-env.sh missing - restoring library guards from packaged preloads (#2478/#2701)"; _nemoclaw_recovery_log "$_W";',
     "_nemoclaw_write_recovered_proxy_env || _NEMOCLAW_CRITICAL_GUARDS_READY=0;",
     'if [ "$_NEMOCLAW_CRITICAL_GUARDS_READY" = "1" ]; then . /tmp/nemoclaw-proxy-env.sh; _PE_MISSING=0; fi;',
+    "fi;",
+    "_PROXY_ENV_REWRITE_NEEDED=0;",
+    ...proxyEnvRewriteChecks,
+    'if [ "$_NEMOCLAW_CRITICAL_GUARDS_READY" = "1" ] && [ "${_PE_MISSING:-0}" = "0" ] && [ "${_PROXY_ENV_REWRITE_NEEDED:-0}" = "1" ]; then',
+    '_W="[gateway-recovery] WARNING: /tmp/nemoclaw-proxy-env.sh incomplete - persisting library guards from packaged preloads (#2478/#2701)"; _nemoclaw_recovery_log "$_W";',
+    "_nemoclaw_write_recovered_proxy_env || _NEMOCLAW_CRITICAL_GUARDS_READY=0;",
     "fi;",
     ...appendCalls,
     "_GUARDS_MISSING=0;",
