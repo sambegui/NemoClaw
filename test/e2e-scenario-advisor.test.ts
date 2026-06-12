@@ -577,11 +577,16 @@ describe("Vitest E2E scenario advisor — summary and comment rendering", () => 
       selectorType: "scenario",
       required: true,
       reason: "targeted scenario metadata",
-      dispatchCommand: canonicalDispatchCommand(VITEST_SCENARIO_WORKFLOW, "ubuntu-repo-cloud-openclaw"),
+      dispatchCommand: canonicalDispatchCommand(
+        VITEST_SCENARIO_WORKFLOW,
+        "ubuntu-repo-cloud-openclaw",
+      ),
     });
 
     const summary = renderScenarioSummary(result);
-    expect(summary.match(/gh workflow run e2e-vitest-scenarios.yaml --ref <pr-head-ref>/g)).toHaveLength(1);
+    expect(
+      summary.match(/gh workflow run e2e-vitest-scenarios.yaml --ref <pr-head-ref>/g),
+    ).toHaveLength(1);
     expect(summary).toContain("covered by the shared fan-out command above");
   });
 
