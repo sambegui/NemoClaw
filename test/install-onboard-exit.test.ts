@@ -37,6 +37,7 @@ function runOnboardExitStatus(env: Record<string, string>, stubExitCode: number)
     warn() { :; }
     error() { exit 1; }
     command_exists() { return 1; }
+    show_usage_notice() { :; }
     run_onboard
   `;
 

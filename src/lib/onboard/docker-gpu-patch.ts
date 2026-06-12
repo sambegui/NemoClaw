@@ -16,13 +16,15 @@ import {
 } from "../adapters/docker";
 import { reconcileSupervisorReconnect } from "./docker-gpu-patch-finalize";
 import {
-  type DockerGpuSupervisorReconnectDeps,
   DOCKER_GPU_SUPERVISOR_RECONNECT_ERROR_DEBOUNCE_ENV,
   DOCKER_GPU_SUPERVISOR_RECONNECT_TIMEOUT_ENV,
+  type DockerGpuSupervisorReconnectDeps,
   getDockerGpuSupervisorReconnectErrorDebouncePolls,
   getDockerGpuSupervisorReconnectTimeoutSecs,
   waitForOpenShellSupervisorReconnect,
 } from "./docker-gpu-supervisor-reconnect";
+
+export type { DockerGpuSupervisorReconnectDeps };
 export {
   DOCKER_GPU_SUPERVISOR_RECONNECT_ERROR_DEBOUNCE_ENV,
   DOCKER_GPU_SUPERVISOR_RECONNECT_TIMEOUT_ENV,
@@ -30,7 +32,6 @@ export {
   getDockerGpuSupervisorReconnectTimeoutSecs,
   waitForOpenShellSupervisorReconnect,
 };
-export type { DockerGpuSupervisorReconnectDeps };
 
 export const OPENSHELL_MANAGED_BY_LABEL = "openshell.ai/managed-by";
 export const OPENSHELL_MANAGED_BY_VALUE = "openshell";
@@ -500,11 +501,18 @@ export function buildDockerGpuModeCandidates(
   if (options.backend === "jetson") {
     return [buildDockerGpuMode("nvidia-runtime", device, { backend: "jetson" })];
   }
-  const candidates = [
-    buildDockerGpuMode("gpus", device),
-    buildDockerGpuMode("nvidia-runtime", device),
-  ];
+  // When the host advertises an NVIDIA CDI spec, prefer the CDI mode
+  // (`--device nvidia.com/gpu=all`) ahead of --gpus. OpenShell's gateway owns
+  // supervisor GPU injection and wires Docker-CDI hosts from that spec; this
+  // NemoClaw patch only chooses the recreate mode while matching that source
+  // boundary. On Docker-CDI hosts `docker create --gpus all` is accepted (the
+  // create-only probe passes), but the legacy --gpus injection diverges from
+  // gateway wiring and the supervisor never reconnects (#4948). Keep --gpus
+  // and the NVIDIA runtime as fallbacks until OpenShell exposes an
+  // authoritative GPU mode contract that can replace CDI-spec probing.
+  const candidates: DockerGpuPatchMode[] = [];
   if (options.cdiAvailable) candidates.push(buildDockerGpuMode("cdi", device));
+  candidates.push(buildDockerGpuMode("gpus", device), buildDockerGpuMode("nvidia-runtime", device));
   return candidates;
 }
 
@@ -514,17 +522,26 @@ export function shouldApplyDockerGpuPatch(
     env?: NodeJS.ProcessEnv;
     platform?: NodeJS.Platform;
     dockerDriverGateway?: boolean;
+    dockerDesktopWsl?: boolean;
+    log?: (message: string) => void;
   } = {},
 ): boolean {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   const dockerDriverGateway = options.dockerDriverGateway ?? platform === "linux";
-  return (
-    config.sandboxGpuEnabled &&
-    platform === "linux" &&
-    dockerDriverGateway &&
-    String(env.NEMOCLAW_DOCKER_GPU_PATCH || "").trim() !== "0"
-  );
+  if (!(config.sandboxGpuEnabled && platform === "linux" && dockerDriverGateway)) {
+    return false;
+  }
+  const optedOut = String(env.NEMOCLAW_DOCKER_GPU_PATCH || "").trim() === "0";
+  if (optedOut && options.dockerDesktopWsl) {
+    const log = options.log ?? ((message: string) => console.warn(message));
+    log(
+      "  NEMOCLAW_DOCKER_GPU_PATCH=0 ignored on Docker Desktop WSL: GPU passthrough on this runtime requires the patch.",
+    );
+    log("  Skip GPU passthrough entirely with --no-gpu or NEMOCLAW_SANDBOX_GPU=0.");
+    return true;
+  }
+  return !optedOut;
 }
 
 export function buildDockerGpuCloneRunOptions(
@@ -1242,7 +1259,13 @@ export function printDockerGpuPatchFailureAndExit(
   if (diagnostics) {
     console.error(`  Diagnostics saved: ${diagnostics.dir}`);
   }
-  console.error("  Escape hatch: set NEMOCLAW_DOCKER_GPU_PATCH=0 to skip this patch.");
+  console.error("  Escape hatches:");
+  console.error(
+    "    NEMOCLAW_DOCKER_GPU_PATCH=0  skip this Docker GPU patch (Linux native Docker only; ignored on Docker Desktop WSL where the patch is required).",
+  );
+  console.error(
+    "    NEMOCLAW_SANDBOX_GPU=0      skip GPU passthrough entirely (or rerun with --no-gpu).",
+  );
   printDockerGpuPatchCleanup(sandboxName);
   process.exit(1);
 }
