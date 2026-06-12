@@ -22,10 +22,7 @@ function readWorkflow(): Record<string, unknown> {
   ) as Record<string, unknown>;
 }
 
-function generateMatrixForDispatch(env: {
-  JOBS: string;
-  SCENARIOS: string;
-}): Record<string, string> {
+function generateMatrixForDispatch(jobsSelector: string): Record<string, string> {
   const workflow = readWorkflow();
   const jobs = workflow.jobs as Record<string, { steps?: Array<Record<string, unknown>> }>;
   const generateStep = jobs["generate-matrix"]?.steps?.find(
@@ -46,8 +43,7 @@ function generateMatrixForDispatch(env: {
         ...process.env,
         GITHUB_OUTPUT: outputPath,
         GITHUB_STEP_SUMMARY: summaryPath,
-        JOBS: env.JOBS,
-        SCENARIOS: env.SCENARIOS,
+        JOBS: jobsSelector,
       },
     });
     expect(result.signal).toBeNull();
@@ -70,49 +66,13 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     expect(validateE2eVitestScenariosWorkflowBoundary()).toEqual([]);
   });
 
-  it("evaluates high-risk dispatch selector behavior before secret-bearing jobs run", () => {
+  it("evaluates jobs-only dispatch selector behavior before secret-bearing jobs run", () => {
     expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "network-policy,../escape" }),
+      evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "network-policy,../escape" }),
     ).toMatchObject({
       valid: false,
       liveScenariosRuns: false,
       selectedFreeStandingJobs: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({
-        jobs: "network-policy-vitest",
-        scenarios: "network-policy",
-      }),
-    ).toMatchObject({
-      valid: false,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "network-policy" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["network-policy-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({
-        scenarios: "network-policy,ubuntu-repo-cloud-openclaw",
-      }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: true,
-      selectedFreeStandingJobs: ["network-policy-vitest"],
-      registryScenarios: ["ubuntu-repo-cloud-openclaw"],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "openshell-version-pin" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["openshell-version-pin-vitest"],
-      registryScenarios: [],
     });
     expect(
       evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "runtime-overrides-vitest" }),
@@ -123,22 +83,6 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
       registryScenarios: [],
     });
     expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "runtime-overrides" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["runtime-overrides-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "inference-routing" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["inference-routing-vitest"],
-      registryScenarios: [],
-    });
-    expect(
       evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "inference-routing-vitest" }),
     ).toMatchObject({
       valid: true,
@@ -146,52 +90,9 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
       selectedFreeStandingJobs: ["inference-routing-vitest"],
       registryScenarios: [],
     });
-    expect(evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "hermes-e2e" })).toMatchObject({
+    expect(evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "" })).toMatchObject({
       valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["hermes-e2e-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "hermes-root-entrypoint-smoke" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["hermes-root-entrypoint-smoke-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "hermes-root-entrypoint-smoke-vitest" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["hermes-root-entrypoint-smoke-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ scenarios: "rebuild-openclaw" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["rebuild-openclaw-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({ jobs: "rebuild-openclaw-vitest" }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["rebuild-openclaw-vitest"],
-      registryScenarios: [],
-    });
-    expect(
-      evaluateE2eVitestWorkflowDispatchSelectors({
-        scenarios: "model-router-provider-routed-inference",
-      }),
-    ).toMatchObject({
-      valid: true,
-      liveScenariosRuns: false,
-      selectedFreeStandingJobs: ["model-router-provider-routed-inference-vitest"],
+      liveScenariosRuns: true,
       registryScenarios: [],
     });
     expect(
@@ -206,85 +107,19 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     });
   });
 
-  it("keeps jobs-only dispatches from selecting the Hermes secret-bearing job", () => {
-    expect(
-      generateMatrixForDispatch({ JOBS: "openshell-version-pin-vitest", SCENARIOS: "" }),
-    ).toMatchObject({
-      hermes_selected: "false",
+  it("keeps jobs-only dispatches from running the registry matrix", () => {
+    expect(generateMatrixForDispatch("openshell-version-pin-vitest")).toMatchObject({
       matrix: "[]",
     });
-    expect(generateMatrixForDispatch({ JOBS: "hermes-e2e-vitest", SCENARIOS: "" })).toMatchObject({
-      hermes_selected: "true",
+    expect(generateMatrixForDispatch("hermes-e2e-vitest")).toMatchObject({
       matrix: "[]",
     });
-    expect(
-      generateMatrixForDispatch({ JOBS: "network-policy-vitest", SCENARIOS: "" }),
-    ).toMatchObject({
-      hermes_selected: "false",
+    expect(generateMatrixForDispatch("network-policy-vitest")).toMatchObject({
       matrix: "[]",
     });
     expect(
-      generateMatrixForDispatch({ JOBS: "runtime-overrides-vitest", SCENARIOS: "" }),
+      generateMatrixForDispatch("model-router-provider-routed-inference-vitest"),
     ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(generateMatrixForDispatch({ JOBS: "", SCENARIOS: "runtime-overrides" })).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({ JOBS: "inference-routing-vitest", SCENARIOS: "" }),
-    ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(generateMatrixForDispatch({ JOBS: "", SCENARIOS: "inference-routing" })).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({ JOBS: "rebuild-openclaw-vitest", SCENARIOS: "" }),
-    ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(generateMatrixForDispatch({ JOBS: "", SCENARIOS: "rebuild-openclaw" })).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(generateMatrixForDispatch({ JOBS: "", SCENARIOS: "hermes-e2e" })).toMatchObject({
-      hermes_selected: "true",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({ JOBS: "hermes-root-entrypoint-smoke-vitest", SCENARIOS: "" }),
-    ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({ JOBS: "", SCENARIOS: "hermes-root-entrypoint-smoke" }),
-    ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({
-        JOBS: "model-router-provider-routed-inference-vitest",
-        SCENARIOS: "",
-      }),
-    ).toMatchObject({
-      hermes_selected: "false",
-      matrix: "[]",
-    });
-    expect(
-      generateMatrixForDispatch({
-        JOBS: "",
-        SCENARIOS: "model-router-provider-routed-inference",
-      }),
-    ).toMatchObject({
-      hermes_selected: "false",
       matrix: "[]",
     });
   });
@@ -318,7 +153,7 @@ jobs:
       - name: Post Vitest scenario results to PR
         env:
           JOBS: bad
-        run: echo "\${{ inputs.pr_number }} \${{ inputs.scenarios }}"
+        run: echo "\${{ inputs.pr_number }} \${{ inputs.jobs }}"
   live-scenarios:
     runs-on: ubuntu-latest
     env:
@@ -349,7 +184,7 @@ jobs:
   openshell-version-pin-vitest:
     runs-on: ubuntu-latest
     needs: generate-matrix
-    if: \${{ inputs.scenarios != '' }}
+    if: \${{ inputs.jobs != '' }}
     env:
       E2E_ARTIFACT_DIR: \${{ github.workspace }}/.e2e/openshell-version-pin
       NEMOCLAW_RUN_E2E_SCENARIOS: "0"
@@ -378,7 +213,7 @@ jobs:
   onboard-negative-paths-vitest:
     runs-on: ubuntu-latest
     needs: generate-matrix
-    if: \${{ inputs.scenarios != '' }}
+    if: \${{ inputs.jobs != '' }}
     env:
       E2E_ARTIFACT_DIR: \${{ github.workspace }}/.e2e/onboard-negative-paths
       NEMOCLAW_RUN_E2E_SCENARIOS: "0"
@@ -407,7 +242,7 @@ jobs:
   network-policy-vitest:
     runs-on: macos-latest
     needs: generate-matrix
-    if: \${{ inputs.scenarios != '' }}
+    if: \${{ inputs.jobs != '' }}
     env:
       E2E_ARTIFACT_DIR: \${{ github.workspace }}/.e2e/network-policy
       NEMOCLAW_CLI_BIN: bin/not-nemoclaw.js
@@ -451,7 +286,7 @@ jobs:
   double-onboard-vitest:
     runs-on: ubuntu-latest
     needs: generate-matrix
-    if: \${{ inputs.scenarios != '' }}
+    if: \${{ inputs.jobs != '' }}
     env:
       E2E_ARTIFACT_DIR: \${{ github.workspace }}/.e2e/double-onboard
       NEMOCLAW_CLI_BIN: ./bad-cli.js
@@ -494,23 +329,19 @@ jobs:
       const errors = validateE2eVitestScenariosWorkflowBoundary(workflowPath);
       expect(errors).toEqual(
         expect.arrayContaining([
-          "workflow_dispatch missing input: scenarios",
           "workflow_dispatch missing input: jobs",
           "workflow_dispatch must not expose legacy test_filter input",
           "validate-jobs job must run on ubuntu-latest",
           "validate-jobs step must pass jobs through JOBS env",
-          "validate-jobs step must pass scenarios through SCENARIOS env",
-          "step 'Validate free-standing job selector' run script must include Use either scenarios or jobs, not both",
-          "step 'Validate free-standing job selector' run script must include Invalid scenario input; use comma-separated scenario ids",
           "step 'Validate free-standing job selector' run script must include allowed_jobs=",
           "step 'Validate free-standing job selector' run script must include runtime-overrides-vitest",
           "step 'Validate free-standing job selector' run script must include double-onboard-vitest",
           "step 'Validate free-standing job selector' run script must include hermes-e2e-vitest",
+          "step 'Validate free-standing job selector' run script must include model-router-provider-routed-inference-vitest",
           "step 'Validate free-standing job selector' run script must include Invalid jobs input; use comma-separated job ids",
           "step 'Validate free-standing job selector' run script must not include Invalid jobs input: ${JOBS}",
           "step 'Validate free-standing job selector' run script must include Unknown free-standing Vitest job",
           "workflow missing generate-matrix job",
-          "generate-matrix job must expose hermes_selected output",
           "generate-matrix job must run on ubuntu-latest",
           "live-scenarios job must run on the matrix runner",
           "live-scenarios job must depend on generate-matrix",
@@ -543,7 +374,7 @@ jobs:
           "artifact upload path must include e2e-artifacts/vitest/${{ matrix.id }}/shell/",
           "artifact upload retention-days must be 14",
           "upload-artifact action must be pinned to a full commit SHA",
-          "openshell-version-pin-vitest job must depend on validate-jobs and generate-matrix",
+          "openshell-version-pin-vitest job must depend on validate-jobs",
           "openshell-version-pin-vitest job must use the shared jobs selector condition",
           "openshell-version-pin-vitest job must set NEMOCLAW_RUN_E2E_SCENARIOS=1",
           "openshell-version-pin-vitest job must write artifacts under e2e-artifacts/vitest/openshell-version-pin",
@@ -562,11 +393,10 @@ jobs:
           "openshell-version-pin-vitest artifact upload must set include-hidden-files: false",
           "openshell-version-pin-vitest artifact upload must ignore missing fixture artifacts",
           "openshell-version-pin-vitest artifact upload retention-days must be 14",
-          "onboard-negative-paths-vitest job must depend on validate-jobs and generate-matrix",
+          "onboard-negative-paths-vitest job must depend on validate-jobs",
           "onboard-negative-paths-vitest job must use the shared jobs selector condition",
           "network-policy-vitest job must run on ubuntu-latest",
-          "network-policy-vitest job must depend on validate-jobs and generate-matrix",
-          "network-policy-vitest job must map scenarios=network-policy to the network-policy job",
+          "network-policy-vitest job must depend on validate-jobs",
           "network-policy-vitest job must set NEMOCLAW_RUN_E2E_SCENARIOS=1",
           "network-policy-vitest job must write artifacts under e2e-artifacts/vitest/network-policy",
           "network-policy-vitest job must point NEMOCLAW_CLI_BIN at the repo CLI",
@@ -648,8 +478,10 @@ jobs:
           "double-onboard-vitest artifact upload must ignore missing fixture artifacts",
           "double-onboard-vitest artifact upload retention-days must be 14",
           "workflow missing hermes-e2e-vitest job",
+          "workflow missing model-router-provider-routed-inference-vitest job",
           "report-to-pr job must wait for hermes-e2e-vitest",
-          "openclaw-tui-chat-correlation-vitest job must depend on validate-jobs and generate-matrix",
+          "report-to-pr job must wait for model-router-provider-routed-inference-vitest",
+          "openclaw-tui-chat-correlation-vitest job must depend on validate-jobs",
           "openclaw-tui-chat-correlation-vitest job must use the shared jobs selector condition",
           "gateway-guard-recovery job must depend on validate-jobs",
           "gateway-guard-recovery job must use the shared jobs selector condition",
@@ -657,14 +489,10 @@ jobs:
           "report-to-pr job must wait for live-scenarios",
           "report-to-pr job must wait for double-onboard-vitest",
           "report-to-pr step must pass pr_number through JOB_PR_NUMBER env",
-          "report-to-pr step must pass scenarios through JOB_SCENARIOS env",
           "step 'Post Vitest scenario results to PR' run script must include process.env.JOBS",
-          "step 'Post Vitest scenario results to PR' run script must include process.env.JOB_SCENARIOS",
           "step 'Post Vitest scenario results to PR' run script must check validate-jobs before echoing selectors",
           "step 'Post Vitest scenario results to PR' run script must omit rejected job selectors",
-          "step 'Post Vitest scenario results to PR' run script must omit rejected scenario selectors",
           "step 'Post Vitest scenario results to PR' run script must include **Requested jobs:**",
-          "step 'Post Vitest scenario results to PR' run script must include **Requested scenarios:**",
         ]),
       );
     } finally {
