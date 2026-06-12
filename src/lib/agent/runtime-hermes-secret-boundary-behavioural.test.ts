@@ -8,20 +8,22 @@
 // generated-shell shape assertions live in
 // runtime-hermes-secret-boundary-shape.test.ts.
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  HERMES_SECRET_BOUNDARY_VALIDATOR_PATH,
   __testing,
+  HERMES_SECRET_BOUNDARY_VALIDATOR_PATH,
 } from "../../../dist/lib/agent/hermes-recovery-boundary";
-import { GATEWAY_PRELOAD_GUARDS } from "../../../dist/lib/agent/runtime-recovery-preload";
 import { buildRecoveryScript } from "../../../dist/lib/agent/runtime";
+import {
+  createRecoveryPreloadHarnessPaths,
+  type RecoveryPreloadHarnessPaths,
+  rewriteRecoveryPreloadPaths,
+} from "../../../test/helpers/runtime-recovery-preload-test-helpers";
 import { hermesAgent } from "./hermes-recovery-boundary-fixtures";
-
-const [SAFETY_NET_GUARD, CIAO_GUARD] = GATEWAY_PRELOAD_GUARDS;
 
 function writeStub(dir: string, name: string, body: string) {
   const stub = path.join(dir, name);
@@ -187,13 +189,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
     const hermesLaunchMarker = path.join(tmp, "hermes-launched");
     const gatewayLogPath = path.join(tmp, "gateway.log");
     const recoveryFallbackLog = path.join(tmp, "gateway-recovery-fallback.log");
-    const preloadSourceSafetyNet = path.join(tmp, "preload-source-safety-net.js");
-    const preloadSourceCiao = path.join(tmp, "preload-source-ciao.js");
-    const preloadTmpSafetyNet = path.join(tmp, "preload-tmp-safety-net.js");
-    const preloadTmpCiao = path.join(tmp, "preload-tmp-ciao.js");
     fs.mkdirSync(stubsDir, { recursive: true });
-    fs.writeFileSync(preloadSourceSafetyNet, "module.exports = 'trusted safety net';\n");
-    fs.writeFileSync(preloadSourceCiao, "module.exports = 'trusted ciao guard';\n");
     return {
       tmp,
       stubsDir,
@@ -202,10 +198,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
       hermesLaunchMarker,
       gatewayLogPath,
       recoveryFallbackLog,
-      preloadSourceSafetyNet,
-      preloadSourceCiao,
-      preloadTmpSafetyNet,
-      preloadTmpCiao,
+      ...createRecoveryPreloadHarnessPaths(tmp),
     };
   }
 
@@ -217,30 +210,24 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
     writeStub(stubsDir, "hermes", `: > ${JSON.stringify(hermesLaunchMarker)}\nexit 0`);
   }
 
-  function runRecovery(opts: {
-    stubsDir: string;
-    validatorPath: string;
-    envFilePath?: string;
-    proxyEnvPath?: string;
-    recoveryLogPath: string;
-    gatewayLogPath: string;
-    recoveryFallbackLog: string;
-    preloadSourceSafetyNet: string;
-    preloadSourceCiao: string;
-    preloadTmpSafetyNet: string;
-    preloadTmpCiao: string;
-    tmp: string;
-  }) {
+  function runRecovery(
+    opts: {
+      stubsDir: string;
+      validatorPath: string;
+      envFilePath?: string;
+      proxyEnvPath?: string;
+      recoveryLogPath: string;
+      gatewayLogPath: string;
+      recoveryFallbackLog: string;
+      tmp: string;
+    } & RecoveryPreloadHarnessPaths,
+  ) {
     const recoveryScript = buildRecoveryScript(hermesAgent, 8642);
     expect(recoveryScript).not.toBeNull();
-    let stubbed = recoveryScript!
+    let stubbed = rewriteRecoveryPreloadPaths(recoveryScript!, opts)
       .replace(new RegExp(HERMES_SECRET_BOUNDARY_VALIDATOR_PATH, "g"), opts.validatorPath)
       .replace(/\/tmp\/gateway-recovery\.log/g, opts.recoveryLogPath)
       .replace(/\/tmp\/gateway\.log/g, opts.gatewayLogPath)
-      .replaceAll(SAFETY_NET_GUARD.tmpPath, opts.preloadTmpSafetyNet)
-      .replaceAll(SAFETY_NET_GUARD.sourcePath, opts.preloadSourceSafetyNet)
-      .replaceAll(CIAO_GUARD.tmpPath, opts.preloadTmpCiao)
-      .replaceAll(CIAO_GUARD.sourcePath, opts.preloadSourceCiao)
       .replace(
         /_GATEWAY_LOG=\/tmp\/gateway-recovery\.log/g,
         `_GATEWAY_LOG=${opts.recoveryFallbackLog}`,
@@ -405,6 +392,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
       proxyEnvFile,
       "export NODE_OPTIONS='--require=nemoclaw-sandbox-safety-net --require=nemoclaw-ciao-network-guard'\n",
     );
+    fs.chmodSync(proxyEnvFile, 0o444);
     writeStub(harness.stubsDir, "python3", `${SHARED_PYTHON_STUB_BY_MODE}\n`);
     stubBaselineUtilities(harness.stubsDir, harness.pkillLog, harness.hermesLaunchMarker);
 
@@ -415,7 +403,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
           (() => {
             const recoveryScript = buildRecoveryScript(hermesAgent, 8642);
             expect(recoveryScript).not.toBeNull();
-            const stubbed = recoveryScript!
+            const stubbed = rewriteRecoveryPreloadPaths(recoveryScript!, harness)
               .replace(
                 new RegExp(HERMES_SECRET_BOUNDARY_VALIDATOR_PATH, "g"),
                 path.join(validatorRoot, "validate-hermes-env-secret-boundary.py"),
@@ -423,10 +411,6 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
               .replace(/\/tmp\/gateway-recovery\.log/g, harness.recoveryLogPath)
               .replace(/\/tmp\/nemoclaw-proxy-env\.sh/g, proxyEnvFile)
               .replace(/\/tmp\/gateway\.log/g, harness.gatewayLogPath)
-              .replaceAll(SAFETY_NET_GUARD.tmpPath, harness.preloadTmpSafetyNet)
-              .replaceAll(SAFETY_NET_GUARD.sourcePath, harness.preloadSourceSafetyNet)
-              .replaceAll(CIAO_GUARD.tmpPath, harness.preloadTmpCiao)
-              .replaceAll(CIAO_GUARD.sourcePath, harness.preloadSourceCiao)
               .replace(
                 /_GATEWAY_LOG=\/tmp\/gateway-recovery\.log/g,
                 `_GATEWAY_LOG=${harness.recoveryFallbackLog}`,
@@ -487,6 +471,7 @@ describe("Hermes secret-boundary guard — full recovery script behaviour", () =
         "",
       ].join("\n"),
     );
+    fs.chmodSync(proxyEnvFile, 0o444);
     stubBaselineUtilities(harness.stubsDir, harness.pkillLog, harness.hermesLaunchMarker);
 
     try {

@@ -6,30 +6,40 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  GATEWAY_PRELOAD_GUARDS,
-  buildGatewayGuardRecoveryLines,
-} from "../../../dist/lib/agent/runtime-recovery-preload";
 import { buildOpenClawRecoveryScript, buildRecoveryScript } from "../../../dist/lib/agent/runtime";
+import {
+  buildGatewayGuardRecoveryLines,
+  GATEWAY_PRELOAD_GUARDS,
+} from "../../../dist/lib/agent/runtime-recovery-preload";
 import { minimalAgent } from "./hermes-recovery-boundary-fixtures";
 
 const [SAFETY_NET_GUARD, CIAO_GUARD] = GATEWAY_PRELOAD_GUARDS;
+
+function writeStub(dir: string, name: string, body: string) {
+  const stub = path.join(dir, name);
+  fs.writeFileSync(stub, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  return stub;
+}
 
 function makeHarness() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-recovery-preload-"));
   const sourceDir = path.join(root, "usr-local-lib-nemoclaw-preloads");
   const workDir = path.join(root, "tmp");
+  const stubsDir = path.join(root, "bin");
   fs.mkdirSync(sourceDir, { recursive: true });
   fs.mkdirSync(workDir, { recursive: true });
+  fs.mkdirSync(stubsDir, { recursive: true });
 
   const paths = {
     root,
+    stubsDir,
     sourceSafetyNet: path.join(sourceDir, "sandbox-safety-net.js"),
     sourceCiao: path.join(sourceDir, "ciao-network-guard.js"),
     tmpSafetyNet: path.join(workDir, "nemoclaw-sandbox-safety-net.js"),
     tmpCiao: path.join(workDir, "nemoclaw-ciao-network-guard.js"),
     proxyEnv: path.join(workDir, "nemoclaw-proxy-env.sh"),
     gatewayLog: path.join(workDir, "gateway.log"),
+    hostileMarker: path.join(root, "hostile-proxy-env-sourced"),
   };
 
   fs.writeFileSync(paths.sourceSafetyNet, "module.exports = 'trusted safety net';\n");
@@ -50,20 +60,32 @@ function rewriteRuntimePaths(script: string, paths: ReturnType<typeof makeHarnes
 function runGuardRecovery(opts: {
   proxyEnvContent?: string;
   beforeScript?: (paths: ReturnType<typeof makeHarness>) => void;
+  fakeRoot?: boolean;
 }) {
   const paths = makeHarness();
+  if (opts.fakeRoot) {
+    writeStub(
+      paths.stubsDir,
+      "id",
+      '[ "$1" = "-u" ] && { printf "0\\n"; exit 0; }\n/usr/bin/id "$@"',
+    );
+    writeStub(paths.stubsDir, "chown", "exit 0");
+    writeStub(
+      paths.stubsDir,
+      "stat",
+      '[ "$1" = "-c" ] && [ "$2" = "%u" ] && { printf "0\\n"; exit 0; }\n/usr/bin/stat "$@"',
+    );
+  }
   opts.beforeScript?.(paths);
 
-  const sourceProxyEnv = opts.proxyEnvContent
+  const writeProxyEnv = opts.proxyEnvContent
     ? [
         `cat > ${JSON.stringify(paths.proxyEnv)} <<'PROXYENV'`,
         opts.proxyEnvContent,
         "PROXYENV",
         `chmod 444 ${JSON.stringify(paths.proxyEnv)}`,
-        `. ${JSON.stringify(paths.proxyEnv)}`,
-        "_PE_MISSING=0",
       ]
-    : ["_PE_MISSING=1"];
+    : [];
 
   const script = rewriteRuntimePaths(
     [
@@ -71,7 +93,7 @@ function runGuardRecovery(opts: {
       "set -u",
       `export _GATEWAY_LOG=${JSON.stringify(paths.gatewayLog)}`,
       ': > "$_GATEWAY_LOG"',
-      ...sourceProxyEnv,
+      ...writeProxyEnv,
       ...buildGatewayGuardRecoveryLines(),
       'if [ "$_GUARDS_MISSING" = "1" ]; then echo GUARDS_MISSING; exit 17; fi',
       'printf "PE_MISSING=%s\\n" "$_PE_MISSING"',
@@ -86,10 +108,15 @@ function runGuardRecovery(opts: {
     const result = spawnSync("bash", [scriptPath], {
       encoding: "utf-8",
       timeout: 10000,
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: paths.root },
+      env: {
+        PATH: `${paths.stubsDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        HOME: paths.root,
+      },
     });
     const readIfExists = (pathname: string) =>
-      fs.existsSync(pathname) ? fs.readFileSync(pathname, "utf-8") : null;
+      fs.existsSync(pathname) && fs.statSync(pathname).isFile()
+        ? fs.readFileSync(pathname, "utf-8")
+        : null;
     const modeIfExists = (pathname: string) => (fs.existsSync(pathname) ? mode(pathname) : null);
     return {
       ...result,
@@ -105,6 +132,10 @@ function runGuardRecovery(opts: {
         tmpSafetyNetIsSymlink: fs.existsSync(paths.tmpSafetyNet)
           ? fs.lstatSync(paths.tmpSafetyNet).isSymbolicLink()
           : null,
+        proxyEnvIsSymlink: fs.existsSync(paths.proxyEnv)
+          ? fs.lstatSync(paths.proxyEnv).isSymbolicLink()
+          : null,
+        hostileProxyEnvSourced: fs.existsSync(paths.hostileMarker),
       },
     };
   } finally {
@@ -154,6 +185,57 @@ describe("gateway recovery preload repair", () => {
     expect(nodeOptions.match(new RegExp(result.paths.tmpCiao, "g"))?.length).toBe(1);
   });
 
+  it("rebuilds an unsafe proxy-env.sh without sourcing attacker-controlled content", () => {
+    const result = runGuardRecovery({
+      beforeScript(paths) {
+        fs.writeFileSync(
+          paths.proxyEnv,
+          [
+            `touch ${JSON.stringify(paths.hostileMarker)}`,
+            "export NODE_OPTIONS='--require /tmp/attacker.js'",
+            "",
+          ].join("\n"),
+        );
+        fs.chmodSync(paths.proxyEnv, 0o666);
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("PE_MISSING=0");
+    expect(result.files.hostileProxyEnvSourced).toBe(false);
+    expect(result.files.proxyEnvMode).toBe(0o444);
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpSafetyNet}`);
+    expect(result.files.proxyEnv).not.toContain("/tmp/attacker.js");
+    expect(result.files.gatewayLog).toContain("unsafe mode");
+    expect(result.files.gatewayLog).toContain("rebuilding from packaged preloads");
+  });
+
+  it("replaces a symlinked proxy-env.sh instead of sourcing it", () => {
+    const result = runGuardRecovery({
+      beforeScript(paths) {
+        const target = path.join(paths.root, "attacker-proxy-env.sh");
+        fs.writeFileSync(target, `touch ${JSON.stringify(paths.hostileMarker)}\n`);
+        fs.symlinkSync(target, paths.proxyEnv);
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.files.hostileProxyEnvSourced).toBe(false);
+    expect(result.files.proxyEnvIsSymlink).toBe(false);
+    expect(result.files.proxyEnv).toContain(`--require ${result.paths.tmpSafetyNet}`);
+    expect(result.files.gatewayLog).toContain("is a symlink");
+  });
+
+  it("fails closed when proxy-env.sh is a directory", () => {
+    const result = runGuardRecovery({
+      beforeScript(paths) {
+        fs.mkdirSync(paths.proxyEnv);
+      },
+    });
+    expect(result.status).toBe(17);
+    expect(result.stdout).toContain("GUARDS_MISSING");
+    expect(result.files.gatewayLog).toContain("is a directory");
+    expect(result.files.gatewayLog).toContain("refusing recovered proxy-env install");
+  });
+
   it("replaces a symlinked tmp preload with a trusted staged file", () => {
     const result = runGuardRecovery({
       beforeScript(paths) {
@@ -177,6 +259,19 @@ describe("gateway recovery preload repair", () => {
     expect(result.stdout).toContain("GUARDS_MISSING");
     expect(result.files.gatewayLog).toContain("trusted preload source");
     expect(result.files.gatewayLog).toContain("refusing preload install");
+  });
+
+  it("refuses recovery when a trusted packaged preload source is group writable in root mode", () => {
+    const result = runGuardRecovery({
+      fakeRoot: true,
+      beforeScript(paths) {
+        fs.chmodSync(paths.sourceCiao, 0o664);
+      },
+    });
+    expect(result.status).toBe(17);
+    expect(result.stdout).toContain("GUARDS_MISSING");
+    expect(result.files.gatewayLog).toContain("trusted preload source");
+    expect(result.files.gatewayLog).toContain("unsafe mode=664");
   });
 
   it("wires the repair helper into both recovery script builders", () => {

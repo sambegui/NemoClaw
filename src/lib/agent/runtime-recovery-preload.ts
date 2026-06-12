@@ -22,11 +22,13 @@ export const GATEWAY_PRELOAD_GUARDS: ReadonlyArray<{
 /**
  * Build shell lines that restore and validate the required recovery preloads.
  *
- * The recovery script sources /tmp/nemoclaw-proxy-env.sh before these lines.
- * If that file is missing, this helper recreates a minimal proxy-env file from
- * trusted packaged preload sources, sources it, and leaves the sandbox in a
- * state the E2E guard-chain checks can inspect. If the trusted sources cannot
- * be staged safely, callers see _GUARDS_MISSING=1 and refuse the relaunch.
+ * The recovery script must not source /tmp/nemoclaw-proxy-env.sh before these
+ * lines. This helper validates the env file first, rebuilds it when it is
+ * missing or unsafe, then sources only the trusted result. The recovered env is
+ * intentionally minimal: it restores the critical Node preload guard chain that
+ * recovery itself requires. The normal sandbox entrypoint remains the source of
+ * truth for the full proxy/tool/token environment and refreshes that file on a
+ * regular sandbox restart.
  */
 export function buildGatewayGuardRecoveryLines(): string[] {
   const recoveredProxyEnvExports = GATEWAY_PRELOAD_GUARDS.map(
@@ -61,6 +63,13 @@ export function buildGatewayGuardRecoveryLines(): string[] {
     "done;",
     "return 1;",
     "};",
+    "_nemoclaw_mode_group_or_other_writable() {",
+    'local perms="$1"; local go;',
+    'case "$perms" in ""|*[!0-7]*) return 0 ;; esac;',
+    'while [ "${#perms}" -lt 3 ]; do perms="0$perms"; done;',
+    'go="${perms: -2}";',
+    'case "$go" in [2367]*|?[2367]) return 0 ;; *) return 1 ;; esac;',
+    "};",
     "_nemoclaw_append_node_require() {",
     'local wanted="$1";',
     'if ! _nemoclaw_node_options_has_require "$wanted"; then export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $wanted"; fi;',
@@ -72,14 +81,37 @@ export function buildGatewayGuardRecoveryLines(): string[] {
     'perms="$(stat -c %a "$file" 2>/dev/null || stat -f %Lp "$file" 2>/dev/null || echo unknown)";',
     'if [ "$perms" != "444" ]; then _msg="[gateway-recovery] ERROR: $file has unsafe mode=$perms (expected 444) - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
     'if [ "$(id -u)" -eq 0 ]; then',
-    'owner="$(stat -c %U "$file" 2>/dev/null || stat -f %Su "$file" 2>/dev/null || echo unknown)";',
-    'if [ "$owner" != "root" ]; then _msg="[gateway-recovery] ERROR: $file owner=$owner (expected root) - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'owner="$(stat -c %u "$file" 2>/dev/null || stat -f %u "$file" 2>/dev/null || echo unknown)";',
+    'if [ "$owner" != "0" ]; then _msg="[gateway-recovery] ERROR: $file owner_uid=$owner (expected 0) - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    "fi;",
+    "return 0;",
+    "};",
+    "_nemoclaw_validate_trusted_preload_source() {",
+    'local src="$1"; local perms owner _msg;',
+    'if [ ! -r "$src" ] || [ -L "$src" ] || [ ! -f "$src" ]; then _msg="[gateway-recovery] ERROR: trusted preload source $src unavailable - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'perms="$(stat -c %a "$src" 2>/dev/null || stat -f %Lp "$src" 2>/dev/null || echo unknown)";',
+    'if [ "$(id -u)" -eq 0 ]; then',
+    'owner="$(stat -c %u "$src" 2>/dev/null || stat -f %u "$src" 2>/dev/null || echo unknown)";',
+    'if [ "$owner" != "0" ]; then _msg="[gateway-recovery] ERROR: trusted preload source $src owner_uid=$owner (expected 0) - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'if _nemoclaw_mode_group_or_other_writable "$perms"; then _msg="[gateway-recovery] ERROR: trusted preload source $src has unsafe mode=$perms (group/other writable) - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    "fi;",
+    "return 0;",
+    "};",
+    "_nemoclaw_validate_recovery_proxy_env() {",
+    'local env_file="$1"; local perms owner _msg;',
+    'if [ -L "$env_file" ]; then _msg="[gateway-recovery] WARNING: $env_file is a symlink - rebuilding from packaged preloads"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'if [ ! -f "$env_file" ]; then return 1; fi;',
+    'perms="$(stat -c %a "$env_file" 2>/dev/null || stat -f %Lp "$env_file" 2>/dev/null || echo unknown)";',
+    'if [ "$perms" != "444" ]; then _msg="[gateway-recovery] WARNING: $env_file has unsafe mode=$perms (expected 444) - rebuilding from packaged preloads"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'if [ "$(id -u)" -eq 0 ]; then',
+    'owner="$(stat -c %u "$env_file" 2>/dev/null || stat -f %u "$env_file" 2>/dev/null || echo unknown)";',
+    'if [ "$owner" != "0" ]; then _msg="[gateway-recovery] WARNING: $env_file owner_uid=$owner (expected 0) - rebuilding from packaged preloads"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
     "fi;",
     "return 0;",
     "};",
     "_nemoclaw_stage_recovery_preload() {",
     'local tmp="$1"; local src="$2"; local dir base stage _msg;',
-    'if [ ! -r "$src" ] || [ -L "$src" ] || [ ! -f "$src" ]; then _msg="[gateway-recovery] ERROR: trusted preload source $src unavailable - refusing preload install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    '_nemoclaw_validate_trusted_preload_source "$src" || return 1;',
     'dir="$(dirname "$tmp")"; base="$(basename "$tmp")";',
     'stage="$(mktemp "${dir}/.${base}.tmp.XXXXXX")" || { _msg="[gateway-recovery] ERROR: failed to stage $tmp"; _nemoclaw_recovery_log "$_msg"; return 1; };',
     'if ! cp "$src" "$stage"; then rm -f "$stage"; _msg="[gateway-recovery] ERROR: failed to copy $src into recovery stage"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
@@ -97,13 +129,15 @@ export function buildGatewayGuardRecoveryLines(): string[] {
     '} > "$stage" || { rm -f "$stage"; _msg="[gateway-recovery] ERROR: failed to write recovered proxy-env.sh"; _nemoclaw_recovery_log "$_msg"; return 1; };',
     'if [ "$(id -u)" -eq 0 ] && ! chown root:root "$stage"; then rm -f "$stage"; _msg="[gateway-recovery] ERROR: failed to chown recovered proxy-env.sh"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
     'if ! chmod 444 "$stage"; then rm -f "$stage"; _msg="[gateway-recovery] ERROR: failed to chmod recovered proxy-env.sh"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
+    'if [ -d "$env_file" ]; then rm -f "$stage"; _msg="[gateway-recovery] ERROR: $env_file is a directory - refusing recovered proxy-env install"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
     'if ! mv -f "$stage" "$env_file"; then rm -f "$stage"; _msg="[gateway-recovery] ERROR: failed to install recovered proxy-env.sh"; _nemoclaw_recovery_log "$_msg"; return 1; fi;',
-    "return 0;",
+    '_nemoclaw_validate_recovery_proxy_env "$env_file";',
     "};",
   ].join(" ");
 
   return [
     helpers,
+    "if _nemoclaw_validate_recovery_proxy_env /tmp/nemoclaw-proxy-env.sh; then . /tmp/nemoclaw-proxy-env.sh; _PE_MISSING=0; else _PE_MISSING=1; fi;",
     "_NEMOCLAW_CRITICAL_GUARDS_READY=1;",
     ...stageCalls,
     'if [ "$_NEMOCLAW_CRITICAL_GUARDS_READY" = "1" ] && [ "${_PE_MISSING:-0}" = "1" ]; then',
