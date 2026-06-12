@@ -420,7 +420,7 @@ export function extractFreeStandingVitestJobs(workflowText: string): VitestWorkf
       bodyLines.push(lines[bodyIndex]);
     }
     const body = bodyLines.join("\n");
-    if (!body.includes("inputs.jobs") || !body.includes(`,${id},`)) continue;
+    if (!hasSharedJobsSelector(body, id)) continue;
     const liveTestFiles = uniqueStrings(
       [...body.matchAll(/test\/e2e-scenario\/live\/[A-Za-z0-9._-]+\.test\.ts/g)].map(
         (item) => item[0],
@@ -430,6 +430,14 @@ export function extractFreeStandingVitestJobs(workflowText: string): VitestWorkf
     jobs.push({ id, liveTestFiles });
   }
   return jobs.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function hasSharedJobsSelector(body: string, id: string): boolean {
+  return (
+    body.includes("inputs.jobs == ''") &&
+    body.includes("contains(format(',{0},', inputs.jobs)") &&
+    body.includes(`,${id},`)
+  );
 }
 
 function findUnwiredFreeStandingLiveTests(
@@ -619,9 +627,15 @@ export function renderScenarioSummary(result: ScenarioAdvisorResult): string {
   if (result.required.length === 0) {
     lines.push(`- _None._ ${result.noScenarioE2eReason || ""}`.trim());
   } else {
+    const seenDispatches = new Set<string>();
     for (const recommendation of result.required) {
       lines.push(`- **${recommendation.id}**: ${recommendation.reason}`);
-      lines.push(`  - Dispatch: \`${recommendation.dispatchCommand}\``);
+      if (seenDispatches.has(recommendation.dispatchCommand)) {
+        lines.push("  - Dispatch: covered by the shared fan-out command above.");
+      } else {
+        seenDispatches.add(recommendation.dispatchCommand);
+        lines.push(`  - Dispatch: \`${recommendation.dispatchCommand}\``);
+      }
     }
   }
   lines.push("");
@@ -629,9 +643,15 @@ export function renderScenarioSummary(result: ScenarioAdvisorResult): string {
   if (result.optional.length === 0) {
     lines.push("- _None._");
   } else {
+    const seenDispatches = new Set<string>();
     for (const recommendation of result.optional) {
       lines.push(`- **${recommendation.id}**: ${recommendation.reason}`);
-      lines.push(`  - Dispatch: \`${recommendation.dispatchCommand}\``);
+      if (seenDispatches.has(recommendation.dispatchCommand)) {
+        lines.push("  - Dispatch: covered by the shared fan-out command above.");
+      } else {
+        seenDispatches.add(recommendation.dispatchCommand);
+        lines.push(`  - Dispatch: \`${recommendation.dispatchCommand}\``);
+      }
     }
   }
   lines.push("");

@@ -59,16 +59,19 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        if: ${{ inputs.jobs == '' }}
         with:
           persist-credentials: false
 
       - name: Set up Node
+        if: ${{ inputs.jobs == '' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
           node-version: 22
           cache: npm
 
       - name: Install root dependencies
+        if: ${{ inputs.jobs == '' }}
         run: npm ci --ignore-scripts
 
       - id: matrix
@@ -1060,7 +1063,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config-model-router-provider-routed-inference
+      DOCKER_CONFIG: /tmp/docker-config-model-router-provider-routed-inference
       E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts/vitest/model-router-provider-routed-inference
       NEMOCLAW_CLI_BIN: ${{ github.workspace }}/bin/nemoclaw.js
       NEMOCLAW_RUN_E2E_SCENARIOS: "1"

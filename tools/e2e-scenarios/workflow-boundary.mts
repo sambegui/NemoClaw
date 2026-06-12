@@ -339,12 +339,7 @@ function validateNetworkPolicyVitestJob(errors: string[], jobs: WorkflowRecord):
   if (job["runs-on"] !== "ubuntu-latest") {
     errors.push("network-policy-vitest job must run on ubuntu-latest");
   }
-  if (job.needs !== "validate-jobs") {
-    errors.push("network-policy-vitest job must depend on validate-jobs");
-  }
-  if (job.if !== freeStandingJobIf(jobName)) {
-    errors.push("network-policy-vitest job must use the shared jobs selector condition");
-  }
+  validateFreeStandingJobSelector(errors, jobs, jobName);
 
   const jobEnv = asRecord(job.env);
   if (jobEnv.NEMOCLAW_RUN_E2E_SCENARIOS !== "1") {
@@ -972,12 +967,7 @@ function validateHermesE2EVitestJob(errors: string[], jobs: WorkflowRecord): voi
   if (job["runs-on"] !== "ubuntu-latest") {
     errors.push("hermes-e2e-vitest job must run on ubuntu-latest");
   }
-  if (job.needs !== "validate-jobs") {
-    errors.push("hermes-e2e-vitest job must depend on validate-jobs");
-  }
-  if (job.if !== freeStandingJobIf(jobName)) {
-    errors.push("hermes-e2e-vitest job must use the shared jobs selector condition");
-  }
+  validateFreeStandingJobSelector(errors, jobs, jobName);
 
   const jobEnv = asRecord(job.env);
   if (jobEnv.NEMOCLAW_RUN_E2E_SCENARIOS !== "1") {
@@ -1072,16 +1062,7 @@ function validateHermesRootEntrypointSmokeVitestJob(
   if (job["runs-on"] !== "ubuntu-latest") {
     errors.push("hermes-root-entrypoint-smoke-vitest job must run on ubuntu-latest");
   }
-  if (job.needs !== "validate-jobs") {
-    errors.push("hermes-root-entrypoint-smoke-vitest job must depend on validate-jobs");
-  }
-  const expectedIf =
-    "${{ inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',hermes-root-entrypoint-smoke-vitest,') }}";
-  if (job.if !== expectedIf) {
-    errors.push(
-      "hermes-root-entrypoint-smoke-vitest job must use the shared jobs selector condition",
-    );
-  }
+  validateFreeStandingJobSelector(errors, jobs, jobName);
   if (job["timeout-minutes"] !== 45) {
     errors.push("hermes-root-entrypoint-smoke-vitest job must keep the 45 minute timeout");
   }
@@ -1238,10 +1219,10 @@ function validateModelRouterProviderRoutedInferenceVitestJob(
   const jobEnv = asRecord(job.env);
   if (
     jobEnv.DOCKER_CONFIG !==
-    "${{ runner.temp }}/docker-config-model-router-provider-routed-inference"
+    "/tmp/docker-config-model-router-provider-routed-inference"
   ) {
     errors.push(
-      "model-router-provider-routed-inference-vitest job must isolate Docker auth with DOCKER_CONFIG under runner.temp",
+      "model-router-provider-routed-inference-vitest job must isolate Docker auth with a job-safe DOCKER_CONFIG path",
     );
   }
   if (
@@ -1439,9 +1420,21 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   if (asRecord(generateCheckout?.with)["persist-credentials"] !== false) {
     errors.push("generate-matrix checkout step must set persist-credentials=false");
   }
+  if (generateCheckout?.if !== "${{ inputs.jobs == '' }}") {
+    errors.push("generate-matrix checkout step must skip when jobs selector is supplied");
+  }
   const generateSetupNode = namedStep(generateSteps, "Set up Node");
   if (!generateSetupNode) errors.push("generate-matrix job missing step: Set up Node");
   requireFullShaAction(errors, generateSetupNode, "generate-matrix setup-node");
+  if (generateSetupNode?.if !== "${{ inputs.jobs == '' }}") {
+    errors.push("generate-matrix setup-node step must skip when jobs selector is supplied");
+  }
+  const generateInstall = namedStep(generateSteps, "Install root dependencies");
+  if (!generateInstall) errors.push("generate-matrix job missing step: Install root dependencies");
+  if (generateInstall?.if !== "${{ inputs.jobs == '' }}") {
+    errors.push("generate-matrix install step must skip when jobs selector is supplied");
+  }
+  requireRunContains(errors, generateInstall, "npm ci --ignore-scripts");
   const generate = requireStep(errors, generateSteps, "Generate Vitest scenario matrix");
   const generateEnv = asRecord(generate?.env);
   if (generateEnv.JOBS !== "${{ inputs.jobs }}") {

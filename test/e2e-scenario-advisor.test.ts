@@ -373,6 +373,16 @@ jobs:
         liveTestFiles: ["test/e2e-scenario/live/token-rotation.test.ts"],
       },
     ]);
+
+    expect(
+      extractFreeStandingVitestJobs(String.raw`
+jobs:
+  token-rotation-vitest:
+    if: \${{ contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
+    steps:
+      - run: npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/token-rotation.test.ts
+`),
+    ).toEqual([]);
   });
 
   it("prefers a focused free-standing job over fan-out once workflow wiring is present", () => {
@@ -438,7 +448,7 @@ jobs:
         vitestWorkflowText: String.raw`
 jobs:
   token-rotation-vitest:
-    if: \${{ contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
+    if: \${{ inputs.jobs == '' || contains(format(',{0},', inputs.jobs), ',token-rotation-vitest,') }}
     steps:
       - run: npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/token-rotation.test.ts
 `,
@@ -557,6 +567,22 @@ describe("Vitest E2E scenario advisor — summary and comment rendering", () => 
     expect(summary).toContain(
       canonicalDispatchCommand(VITEST_SCENARIO_WORKFLOW, "e2e-scenarios-all"),
     );
+  });
+
+  it("renders duplicate fan-out dispatches as one run-once command", () => {
+    const result = sampleResult();
+    result.required.push({
+      id: "ubuntu-repo-cloud-openclaw",
+      workflow: VITEST_SCENARIO_WORKFLOW,
+      selectorType: "scenario",
+      required: true,
+      reason: "targeted scenario metadata",
+      dispatchCommand: canonicalDispatchCommand(VITEST_SCENARIO_WORKFLOW, "ubuntu-repo-cloud-openclaw"),
+    });
+
+    const summary = renderScenarioSummary(result);
+    expect(summary.match(/gh workflow run e2e-vitest-scenarios.yaml --ref <pr-head-ref>/g)).toHaveLength(1);
+    expect(summary).toContain("covered by the shared fan-out command above");
   });
 
   it("builds a sticky scenario comment with the marker and run url", () => {
