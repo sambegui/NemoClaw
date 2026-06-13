@@ -29,6 +29,16 @@ const SELECTOR_PATTERN = /^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$/;
 const SELECTOR_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const FREE_STANDING_JOB_MARKER = "FREE_STANDING_VITEST_JOB";
 const FREE_STANDING_SCENARIO_MARKER = "FREE_STANDING_SCENARIO_ID";
+const COMMON_SECRET_ENV_NAMES = [
+  "NVIDIA_API_KEY",
+  "DOCKERHUB_USERNAME",
+  "DOCKERHUB_TOKEN",
+  "GITHUB_TOKEN",
+];
+const FREE_STANDING_SELECTOR_SPECIAL_CASES = new Set([
+  "hermes-e2e-vitest",
+  "hermes-root-entrypoint-smoke-vitest",
+]);
 
 function asRecord(value: unknown): WorkflowRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -350,6 +360,47 @@ function validateFreeStandingJobSelector(
   }
   if (job.if !== freeStandingJobIf(jobName, scenarioName)) {
     errors.push(`${jobName} job must use the shared jobs selector condition`);
+  }
+}
+
+function validateFreeStandingInventoryBoundary(
+  errors: string[],
+  jobs: WorkflowRecord,
+  inventory: FreeStandingJobsInventory,
+): void {
+  const scenarioByJob = new Map(
+    [...inventory.scenarioToJob].map(([scenario, job]) => [job, scenario]),
+  );
+
+  for (const jobName of inventory.allowedJobs) {
+    const job = asRecord(jobs[jobName]);
+    if (Object.keys(job).length === 0) continue;
+
+    if (!FREE_STANDING_SELECTOR_SPECIAL_CASES.has(jobName)) {
+      validateFreeStandingJobSelector(errors, jobs, jobName, scenarioByJob.get(jobName));
+    }
+
+    const jobEnv = asRecord(job.env);
+    for (const secret of COMMON_SECRET_ENV_NAMES) {
+      requireEnvDoesNotExposeSecret(errors, `${jobName} job`, jobEnv, secret);
+    }
+
+    const steps = asSteps(job.steps);
+    requireNoDispatchInputInterpolation(errors, steps);
+    for (const step of steps) {
+      if (step.uses) {
+        requireFullShaAction(
+          errors,
+          step,
+          `${jobName} step '${step.name ?? step.uses}'`,
+        );
+      }
+      if (/\$\{\{\s*secrets\./.test(stringValue(step.run))) {
+        errors.push(
+          `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' run script must not interpolate secrets directly`,
+        );
+      }
+    }
   }
 }
 
@@ -1910,6 +1961,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   const { errors: inventoryErrors, inventory: freeStandingInventory } =
     deriveFreeStandingJobsInventoryFromJobs(jobs);
   errors.push(...inventoryErrors);
+  validateFreeStandingInventoryBoundary(errors, jobs, freeStandingInventory);
   const generateMatrix = asRecord(jobs["generate-matrix"]);
   if (Object.keys(generateMatrix).length === 0) errors.push("workflow missing generate-matrix job");
   if (generateMatrix["runs-on"] !== "ubuntu-latest") {

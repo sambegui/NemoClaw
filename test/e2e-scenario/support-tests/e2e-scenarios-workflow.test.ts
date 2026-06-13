@@ -629,6 +629,47 @@ jobs:
     }
   });
 
+  it("applies boundary checks to newly marked free-standing jobs", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-vitest-workflow-"));
+    const workflowPath = path.join(tmp, "workflow.yaml");
+    const workflow = readWorkflow() as {
+      jobs: Record<string, Record<string, unknown>>;
+    };
+    workflow.jobs["ad-hoc-derived-vitest"] = {
+      "runs-on": "ubuntu-latest",
+      needs: "live-scenarios",
+      if: "${{ inputs.scenarios != '' }}",
+      env: {
+        FREE_STANDING_VITEST_JOB: "1",
+        FREE_STANDING_SCENARIO_ID: "ad-hoc-derived",
+        NVIDIA_API_KEY: "${{ secrets.NVIDIA_API_KEY }}",
+      },
+      steps: [
+        { uses: "actions/checkout@v4" },
+        {
+          name: "Run ad hoc",
+          run: "echo ${{ inputs.jobs }} && echo ${{ secrets.NVIDIA_API_KEY }}",
+        },
+      ],
+    };
+    fs.writeFileSync(workflowPath, YAML.stringify(workflow));
+
+    try {
+      expect(validateE2eVitestScenariosWorkflowBoundary(workflowPath)).toEqual(
+        expect.arrayContaining([
+          "ad-hoc-derived-vitest job must depend on generate-matrix",
+          "ad-hoc-derived-vitest job must use the shared jobs selector condition",
+          "ad-hoc-derived-vitest job env must not include NVIDIA_API_KEY",
+          "ad-hoc-derived-vitest step 'actions/checkout@v4' action must be pinned to a full commit SHA",
+          "step 'Run ad hoc' run script must not interpolate dispatch inputs directly",
+          "ad-hoc-derived-vitest step 'Run ad hoc' run script must not interpolate secrets directly",
+        ]),
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("requires runtime-overrides workflow and report coverage", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-vitest-workflow-"));
     const renamedWorkflowPath = path.join(tmp, "renamed-workflow.yaml");

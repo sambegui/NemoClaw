@@ -1912,7 +1912,6 @@ jobs:
       E2E_ARTIFACT_DIR: ${{ github.workspace }}/e2e-artifacts/vitest/gateway-guard-recovery
       NEMOCLAW_CLI_BIN: ${{ github.workspace }}/bin/nemoclaw.js
       NEMOCLAW_RUN_E2E_SCENARIOS: "1"
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NEMOCLAW_NON_INTERACTIVE: "1"
       NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
       # nemoclaw onboard registers the gateway under the canonical name
@@ -1951,6 +1950,8 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run Vitest gateway-guard-recovery scenario
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           # OpenShell installs to /usr/local/bin on GitHub-hosted runners
