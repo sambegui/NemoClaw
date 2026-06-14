@@ -234,8 +234,11 @@ function getProbeProcessTimeoutMs(args) {
 // (NVIDIA Endpoints and other hosted providers periodically emit these for
 // minutes at a time). All four are transient — retry with backoff before
 // surfacing a hard failure to the wizard. See issues #2980 and #3033.
+// The fourth 60 s backoff (110 s total budget) absorbs sustained 429 bursts
+// from the nightly E2E, where 30+ concurrent jobs probe the same hosted
+// inference endpoint within seconds of each other.
 const RETRIABLE_HTTP_PROBE_STATUSES = new Set([429, 502, 503, 504]);
-const HTTP_PROBE_RETRY_DELAYS_MS = [5_000, 15_000, 30_000];
+const HTTP_PROBE_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000];
 
 function sleepSync(ms) {
   if (ms <= 0) return;
