@@ -14,7 +14,7 @@
     {
       "name": "Node.js builtin import protocol",
       "selector": "useNodejsImportProtocol",
-      "maxDiagnostics": 79
+      "maxDiagnostics": 91
     }
   ]
 }

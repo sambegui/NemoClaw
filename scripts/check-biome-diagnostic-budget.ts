@@ -69,6 +69,8 @@ type RawBiomeJsonReport = {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_BUDGET_PATH = path.join(REPO_ROOT, "ci", "biome-diagnostic-budget.json");
 const DEFAULT_EXAMPLE_LIMIT = 5;
+const BIOME_LINT_TIMEOUT_MS = 120_000;
+const BIOME_LINT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -184,6 +186,8 @@ export function countBiomeDiagnostics(
     {
       cwd: rootDir,
       encoding: "utf-8",
+      timeout: BIOME_LINT_TIMEOUT_MS,
+      maxBuffer: BIOME_LINT_MAX_BUFFER_BYTES,
     },
   );
 
