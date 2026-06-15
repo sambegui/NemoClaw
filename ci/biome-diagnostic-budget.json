@@ -5,6 +5,11 @@
       "name": "skipped tests",
       "selector": "noSkippedTests",
       "maxDiagnostics": 3
+    },
+    {
+      "name": "import cycles",
+      "selector": "noImportCycles",
+      "maxDiagnostics": 14
     }
   ]
 }
