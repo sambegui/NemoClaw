@@ -476,8 +476,8 @@ Then re-run `$$nemoclaw onboard`.
 Re-running `$$nemoclaw onboard --non-interactive` with a new
 `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, or `SLACK_BOT_TOKEN` previously
 reported success while the sandbox kept polling with the old credential.
-Current NemoClaw stores SHA-256 hashes of messaging credentials in the
-sandbox registry at creation time and detects when a token has changed.
+Current NemoClaw stores SHA-256 hashes for messaging credentials in the sandbox's messaging plan credential bindings.
+It uses those hashes to detect when a token has changed.
 When rotation is detected, NemoClaw automatically backs up workspace state,
 deletes the sandbox, recreates it with the new credential, and restores the
 backup.
