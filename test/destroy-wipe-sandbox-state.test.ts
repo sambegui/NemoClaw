@@ -16,9 +16,11 @@ import * as destroy from "../dist/lib/actions/sandbox/destroy.js";
 type OpenshellResult = { status: number | null };
 
 function buildDeps(overrides: Partial<Record<string, unknown>> = {}) {
-  const runOpenshell = vi.fn((_args: string[], _opts?: Record<string, unknown>): OpenshellResult => ({
-    status: 0,
-  }));
+  const runOpenshell = vi.fn(
+    (_args: string[], _opts?: Record<string, unknown>): OpenshellResult => ({
+      status: 0,
+    }),
+  );
   const deps = {
     getSandbox: vi.fn(() => ({ agent: "openclaw" }) as never),
     loadAgent: vi.fn(() => ({
@@ -75,9 +77,7 @@ describe("wipeSandboxState (#5449)", () => {
 
     destroy.wipeSandboxState("test-sb", deps as never);
 
-    const call = runOpenshell.mock.calls.find(
-      (args) => (args[0] as string[])[1] === "exec",
-    );
+    const call = runOpenshell.mock.calls.find((args) => (args[0] as string[])[1] === "exec");
     expect((call?.[1] as { ignoreError?: boolean })?.ignoreError).toBe(true);
   });
 

@@ -1,14 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-
 import fs from "node:fs";
 import path from "node:path";
+
 import { resolveOpenshell } from "../../adapters/openshell/resolve";
 import { OPENSHELL_PROBE_TIMEOUT_MS } from "../../adapters/openshell/timeouts";
 import { CLI_NAME } from "../../cli/branding";
 import { G, R, YW } from "../../cli/terminal-style";
-import { DASHBOARD_PORT } from "../../core/ports";
 import { shellQuote } from "../../core/shell-quote";
 import { prompt as askPrompt } from "../../credentials/store";
 import {
@@ -20,14 +19,28 @@ import {
   shouldCleanupGatewayAfterDestroy,
   shouldStopHostServicesAfterDestroy,
 } from "../../domain/sandbox/destroy";
+import {
+  emitProviderDetachResidualHint,
+  runSandboxProviderPreDeleteCleanup,
+  SANDBOX_PROVIDER_SUFFIXES,
+} from "../../onboard/sandbox-provider-cleanup";
 import { parseLiveSandboxNames } from "../../runtime-recovery";
+import { redact } from "../../security/redact";
+import { killTimer as defaultKillShieldsTimer } from "../../shields/timer-control";
 import type { Session } from "../../state/onboard-session";
 import * as onboardSession from "../../state/onboard-session";
+import { resolveNemoclawStateDir } from "../../state/paths";
 import * as registry from "../../state/registry";
 import {
   createSystemDeps as createSessionDeps,
   getActiveSandboxSessions,
 } from "../../state/sandbox-session";
+import {
+  cleanupGatewayAfterLastSandbox,
+  type DestroyRunOpenshell,
+  selectGatewayForSandboxDestroy,
+} from "./destroy-gateway";
+import { getSandboxTargetGatewayName } from "./gateway-target";
 
 type DockerRmi = (tag: string, opts?: { ignoreError?: boolean }) => { status: number | null };
 
@@ -41,10 +54,7 @@ type RemoveSandboxRegistryEntryDeps = {
   removeSandbox?: typeof registry.removeSandbox;
 };
 
-type RunOpenshell = (
-  args: string[],
-  opts?: Record<string, unknown>,
-) => { status: number | null };
+type RunOpenshell = (args: string[], opts?: Record<string, unknown>) => { status: number | null };
 
 export type CleanupSandboxServicesDeps = {
   getSandbox?: typeof registry.getSandbox;
@@ -54,26 +64,21 @@ export type CleanupSandboxServicesDeps = {
   rmSync?: typeof fs.rmSync;
 };
 
-const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
-const DASHBOARD_FORWARD_PORT = String(DASHBOARD_PORT);
+type ShieldsTimerNeutralizeResult = {
+  warnings?: string[];
+};
 
-function cleanupGatewayAfterLastSandbox(): void {
-  const { runOpenshell } = require("../../adapters/openshell/runtime") as {
-    runOpenshell: (args: string[], opts?: Record<string, unknown>) => { status: number | null };
-  };
-  const { dockerRemoveVolumesByPrefix } = require("../../adapters/docker") as {
-    dockerRemoveVolumesByPrefix: (prefix: string, opts?: { ignoreError?: boolean }) => void;
-  };
+type CleanupShieldsDestroyArtifactsDeps = {
+  killShieldsTimer?: (sandboxName: string) => ShieldsTimerNeutralizeResult | void;
+  rmSync?: typeof fs.rmSync;
+  stateDir?: string;
+  warn?: (message: string) => void;
+};
 
-  runOpenshell(["forward", "stop", DASHBOARD_FORWARD_PORT], {
-    ignoreError: true,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-  runOpenshell(["gateway", "destroy", "-g", NEMOCLAW_GATEWAY_NAME], { ignoreError: true });
-  dockerRemoveVolumesByPrefix(`openshell-cluster-${NEMOCLAW_GATEWAY_NAME}`, {
-    ignoreError: true,
-  });
-}
+type RemoveShieldsStateDeps = {
+  rmSync?: typeof fs.rmSync;
+  warn?: (message: string) => void;
+};
 
 // Mirrors the body of `isNonInteractive()` in src/lib/onboard.ts. Duplicated
 // here to avoid an awkward sibling-action -> onboard import; the canonical
@@ -94,9 +99,7 @@ function isNonInteractive(): boolean {
  *   - non-interactive or `--yes` / `--force` → preserve gateway (safe default)
  *   - interactive without `--yes`           → prompt the user
  */
-async function resolveCleanupGatewayDecision(
-  options: DestroySandboxOptions,
-): Promise<boolean> {
+async function resolveCleanupGatewayDecision(options: DestroySandboxOptions): Promise<boolean> {
   if (options.cleanupGateway === true) return true;
   if (options.cleanupGateway === false) return false;
   if (options.yes === true || options.force === true) return false;
@@ -139,7 +142,7 @@ export function cleanupSandboxServices(
   const stopAll =
     deps.stopAll ??
     ((opts: { sandboxName: string }) => {
-      const services = require("../../services") as {
+      const services = require("../../tunnel/services") as {
         stopAll: (opts: { sandboxName: string }) => void;
       };
       services.stopAll(opts);
@@ -164,7 +167,7 @@ export function cleanupSandboxServices(
 
   if (stopHostServices) {
     // `stopAll()` already runs `unloadOllamaModels()` unconditionally —
-    // see src/lib/services.ts. Don't double-call here.
+    // see src/lib/tunnel/services.ts. Don't double-call here.
     stopAll({ sandboxName });
   } else {
     // No global stop, so `stopAll()` did not run; explicitly free Ollama
@@ -177,14 +180,21 @@ export function cleanupSandboxServices(
   }
 
   try {
-    rmSync(`/tmp/nemoclaw-services-${sandboxName}`, { recursive: true, force: true });
+    rmSync(`/tmp/nemoclaw-services-${sandboxName}`, {
+      recursive: true,
+      force: true,
+    });
   } catch {
     // PID directory may not exist — ignore.
   }
 
-  // Delete messaging providers created during onboard. Suppress stderr so
-  // "! Provider not found" noise doesn't appear when messaging was never configured.
-  for (const suffix of ["telegram-bridge", "discord-bridge", "slack-bridge", "slack-app"]) {
+  // Delete every per-sandbox messaging and search provider created during
+  // onboard. Suppress stderr so "! Provider not found" noise doesn't appear
+  // when messaging was never configured. The suffix set is shared with the
+  // onboard rebuild path's pre-delete detach via
+  // `src/lib/onboard/sandbox-provider-cleanup.ts` so the two paths can't
+  // drift on which providers count as per-sandbox state.
+  for (const suffix of SANDBOX_PROVIDER_SUFFIXES) {
     runOpenshell(["provider", "delete", `${sandboxName}-${suffix}`], {
       ignoreError: true,
       stdio: ["ignore", "ignore", "ignore"],
@@ -203,8 +213,11 @@ export function cleanupSandboxServices(
  */
 export function removeShieldsState(
   sandboxName: string,
-  stateDir = path.join(process.env.HOME ?? "/tmp", ".nemoclaw", "state"),
+  stateDir = resolveNemoclawStateDir(),
+  deps: RemoveShieldsStateDeps = {},
 ): void {
+  const rmSync = deps.rmSync ?? fs.rmSync;
+  const warn = deps.warn ?? ((message: string) => console.warn(`  ${YW}⚠${R} ${message}`));
   const resolvedStateDir = path.resolve(stateDir);
   for (const prefix of ["shields-", "shields-timer-"]) {
     const filePath = path.resolve(resolvedStateDir, `${prefix}${sandboxName}.json`);
@@ -214,14 +227,69 @@ export function removeShieldsState(
       continue;
     }
     try {
-      fs.rmSync(filePath, { force: true });
+      rmSync(filePath, { force: true });
     } catch (error) {
       // force: true already suppresses ENOENT; warn on real failures
       // (e.g. EPERM) so stale state doesn't silently survive.
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`  ${YW}⚠${R} Failed to remove shields state '${filePath}': ${message}`);
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        const message = error instanceof Error ? error.message : String(error);
+        warn(`Failed to remove shields cleanup artifact '${filePath}': ${message}`);
+      }
     }
   }
+}
+
+/**
+ * Remove the host-side Docker image that was built for a sandbox during onboard.
+ * Must be called before registry.removeSandbox() since the imageTag is stored there.
+ */
+export function removeSandboxImage(sandboxName: string, deps: RemoveSandboxImageDeps = {}): void {
+  const getSandbox = deps.getSandbox ?? registry.getSandbox;
+  const removeImage =
+    deps.dockerRmi ?? (require("../../adapters/docker") as { dockerRmi: DockerRmi }).dockerRmi;
+  const sb = getSandbox(sandboxName);
+  if (!sb?.imageTag) return;
+  const result = removeImage(sb.imageTag, { ignoreError: true });
+  if (result.status === 0) {
+    console.log(`  Removed Docker image ${sb.imageTag}`);
+  } else {
+    console.warn(
+      `  ${YW}⚠${R} Failed to remove Docker image ${sb.imageTag}; run '${CLI_NAME} gc' to clean up.`,
+    );
+  }
+}
+
+export function removeSandboxRegistryEntry(
+  sandboxName: string,
+  deps: RemoveSandboxRegistryEntryDeps = {},
+): boolean {
+  const removeImage = deps.removeImage ?? removeSandboxImage;
+  const removeSandbox = deps.removeSandbox ?? registry.removeSandbox;
+  removeImage(sandboxName);
+  return removeSandbox(sandboxName);
+}
+
+function defaultDestroyWarn(message: string): void {
+  console.warn(`  ${YW}⚠${R} ${message}`);
+}
+
+export function cleanupShieldsDestroyArtifacts(
+  sandboxName: string,
+  deps: CleanupShieldsDestroyArtifactsDeps = {},
+): void {
+  const killShieldsTimer = deps.killShieldsTimer ?? defaultKillShieldsTimer;
+  const stateDir = deps.stateDir ?? resolveNemoclawStateDir();
+  const warn = deps.warn ?? defaultDestroyWarn;
+
+  const timerResult = killShieldsTimer(sandboxName);
+  for (const warning of timerResult?.warnings ?? []) {
+    warn(warning);
+  }
+
+  removeShieldsState(sandboxName, stateDir, {
+    rmSync: deps.rmSync ?? fs.rmSync,
+    warn,
+  });
 }
 
 type AgentStateInfo = {
@@ -260,7 +328,9 @@ export function wipeSandboxState(sandboxName: string, deps: WipeSandboxStateDeps
   const loadAgentDef =
     deps.loadAgent ??
     ((name: string) =>
-      (require("../../agent/defs") as { loadAgent: (n: string) => AgentStateInfo }).loadAgent(name));
+      (require("../../agent/defs") as { loadAgent: (n: string) => AgentStateInfo }).loadAgent(
+        name,
+      ));
   const runOpenshell =
     deps.runOpenshell ??
     ((args: string[], opts?: Record<string, unknown>) => {
@@ -296,49 +366,19 @@ export function wipeSandboxState(sandboxName: string, deps: WipeSandboxStateDeps
   // `exit 0` keeps a partially provisioned (dir-absent) sandbox a clean no-op.
   const script = `cd ${shellQuote(dir)} 2>/dev/null || exit 0; rm -rf -- ${targets.join(" ")}`;
 
-  const result = runOpenshell(["sandbox", "exec", "--name", sandboxName, "--", "sh", "-c", script], {
-    ignoreError: true,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
+  const result = runOpenshell(
+    ["sandbox", "exec", "--name", sandboxName, "--", "sh", "-c", script],
+    {
+      ignoreError: true,
+      stdio: ["ignore", "ignore", "ignore"],
+    },
+  );
   if (result.status !== 0) {
     console.warn(
       `  ${YW}⚠${R} Could not wipe workspace state for '${sandboxName}' (sandbox not live?); ` +
         "re-onboarding with the same name may resurface old files.",
     );
   }
-}
-
-/**
- * Remove the host-side Docker image that was built for a sandbox during onboard.
- * Must be called before registry.removeSandbox() since the imageTag is stored there.
- */
-export function removeSandboxImage(
-  sandboxName: string,
-  deps: RemoveSandboxImageDeps = {},
-): void {
-  const getSandbox = deps.getSandbox ?? registry.getSandbox;
-  const removeImage =
-    deps.dockerRmi ?? (require("../../adapters/docker") as { dockerRmi: DockerRmi }).dockerRmi;
-  const sb = getSandbox(sandboxName);
-  if (!sb?.imageTag) return;
-  const result = removeImage(sb.imageTag, { ignoreError: true });
-  if (result.status === 0) {
-    console.log(`  Removed Docker image ${sb.imageTag}`);
-  } else {
-    console.warn(
-      `  ${YW}⚠${R} Failed to remove Docker image ${sb.imageTag}; run '${CLI_NAME} gc' to clean up.`,
-    );
-  }
-}
-
-export function removeSandboxRegistryEntry(
-  sandboxName: string,
-  deps: RemoveSandboxRegistryEntryDeps = {},
-): boolean {
-  const removeImage = deps.removeImage ?? removeSandboxImage;
-  const removeSandbox = deps.removeSandbox ?? registry.removeSandbox;
-  removeImage(sandboxName);
-  return removeSandbox(sandboxName);
 }
 
 export async function destroySandbox(
@@ -414,11 +454,17 @@ export async function destroySandbox(
 
   console.log(`  Deleting sandbox '${sandboxName}'...`);
   const { runOpenshell } = require("../../adapters/openshell/runtime") as {
-    runOpenshell: (
-      args: string[],
-      opts?: Record<string, unknown>,
-    ) => { status: number | null; stdout?: string; stderr?: string };
+    runOpenshell: DestroyRunOpenshell;
   };
+  // Capture and select the sandbox's gateway before any destructive OpenShell
+  // operation. Provider cleanup and sandbox delete must address the gateway
+  // recorded for this sandbox, not whichever gateway happens to be active.
+  const cleanupGatewayName = getSandboxTargetGatewayName(sandboxName);
+  selectGatewayForSandboxDestroy(sandboxName, cleanupGatewayName, runOpenshell);
+  const detachOutcome = runSandboxProviderPreDeleteCleanup(sandboxName, {
+    runOpenshell,
+    redact,
+  });
   const deleteResult = runOpenshell(["sandbox", "delete", sandboxName], {
     ignoreError: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -440,8 +486,13 @@ export async function destroySandbox(
     sandboxStillRegistered: !!registry.getSandbox(sandboxName),
   });
 
-  cleanupSandboxServices(sandboxName, { stopHostServices: shouldStopHostServices });
-  removeShieldsState(sandboxName);
+  cleanupSandboxServices(sandboxName, {
+    stopHostServices: shouldStopHostServices,
+  });
+  cleanupShieldsDestroyArtifacts(sandboxName);
+  // The sandbox's gateway was captured before the registry entry is removed —
+  // post-removal lookups return null and would collapse the cleanup target
+  // back to the default gateway.
   const removed = removeSandboxRegistryEntry(sandboxName);
   const session = onboardSession.loadSession();
   if (session && session.sandboxName === sandboxName) {
@@ -460,10 +511,14 @@ export async function destroySandbox(
   ) {
     const shouldCleanupGateway = await resolveCleanupGatewayDecision(normalized);
     if (shouldCleanupGateway) {
-      cleanupGatewayAfterLastSandbox();
+      cleanupGatewayAfterLastSandbox(cleanupGatewayName, runOpenshell);
     } else {
+      const gatewayRemovalHint =
+        process.platform === "linux"
+          ? `openshell gateway remove ${cleanupGatewayName}`
+          : `openshell gateway destroy -g ${cleanupGatewayName}`;
       console.log(
-        `  Shared NemoClaw gateway preserved. Re-run 'openshell gateway destroy --name ${NEMOCLAW_GATEWAY_NAME}' to remove it,`,
+        `  Shared NemoClaw gateway preserved. Re-run '${gatewayRemovalHint}' to remove it,`,
       );
       console.log(
         `  or pass '--cleanup-gateway' / set NEMOCLAW_CLEANUP_GATEWAY=1 next time. (#2166)`,
@@ -473,5 +528,8 @@ export async function destroySandbox(
   if (alreadyGone) {
     console.log(`  Sandbox '${sandboxName}' was already absent from the live gateway.`);
   }
+  emitProviderDetachResidualHint(sandboxName, detachOutcome.failures, (m) =>
+    console.warn(`  ${YW}⚠${R}${m}`),
+  );
   console.log(`  ${G}✓${R} Sandbox '${sandboxName}' destroyed`);
 }
