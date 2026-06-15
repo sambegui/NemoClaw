@@ -228,6 +228,65 @@ function runPatch(dist: string) {
   });
 }
 
+function runPatchAudit(dist: string) {
+  return spawnSync(process.execPath, [PATCH_SCRIPT, "--audit", dist], {
+    encoding: "utf-8",
+    timeout: 10000,
+  });
+}
+
+function writeChatSendFixtureWithUnknownEmptyFinalShape(dist: string): string {
+  const fixture = path.join(dist, "chat-fixture.js");
+  fs.writeFileSync(
+    fixture,
+    [
+      "const chatHandlers = {",
+      '  "chat.send": async ({ params, respond, context, client }) => {',
+      "    const p = params;",
+      "    const clientRunId = p.idempotencyKey;",
+      '    const sessionKey = "issue2603";',
+      "    let agentRunStarted = false;",
+      '    measureDiagnosticsTimelineSpan("gateway.chat_send.dispatch_inbound", () => dispatchInboundMessage({',
+      "      replyOptions: {",
+      "        runId: clientRunId,",
+      "        onAgentRunStart: (runId) => {",
+      "          agentRunStarted = true;",
+      "          if (!hasBeforeAgentRunGate) emitUserTranscriptUpdate();",
+      "        }",
+      "      }",
+      "    })).then(async () => {",
+      "      if (!agentRunStarted) {",
+      "        let message;",
+      "        if (transcriptReply || persistedContentForAppend?.length || assistantContent?.length) {",
+      "          const appended = await appendAssistantTranscriptMessage({",
+      "            message: transcriptReply,",
+      "            sessionId,",
+      "            storePath: latestStorePath,",
+      "            sessionFile: latestEntry?.sessionFile,",
+      "            agentId,",
+      "            createIfMissing: true,",
+      "            ttsSupplement: ttsSupplementMarker,",
+      "            cfg",
+      "          });",
+      "          message = appended.message;",
+      "        }",
+      "        broadcastChatFinal({",
+      "          context,",
+      "          runId: clientRunId,",
+      "          sessionKey,",
+      "          agentId,",
+      "          message",
+      "        });",
+      "      }",
+      "    });",
+      "  }",
+      "};",
+      "",
+    ].join("\n"),
+  );
+  return fixture;
+}
+
 type FollowupQueuedFixture = {
   runId?: string;
   abortSignal?: AbortSignal;
@@ -431,5 +490,128 @@ describe("OpenClaw chat.send compatibility patch", () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("--audit reports all recognizers as would-apply on fresh fixtures without mutating files", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-chat-send-audit-fresh-"));
+    const dist = path.join(tmp, "dist");
+    fs.mkdirSync(dist);
+    const chatFixture = writeChatSendFixture(dist);
+    const followupFixture = writeFollowupRunnerFixture(dist);
+    const getReplyFixture = writeGetReplyFixture(dist);
+    const chatBefore = fs.readFileSync(chatFixture, "utf-8");
+    const followupBefore = fs.readFileSync(followupFixture, "utf-8");
+    const getReplyBefore = fs.readFileSync(getReplyFixture, "utf-8");
+
+    try {
+      const audit = runPatchAudit(dist);
+      expect(audit.status, `${audit.stdout}${audit.stderr}`).toBe(0);
+      expect(audit.stdout).toContain("patch-openclaw-chat-send audit:");
+      expect(audit.stdout).toContain("chat.send runtime:");
+      expect(audit.stdout).toContain("get-reply runtime:");
+      expect(audit.stdout).toContain("followup runner runtime:");
+      expect(audit.stdout).toContain("run-start: would-apply");
+      expect(audit.stdout).toContain("transcript-idempotency: would-apply");
+      expect(audit.stdout).toContain("empty-final: would-apply");
+      expect(audit.stdout).toContain("followup-run-id: would-apply");
+      expect(audit.stdout).toContain("webchat-queue-mode: would-apply");
+      expect(audit.stdout).toContain("run-id-preservation: would-apply");
+      expect(audit.stdout).toContain("6 recognizers · 6 OK · 0 missing");
+
+      expect(fs.readFileSync(chatFixture, "utf-8")).toBe(chatBefore);
+      expect(fs.readFileSync(followupFixture, "utf-8")).toBe(followupBefore);
+      expect(fs.readFileSync(getReplyFixture, "utf-8")).toBe(getReplyBefore);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("--audit reports all recognizers as already-applied on a patched dist", () => {
+    const tmp = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nemoclaw-openclaw-chat-send-audit-applied-"),
+    );
+    const dist = path.join(tmp, "dist");
+    fs.mkdirSync(dist);
+    writeChatSendFixture(dist);
+    writeFollowupRunnerFixture(dist);
+    writeGetReplyFixture(dist);
+
+    try {
+      const patch = runPatch(dist);
+      expect(patch.status, `${patch.stdout}${patch.stderr}`).toBe(0);
+
+      const audit = runPatchAudit(dist);
+      expect(audit.status, `${audit.stdout}${audit.stderr}`).toBe(0);
+      expect(audit.stdout).toContain("run-start: already-applied");
+      expect(audit.stdout).toContain("transcript-idempotency: already-applied");
+      expect(audit.stdout).toContain("empty-final: already-applied");
+      expect(audit.stdout).toContain("followup-run-id: already-applied");
+      expect(audit.stdout).toContain("webchat-queue-mode: already-applied");
+      expect(audit.stdout).toContain("run-id-preservation: already-applied");
+      expect(audit.stdout).toContain("6 recognizers · 6 OK · 0 missing");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("--audit exits non-zero and surfaces a per-recognizer miss without mutating files", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openclaw-chat-send-audit-miss-"));
+    const dist = path.join(tmp, "dist");
+    fs.mkdirSync(dist);
+    const chatFixture = writeChatSendFixtureWithUnknownEmptyFinalShape(dist);
+    const followupFixture = writeFollowupRunnerFixture(dist);
+    const getReplyFixture = writeGetReplyFixture(dist);
+    const chatBefore = fs.readFileSync(chatFixture, "utf-8");
+    const followupBefore = fs.readFileSync(followupFixture, "utf-8");
+    const getReplyBefore = fs.readFileSync(getReplyFixture, "utf-8");
+
+    try {
+      const audit = runPatchAudit(dist);
+      expect(audit.status, `${audit.stdout}${audit.stderr}`).toBe(3);
+      expect(audit.stdout).toContain("run-start: would-apply");
+      expect(audit.stdout).toContain("transcript-idempotency: would-apply");
+      expect(audit.stdout).toContain(
+        "empty-final: OpenClaw chat.send empty-final shape not recognized",
+      );
+      expect(audit.stdout).toContain("followup-run-id: would-apply");
+      expect(audit.stdout).toContain("webchat-queue-mode: would-apply");
+      expect(audit.stdout).toContain("run-id-preservation: would-apply");
+      expect(audit.stdout).toContain("6 recognizers · 5 OK · 1 missing");
+
+      expect(fs.readFileSync(chatFixture, "utf-8")).toBe(chatBefore);
+      expect(fs.readFileSync(followupFixture, "utf-8")).toBe(followupBefore);
+      expect(fs.readFileSync(getReplyFixture, "utf-8")).toBe(getReplyBefore);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("--audit exits non-zero and reports each missing file when selectors fail", () => {
+    const tmp = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nemoclaw-openclaw-chat-send-audit-not-found-"),
+    );
+    const dist = path.join(tmp, "dist");
+    fs.mkdirSync(dist);
+    fs.writeFileSync(path.join(dist, "unrelated.js"), "module.exports = {};\n");
+
+    try {
+      const audit = runPatchAudit(dist);
+      expect(audit.status, `${audit.stdout}${audit.stderr}`).toBe(3);
+      expect(audit.stdout).toContain("chat.send runtime: NOT FOUND");
+      expect(audit.stdout).toContain("get-reply runtime: NOT FOUND");
+      expect(audit.stdout).toContain("followup runner runtime: NOT FOUND");
+      expect(audit.stdout).toContain("3 file(s) NOT FOUND");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("--audit rejects extra positional arguments", () => {
+    const result = spawnSync(process.execPath, [PATCH_SCRIPT, "--audit", "/nonexistent", "extra"], {
+      encoding: "utf-8",
+      timeout: 10000,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("Usage: patch-openclaw-chat-send.js");
   });
 });
