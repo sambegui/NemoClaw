@@ -61,6 +61,18 @@ export function reportDockerDriverGatewayStartFailure(
   console.error("  Docker-driver gateway failed to start.");
   if (childExit.exited) {
     console.error(`  Gateway process ${childExit.describeExit()} before becoming ready.`);
+  } else {
+    // #5334: distinguish a crashed/exited gateway (handled above) from one that
+    // is still running but never passed the health check within the timeout.
+    // Reporting this distinctly stops users from chasing — or killing — a
+    // gateway process that is actually alive and listening. We deliberately do
+    // not guess the cause here: the process is reached only when the OpenShell
+    // CLI is resolvable (an unresolvable CLI exits onboarding earlier), so the
+    // status commands in the Troubleshooting footer below are what reveal why
+    // the running gateway is not yet ready.
+    console.error(
+      "  The gateway process is still running but did not become healthy within the timeout.",
+    );
   }
   if (tail) {
     console.error("  Gateway log tail:");
@@ -71,6 +83,8 @@ export function reportDockerDriverGatewayStartFailure(
   }
   console.error("  Troubleshooting:");
   console.error(`    tail -100 ${logPath}`);
+  console.error("    openshell status");
+  console.error("    openshell gateway info");
   console.error("    docker info --format '{{json .CDISpecDirs}}'");
 
   if (exitOnFailure) {

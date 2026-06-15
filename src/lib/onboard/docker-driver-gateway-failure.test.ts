@@ -75,6 +75,28 @@ describe("reportDockerDriverGatewayStartFailure (#3111)", () => {
     expect(joined).not.toContain("before becoming ready");
   });
 
+  it("distinguishes an alive gateway that never became healthy and points at status commands (#5334)", () => {
+    reportDockerDriverGatewayStartFailure("/tmp/nonexistent-gateway.log", makeExitState(), {
+      exitOnFailure: false,
+    });
+    const joined = errSpy.mock.calls.map((c: string[]) => c.join(" ")).join("\n");
+    expect(joined).toContain("The gateway process is still running");
+    expect(joined).toContain("did not become healthy");
+    expect(joined).toContain("openshell status");
+    expect(joined).toContain("openshell gateway info");
+  });
+
+  it("does not print the alive-process line when the gateway process exited (#5334)", () => {
+    reportDockerDriverGatewayStartFailure(
+      "/tmp/nonexistent-gateway.log",
+      makeExitState({ exited: true, code: 1, describeExit: () => "exited with code 1" }),
+      { exitOnFailure: false },
+    );
+    const joined = errSpy.mock.calls.map((c: string[]) => c.join(" ")).join("\n");
+    expect(joined).not.toContain("still running");
+    expect(joined).toContain("exited with code 1");
+  });
+
   it("includes a tail of the gateway log when the file exists", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-fail-"));
     const log = path.join(dir, "openshell-gateway.log");
