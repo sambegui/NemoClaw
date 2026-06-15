@@ -9,21 +9,26 @@
 import fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
-import type { CurlProbeResult } from "../adapters/http/probe";
 import { buildValidatedCurlCommandArgs } from "../adapters/http/curl-args";
+import type { CurlProbeResult } from "../adapters/http/probe";
 import { runCurlProbe } from "../adapters/http/probe";
 import type { CaptureResult } from "../runner";
 import { buildSubprocessEnv } from "../subprocess-env";
+import type { OllamaRuntimeModelStatus } from "./ollama-runtime-context";
 import {
   applyOllamaRuntimeContextWindow as applyOllamaRuntimeContextWindowWithHost,
   MAX_AUTODETECTED_OLLAMA_CONTEXT_WINDOW,
+  MIN_AUTODETECTED_OLLAMA_CONTEXT_WINDOW,
   parsePositiveInteger,
   probeOllamaRuntimeModelStatus as probeOllamaRuntimeModelStatusWithHost,
   resetOllamaRuntimeContextWindowAutoState,
   resolveOllamaRuntimeContextWindow as resolveOllamaRuntimeContextWindowWithHost,
 } from "./ollama-runtime-context";
-import type { OllamaRuntimeModelStatus } from "./ollama-runtime-context";
-import { applyVllmRuntimeContextWindow as applyVllmRuntimeContextWindowFromModels } from "./vllm-runtime-context";
+import {
+  applyVllmRuntimeContextWindow as applyVllmRuntimeContextWindowFromModels,
+  resolveVllmRuntimeContextWindow as resolveVllmRuntimeContextWindowFromModels,
+} from "./vllm-runtime-context";
+
 export type { OllamaRuntimeModelStatus } from "./ollama-runtime-context";
 
 const { shellQuote, runCapture, runCaptureEx } = require("../runner");
@@ -774,7 +779,11 @@ export function parseOllamaTags(output: string | null | undefined): string[] {
   }
 }
 
-export { MAX_AUTODETECTED_OLLAMA_CONTEXT_WINDOW, parsePositiveInteger };
+export {
+  MAX_AUTODETECTED_OLLAMA_CONTEXT_WINDOW,
+  MIN_AUTODETECTED_OLLAMA_CONTEXT_WINDOW,
+  parsePositiveInteger,
+};
 
 export function probeOllamaRuntimeModelStatus(
   model: string,
@@ -807,6 +816,41 @@ export function applyVllmRuntimeContextWindow(
   modelId: string | null | undefined,
 ): void {
   applyVllmRuntimeContextWindowFromModels(modelsResponse, modelId);
+}
+
+/**
+ * Probe the local vLLM server's `/v1/models` endpoint and resolve its runtime
+ * context window (`max_model_len`). Returns `null` when vLLM is unreachable or
+ * the response carries no usable value. Used by `inference set` to recompute
+ * the window on a model switch instead of carrying the prior value (#5456).
+ */
+export function resolveVllmRuntimeContextWindow(
+  modelId: string | null | undefined = null,
+  runCaptureImpl?: RunCaptureFn,
+): number | null {
+  const capture = runCaptureImpl ?? runCapture;
+  const raw = capture(
+    [
+      "curl",
+      ...buildValidatedCurlCommandArgs([
+        "-sf",
+        "--connect-timeout",
+        "3",
+        "--max-time",
+        "5",
+        `http://127.0.0.1:${VLLM_PORT}/v1/models`,
+      ]),
+    ],
+    { ignoreError: true },
+  );
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+  return resolveVllmRuntimeContextWindowFromModels(parsed, modelId);
 }
 
 function formatOllamaCpuOnlyDiagnostic(model: string, status: OllamaRuntimeModelStatus): string {

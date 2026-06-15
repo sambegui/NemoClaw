@@ -8,6 +8,44 @@ const MAX_AUTODETECTED_VLLM_CONTEXT_WINDOW = 4_194_304;
 type ModelEntry = { id?: unknown; max_model_len?: unknown };
 type ApplyOptions = { env?: NodeJS.ProcessEnv; logger?: Pick<Console, "log" | "warn"> };
 
+/**
+ * Resolve the vLLM runtime context window from a `/v1/models` response without
+ * touching process env. Returns the served model's `max_model_len` as a
+ * positive integer, or `null` when the response is empty, the field is
+ * omitted/malformed, or the value is above NemoClaw's auto-detect ceiling.
+ *
+ * Shares the same validation as `applyVllmRuntimeContextWindow`; that function
+ * stays responsible for the onboard env-mutation + logging path, while this
+ * pure helper backs the `inference set` recompute (#5456).
+ */
+export function resolveVllmRuntimeContextWindow(
+  modelsResponse: unknown,
+  modelId: string | null | undefined,
+): number | null {
+  const data = (modelsResponse as { data?: unknown } | null | undefined)?.data;
+  const entries = Array.isArray(data) ? (data as ModelEntry[]) : [];
+  if (entries.length === 0) return null;
+
+  const target = String(modelId ?? "").trim();
+  const entry =
+    (target && entries.find((candidate) => String(candidate.id ?? "").trim() === target)) ||
+    entries[0];
+  const rawMaxModelLen = entry?.max_model_len;
+  if (
+    rawMaxModelLen === undefined ||
+    rawMaxModelLen === null ||
+    String(rawMaxModelLen).trim() === ""
+  ) {
+    return null;
+  }
+
+  const contextLength = parsePositiveInteger(rawMaxModelLen);
+  if (!contextLength || contextLength > MAX_AUTODETECTED_VLLM_CONTEXT_WINDOW) {
+    return null;
+  }
+  return contextLength;
+}
+
 export function applyVllmRuntimeContextWindow(
   modelsResponse: unknown,
   modelId: string | null | undefined,

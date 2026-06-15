@@ -7,10 +7,16 @@ import { runOpenshell } from "../adapters/openshell/runtime";
 import { CLI_NAME } from "../cli/branding";
 import { HERMES_PROXY_API_KEY_PLACEHOLDER } from "../hermes-proxy-api-key";
 import {
+  DEFAULT_CLOUD_CONTEXT_WINDOW,
   getProviderSelectionConfig,
   getSandboxInferenceConfig,
   type SandboxInferenceConfig,
 } from "../inference/config";
+import {
+  MIN_AUTODETECTED_OLLAMA_CONTEXT_WINDOW,
+  resolveOllamaRuntimeContextWindow,
+  resolveVllmRuntimeContextWindow,
+} from "../inference/local";
 import {
   type AgentConfigTarget,
   readSandboxConfig,
@@ -58,6 +64,13 @@ export interface InferenceSetDeps {
     mutator: (session: onboardSession.Session) => onboardSession.Session | void,
   ) => onboardSession.Session;
   resolveAgentConfig: (sandboxName: string) => AgentConfigTarget;
+  /**
+   * Recompute the context window for the target route on a model switch.
+   * Returns a positive token count, or `null` when no runtime window is
+   * available (probe failed / model not loaded) so the stale value is dropped
+   * rather than carried over. (#5456)
+   */
+  resolveContextWindow: (provider: string, model: string) => number | null;
   readSandboxConfig: (sandboxName: string, target: AgentConfigTarget) => ConfigObject;
   writeSandboxConfig: (
     sandboxName: string,
@@ -94,6 +107,27 @@ const SUPPORTED_PROVIDER_NAMES = [
   "vllm-local",
 ] as const;
 
+/**
+ * Recompute the context window for a switched route, mirroring what onboard
+ * does per provider (#5456):
+ *   - ollama-local → probe the daemon's runtime context length, floored at the
+ *     agent-usable minimum (matches applyOllamaRuntimeContextWindow).
+ *   - vllm-local   → read the served model's max_model_len from /v1/models.
+ *   - cloud        → flat default; NemoClaw has no per-model cloud metadata.
+ * Returns `null` when a local probe yields nothing so the caller drops the
+ * stale window instead of carrying the previous model's value.
+ */
+function defaultResolveContextWindow(provider: string, model: string): number | null {
+  if (provider === "ollama-local") {
+    const detected = resolveOllamaRuntimeContextWindow(model, null);
+    return detected === null ? null : Math.max(detected, MIN_AUTODETECTED_OLLAMA_CONTEXT_WINDOW);
+  }
+  if (provider === "vllm-local") {
+    return resolveVllmRuntimeContextWindow(model);
+  }
+  return DEFAULT_CLOUD_CONTEXT_WINDOW;
+}
+
 function defaultDeps(): InferenceSetDeps {
   return {
     getDefaultSandbox: registry.getDefault,
@@ -104,6 +138,7 @@ function defaultDeps(): InferenceSetDeps {
     loadSession: onboardSession.loadSession,
     updateSession: onboardSession.updateSession,
     resolveAgentConfig,
+    resolveContextWindow: defaultResolveContextWindow,
     readSandboxConfig,
     writeSandboxConfig,
     recomputeSandboxConfigHash,
@@ -221,6 +256,7 @@ function buildProviderConfig(
   existing: ConfigObject,
   model: string,
   route: SandboxInferenceConfig,
+  contextWindow: number | null | undefined,
 ): ConfigObject {
   const firstExistingModel = Array.isArray(existing.models)
     ? cloneConfigObject(existing.models[0])
@@ -230,6 +266,17 @@ function buildProviderConfig(
   firstExistingModel.name = route.primaryModelRef;
   if (route.inferenceCompat) {
     firstExistingModel.compat = asConfigObject(route.inferenceCompat);
+  }
+  // Recompute the context window on switch so the prior model's window does not
+  // carry over (#5456). `undefined` preserves the existing value (direct callers
+  // that don't recompute); `null` drops a now-stale window; a positive number
+  // replaces it.
+  if (contextWindow !== undefined) {
+    if (typeof contextWindow === "number" && contextWindow > 0) {
+      firstExistingModel.contextWindow = contextWindow;
+    } else {
+      delete firstExistingModel.contextWindow;
+    }
   }
 
   return {
@@ -246,6 +293,7 @@ export function patchOpenClawInferenceConfig(
   provider: string,
   model: string,
   preferredInferenceApi: string | null = null,
+  contextWindow: number | null | undefined = undefined,
 ): { changed: boolean; route: SandboxInferenceConfig } {
   const before = JSON.stringify(config);
   const route = getSandboxInferenceConfig(model, provider, preferredInferenceApi);
@@ -256,7 +304,7 @@ export function patchOpenClawInferenceConfig(
   models.mode = "merge";
   const providers = ensureObject(models, "providers");
   const existingProvider = cloneConfigObject(providers[route.providerKey]);
-  providers[route.providerKey] = buildProviderConfig(existingProvider, model, route);
+  providers[route.providerKey] = buildProviderConfig(existingProvider, model, route, contextWindow);
 
   return { changed: before !== JSON.stringify(config), route };
 }
@@ -404,6 +452,9 @@ export async function runInferenceSet(
           provider,
           model,
           preferredInferenceApi || getPreferredInferenceApi(config),
+          // Recompute the window per provider so the prior model's contextWindow
+          // does not carry into the new model's config (#5456).
+          deps.resolveContextWindow(provider, model),
         );
 
   deps.log(

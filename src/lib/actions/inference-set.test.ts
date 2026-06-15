@@ -104,6 +104,7 @@ function createDeps(options: {
   target?: AgentConfigTarget;
   session?: Session | null;
   openshellStatus?: number;
+  resolveContextWindow?: (provider: string, model: string) => number | null;
 }): InferenceSetDeps & {
   calls: {
     runOpenshell: ReturnType<typeof vi.fn>;
@@ -146,6 +147,7 @@ function createDeps(options: {
     loadSession: () => session,
     updateSession: calls.updateSession,
     resolveAgentConfig: () => options.target ?? OPENCLAW_TARGET,
+    resolveContextWindow: options.resolveContextWindow ?? (() => null),
     readSandboxConfig: () => options.config,
     writeSandboxConfig: calls.writeSandboxConfig,
     recomputeSandboxConfigHash: calls.recomputeSandboxConfigHash,
@@ -212,6 +214,64 @@ describe("patchOpenClawInferenceConfig", () => {
         },
       },
     });
+  });
+
+  it("replaces a stale context window with the recomputed window on switch (#5456)", () => {
+    const config: ConfigObject = {
+      agents: { defaults: { model: { primary: "inference/nvidia/nemotron-3-super-120b-a12b" } } },
+      models: {
+        mode: "merge",
+        providers: {
+          inference: {
+            baseUrl: "https://inference.local/v1",
+            apiKey: "unused",
+            api: "openai-completions",
+            models: [
+              {
+                id: "nvidia/nemotron-3-super-120b-a12b",
+                name: "inference/nvidia/nemotron-3-super-120b-a12b",
+                contextWindow: 131072,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    patchOpenClawInferenceConfig(config, "ollama-local", "qwen2.5:7b", null, 16384);
+
+    const models = ((config.models as ConfigObject).providers as ConfigObject)
+      .inference as ConfigObject;
+    expect((models.models as ConfigObject[])[0].contextWindow).toBe(16384);
+  });
+
+  it("drops a stale context window when no runtime window is available on switch (#5456)", () => {
+    const config: ConfigObject = {
+      agents: { defaults: { model: { primary: "inference/nvidia/nemotron-3-super-120b-a12b" } } },
+      models: {
+        mode: "merge",
+        providers: {
+          inference: {
+            baseUrl: "https://inference.local/v1",
+            apiKey: "unused",
+            api: "openai-completions",
+            models: [
+              {
+                id: "nvidia/nemotron-3-super-120b-a12b",
+                name: "inference/nvidia/nemotron-3-super-120b-a12b",
+                contextWindow: 131072,
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    patchOpenClawInferenceConfig(config, "ollama-local", "qwen2.5:7b", null, null);
+
+    const provider = ((config.models as ConfigObject).providers as ConfigObject)
+      .inference as ConfigObject;
+    expect((provider.models as ConfigObject[])[0].contextWindow).toBeUndefined();
   });
 
   it("is a no-op when OpenClaw already matches the requested route", () => {
@@ -452,6 +512,42 @@ describe("runInferenceSet", () => {
       sessionUpdated: true,
       inSandboxConfigSynced: true,
     });
+  });
+
+  it("recomputes the OpenClaw context window on model switch instead of carrying the stale value (#5456)", async () => {
+    const config: ConfigObject = {
+      agents: { defaults: { model: { primary: "inference/nvidia/nemotron-3-super-120b-a12b" } } },
+      models: {
+        mode: "merge",
+        providers: {
+          inference: {
+            baseUrl: "https://inference.local/v1",
+            apiKey: "unused",
+            api: "openai-completions",
+            models: [
+              {
+                id: "nvidia/nemotron-3-super-120b-a12b",
+                name: "inference/nvidia/nemotron-3-super-120b-a12b",
+                contextWindow: 131072,
+              },
+            ],
+          },
+        },
+      },
+    };
+    const deps = createDeps({
+      config,
+      session: baseSession(),
+      resolveContextWindow: () => 16384,
+    });
+
+    await runInferenceSet({ provider: "ollama-local", model: "qwen2.5:7b", noVerify: true }, deps);
+
+    const provider = ((config.models as ConfigObject).providers as ConfigObject)
+      .inference as ConfigObject;
+    const model = (provider.models as ConfigObject[])[0];
+    expect(model.id).toBe("qwen2.5:7b");
+    expect(model.contextWindow).toBe(16384);
   });
 
   it("updates OpenShell, Hermes config.yaml, registry, and the matching onboard session", async () => {
