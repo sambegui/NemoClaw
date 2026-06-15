@@ -31,6 +31,11 @@ const CHECKS: readonly CheckCommand[] = [
     command: TSX,
     args: ["scripts/checks/layer-import-boundaries.ts"],
   },
+  {
+    name: "biome-diagnostic-budget",
+    command: TSX,
+    args: ["scripts/check-biome-diagnostic-budget.ts"],
+  },
 ];
 
 function main(): void {

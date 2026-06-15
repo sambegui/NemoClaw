@@ -33,6 +33,7 @@
     "build:cli": "tsc -p tsconfig.src.json && node dist/lib/cli/generate-oclif-metadata-manifest.js && if find nemoclaw-blueprint/scripts -name '*.ts' -print -quit | grep -q .; then tsc -p nemoclaw-blueprint/tsconfig.json; fi",
     "typecheck:cli": "tsc -p tsconfig.cli.json",
     "validate:configs": "tsx scripts/validate-configs.ts",
+    "biome-budget:check": "tsx scripts/check-biome-diagnostic-budget.ts",
     "type-safety:hotspots": "tsx scripts/type-safety-hotspots.ts",
     "source-shape:scan": "tsx scripts/find-source-shape-tests.ts --metrics",
     "source-shape:check": "tsx scripts/find-source-shape-tests.ts --check",
