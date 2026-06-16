@@ -1166,6 +1166,18 @@ cat /tmp/auto-pair.log 2>/dev/null || true
   fi
   sleep 3
 done
+auto_pair_diag=$(sandbox_exec_sh_script 20 '
+set -u
+echo "--- ls /tmp/auto-pair.log ---"
+ls -la /tmp/auto-pair.log 2>&1 || true
+echo "--- ls /tmp/gateway.log ---"
+ls -la /tmp/gateway.log 2>&1 || true
+echo "--- pgrep python3 ---"
+pgrep -af python3 2>&1 || true
+echo "--- last 80 lines /tmp/gateway.log ---"
+tail -n 80 /tmp/gateway.log 2>&1 || true
+' 2>&1)
+printf '=== auto-pair diagnostic ===\n%s\n' "$auto_pair_diag" >>"$STATE_LOG"
 printf '=== /tmp/auto-pair.log snapshot (waited %ss) ===\n%s\n' "$((SECONDS - slow_mode_start))" "$auto_pair_log_snapshot" >>"$STATE_LOG"
 
 if [ "$slow_mode_observed" -eq 1 ]; then
