@@ -1138,24 +1138,40 @@ section "Phase 6: Verify watcher emits slow-mode fast-reentry instrumentation"
 # success and fallback-marker checks in Phase 5, and deterministically
 # by the unit test under test/nemoclaw-start.test.ts).
 
-auto_pair_log_snapshot=$(sandbox_exec_sh_script 20 '
+# Convergence requires QUIET_POLLS >= 4 in the watcher loop with a 5s
+# inter-poll cadence when at least one device is already paired (the
+# common CI case where onboard preapproves CLI scopes), so the slow-mode
+# marker normally appears 15–25s after the watcher launches. Phase 1's
+# install/onboard can finish well before that 25s window, so a single
+# snapshot here races the watcher. Poll the log for up to
+# slow_mode_wait_secs until any of the convergence markers appears
+# (covers fast-mode deadline, browser convergence, devices-paired
+# convergence, and non-browser convergence). The strict-fail behaviour
+# is preserved — the test only passes once the marker is observed.
+slow_mode_wait_secs=45
+slow_mode_observed=0
+auto_pair_log_snapshot=""
+slow_mode_start=$SECONDS
+while [ $((SECONDS - slow_mode_start)) -lt "$slow_mode_wait_secs" ]; do
+  auto_pair_log_snapshot=$(sandbox_exec_sh_script 20 '
 set -u
 cat /tmp/auto-pair.log 2>/dev/null || true
 ' 2>&1)
-printf '=== /tmp/auto-pair.log snapshot ===\n%s\n' "$auto_pair_log_snapshot" >>"$STATE_LOG"
-
-slow_mode_observed=0
-if grep -F '[auto-pair] fast-mode deadline reached; switching to slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null \
-  || grep -F '[auto-pair] browser pairing converged; entering slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null \
-  || grep -F '[auto-pair] devices paired ' <<<"$auto_pair_log_snapshot" >/dev/null \
-  || grep -F '[auto-pair] non-browser pairing converged; entering slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null; then
-  slow_mode_observed=1
-fi
+  if grep -F '[auto-pair] fast-mode deadline reached; switching to slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null \
+    || grep -F '[auto-pair] browser pairing converged; entering slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null \
+    || grep -F '[auto-pair] devices paired ' <<<"$auto_pair_log_snapshot" >/dev/null \
+    || grep -F '[auto-pair] non-browser pairing converged; entering slow-mode' <<<"$auto_pair_log_snapshot" >/dev/null; then
+    slow_mode_observed=1
+    break
+  fi
+  sleep 3
+done
+printf '=== /tmp/auto-pair.log snapshot (waited %ss) ===\n%s\n' "$((SECONDS - slow_mode_start))" "$auto_pair_log_snapshot" >>"$STATE_LOG"
 
 if [ "$slow_mode_observed" -eq 1 ]; then
-  pass "watcher reached slow-mode keepalive"
+  pass "watcher reached slow-mode keepalive within ${slow_mode_wait_secs}s"
 else
-  fail "watcher did not record any slow-mode transition during the test window"
+  fail "watcher did not record any slow-mode transition within ${slow_mode_wait_secs}s"
 fi
 
 if grep -F '[auto-pair] fast-reentry bumped' <<<"$auto_pair_log_snapshot" >/dev/null; then
