@@ -375,6 +375,49 @@ describe("planHostRemediation — CDI", () => {
     ).toBe(true);
   });
 
+  it("does not treat non-GPU NVIDIA PCI devices as a GPU in the lspci fallback (#5489)", () => {
+    // Hosts with NVIDIA/Mellanox NICs (or other non-GPU NVIDIA PCI devices)
+    // expose "nvidia" in lspci output without any display-class GPU. The
+    // hardware fallback must restrict matching to display PCI classes so these
+    // hosts are not falsely flagged and forced through CDI/toolkit remediation.
+    const runCaptureImpl = (command: readonly string[]): string => {
+      const last = command[command.length - 1];
+      if (command[0] === "sh" && command[1] === "-c") {
+        return last === "lspci" || last === "apt-get" ? `/usr/bin/${last}` : "";
+      }
+      if (command[0] === "nvidia-smi") return "";
+      if (command[0] === "lspci") {
+        return [
+          "01:00.0 Ethernet controller: Mellanox Technologies MT27800 Family [ConnectX-5]",
+          "02:00.0 Infiniband controller: NVIDIA Corporation MT28908 Family [ConnectX-6]",
+        ].join("\n");
+      }
+      return "";
+    };
+
+    const result = assessHost({
+      platform: "linux",
+      env: {},
+      release: "6.8.0-58-generic",
+      readFileImpl: () => "Linux version 6.8.0-58-generic",
+      readdirImpl: () => [],
+      dockerInfoOutput: JSON.stringify({
+        ServerVersion: "29.5.3",
+        OperatingSystem: "Ubuntu 24.04",
+        CDISpecDirs: ["/etc/cdi", "/var/run/cdi"],
+      }),
+      commandExistsImpl: (name: string) => name === "docker",
+      runCaptureImpl,
+    });
+
+    expect(result.hasNvidiaGpu).toBe(false);
+
+    const action = planHostRemediation(result).find(
+      (entry) => entry.id === "install_nvidia_container_toolkit",
+    );
+    expect(action).toBeFalsy();
+  });
+
   it("bootstraps nvidia-container-toolkit before missing-spec generation", () => {
     const actions = planHostRemediation(
       baseAssessment({

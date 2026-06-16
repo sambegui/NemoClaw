@@ -385,6 +385,23 @@ function isHeadlessLikely(env: NodeJS.ProcessEnv): boolean {
   return !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.TERM_PROGRAM;
 }
 
+// lspci line shape: "<slot> <class label>: <vendor> <device> ...".
+// The slot token contains colons (e.g. "01:00.0"), so anchor on the class
+// label that follows it and ends at the first ": ".
+const LSPCI_LINE = /^\S+\s+([^:]+):\s*(.*)$/;
+// NVIDIA GPUs surface as display-class devices: "VGA compatible controller"
+// (graphics cards), "3D controller" (datacenter/Tesla parts), or the generic
+// "Display controller". Restricting to these classes prevents NVIDIA/Mellanox
+// NICs and other non-GPU NVIDIA PCI devices from being mistaken for a GPU.
+const PCI_DISPLAY_CLASS = /\b(?:vga compatible controller|3d controller|display controller)\b/i;
+
+function lspciLineIsNvidiaGpu(line: string): boolean {
+  const match = LSPCI_LINE.exec(line.trim());
+  if (!match) return false;
+  const [, classLabel, deviceDescription] = match;
+  return PCI_DISPLAY_CLASS.test(classLabel) && /nvidia/i.test(deviceDescription);
+}
+
 function detectNvidiaGpuHardware(runCaptureImpl: RunCaptureFn): boolean {
   // PCI bus probe so a physically present NVIDIA GPU is still detected when the
   // driver is not loaded (nvidia-smi unavailable). Mirrors the lspci hint used
@@ -392,7 +409,8 @@ function detectNvidiaGpuHardware(runCaptureImpl: RunCaptureFn): boolean {
   if (!commandExists("lspci", runCaptureImpl)) {
     return false;
   }
-  return /nvidia/i.test(String(runCaptureImpl(["lspci"], { ignoreError: true }) || ""));
+  const output = String(runCaptureImpl(["lspci"], { ignoreError: true }) || "");
+  return output.split("\n").some(lspciLineIsNvidiaGpu);
 }
 
 function detectNvidiaGpu(runCaptureImpl: RunCaptureFn): boolean {
