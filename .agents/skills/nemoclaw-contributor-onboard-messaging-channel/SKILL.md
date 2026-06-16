@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 ---
 name: nemoclaw-contributor-onboard-messaging-channel
 description: Guide NemoClaw contributors through adding or reviewing a new messaging channel in the manifest-first messaging architecture. Use when onboarding a channel for OpenClaw, Hermes, or both; mapping upstream channel docs and source code into NemoClaw manifests; confirming credentials, plugin/package installs, reachability checks, network policy presets, docs, and tests. Trigger keywords - add messaging channel, onboard messaging channel, new channel, messaging integration, channel manifest, OpenClaw channel, Hermes channel, plugin install, reachability check.
@@ -5,7 +7,7 @@ description: Guide NemoClaw contributors through adding or reviewing a new messa
 
 # Onboard Messaging Channel
 
-Use this skill to add a messaging channel end to end without leaking channel-specific logic into core NemoClaw code.
+Use this skill to add a messaging channel end-to-end without leaking channel-specific logic into core NemoClaw code.
 
 ## Intake
 
