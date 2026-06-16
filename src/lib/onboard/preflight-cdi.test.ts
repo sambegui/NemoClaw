@@ -319,6 +319,62 @@ describe("planHostRemediation — CDI", () => {
     expect(action?.reason).toContain("path disabled");
   });
 
+  it("blocks with toolkit/CDI remediation when NVIDIA hardware is present but nvidia-smi is unavailable (#5489)", () => {
+    // Repro: NVIDIA GPU hardware present (lspci) but the driver is not loaded,
+    // so nvidia-smi is unavailable. Docker CDI dirs are configured and the
+    // nvidia-container-toolkit is absent. Onboard must still flag the missing
+    // CDI spec and emit the install_nvidia_container_toolkit remediation block.
+    // Drive detection through runCaptureImpl (the real detectNvidiaGpu path)
+    // rather than gpuProbeImpl so the red->green transition exercises the fix.
+    const runCaptureImpl = (command: readonly string[]): string => {
+      const last = command[command.length - 1];
+      if (command[0] === "sh" && command[1] === "-c") {
+        // `command -v <name>` probes used by commandExists().
+        return last === "lspci" || last === "apt-get" ? `/usr/bin/${last}` : "";
+      }
+      // Driver not loaded: nvidia-smi cannot enumerate GPUs.
+      if (command[0] === "nvidia-smi") return "";
+      // PCI bus still reports the physical NVIDIA GPU.
+      if (command[0] === "lspci") {
+        return "01:00.0 VGA compatible controller: NVIDIA Corporation GK104 [GeForce GTX 660 Ti] (rev a1)";
+      }
+      return "";
+    };
+
+    const result = assessHost({
+      platform: "linux",
+      env: {},
+      release: "6.8.0-58-generic",
+      readFileImpl: () => "Linux version 6.8.0-58-generic",
+      readdirImpl: () => [],
+      dockerInfoOutput: JSON.stringify({
+        ServerVersion: "29.5.3",
+        OperatingSystem: "Ubuntu 24.04",
+        CDISpecDirs: ["/etc/cdi", "/var/run/cdi"],
+      }),
+      commandExistsImpl: (name: string) => name === "docker",
+      runCaptureImpl,
+    });
+
+    expect(result.hasNvidiaGpu).toBe(true);
+    expect(result.cdiNvidiaGpuSpecMissing).toBe(true);
+
+    const actions = planHostRemediation(result);
+    const action = actions.find((entry) => entry.id === "install_nvidia_container_toolkit");
+    expect(action).toBeTruthy();
+    expect(action?.blocking).toBe(true);
+    expect(
+      action?.commands.some(
+        (command) => command === "sudo apt-get install -y nvidia-container-toolkit",
+      ),
+    ).toBe(true);
+    expect(
+      action?.commands.some((command) =>
+        command.startsWith("sudo nvidia-ctk cdi generate --output="),
+      ),
+    ).toBe(true);
+  });
+
   it("bootstraps nvidia-container-toolkit before missing-spec generation", () => {
     const actions = planHostRemediation(
       baseAssessment({

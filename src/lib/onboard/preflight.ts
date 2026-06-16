@@ -385,11 +385,28 @@ function isHeadlessLikely(env: NodeJS.ProcessEnv): boolean {
   return !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.TERM_PROGRAM;
 }
 
-function detectNvidiaGpu(runCaptureImpl: RunCaptureFn): boolean {
-  if (!commandExists("nvidia-smi", runCaptureImpl)) {
+function detectNvidiaGpuHardware(runCaptureImpl: RunCaptureFn): boolean {
+  // PCI bus probe so a physically present NVIDIA GPU is still detected when the
+  // driver is not loaded (nvidia-smi unavailable). Mirrors the lspci hint used
+  // by the onboarding GPU-passthrough note.
+  if (!commandExists("lspci", runCaptureImpl)) {
     return false;
   }
-  return Boolean(String(runCaptureImpl(["nvidia-smi", "-L"], { ignoreError: true }) || "").trim());
+  return /nvidia/i.test(String(runCaptureImpl(["lspci"], { ignoreError: true }) || ""));
+}
+
+function detectNvidiaGpu(runCaptureImpl: RunCaptureFn): boolean {
+  if (
+    commandExists("nvidia-smi", runCaptureImpl) &&
+    Boolean(String(runCaptureImpl(["nvidia-smi", "-L"], { ignoreError: true }) || "").trim())
+  ) {
+    return true;
+  }
+  // The driver may be missing or unloaded (nvidia-smi absent/empty) even when
+  // NVIDIA GPU hardware is present. Fall back to a hardware probe so CDI/toolkit
+  // remediation still fires when the toolkit is missing and Docker CDI dirs are
+  // configured (#5489); otherwise preflight silently skips toolkit enforcement.
+  return detectNvidiaGpuHardware(runCaptureImpl);
 }
 
 function detectPackageManager(runCaptureImpl: RunCaptureFn): PackageManager {
