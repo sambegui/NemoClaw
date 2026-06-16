@@ -639,6 +639,26 @@ export function assessHost(opts: AssessHostOpts = {}): HostAssessment {
   return assessment;
 }
 
+/**
+ * Decide whether onboarding must enforce a present-and-configured NVIDIA CDI
+ * spec (i.e. block on a missing/stale spec). The fix for #5489 makes
+ * `assessHost().hasNvidiaGpu` true via an lspci hardware probe when the driver
+ * is unloaded, which is what flags `cdiNvidiaGpuSpecMissing`. The onboard gate
+ * must enforce based on whether the operator *explicitly* opted out of GPU
+ * passthrough — NOT on whether sandbox GPU was *auto*-disabled because
+ * `nvidia-smi` is unavailable. Auto-disable was the bypass that let onboard skip
+ * the toolkit/CDI remediation in #5489; an explicit `--no-gpu` still skips it so
+ * a host with an unusable GPU can still onboard CPU-only.
+ */
+export function shouldEnforceCdiNvidiaGpuSpec(opts: {
+  cdiNvidiaGpuSpecMissing: boolean;
+  cdiNvidiaGpuSpecNeedsRepair: boolean;
+  explicitlyOptedOutGpuPassthrough: boolean;
+}): boolean {
+  if (opts.explicitlyOptedOutGpuPassthrough) return false;
+  return opts.cdiNvidiaGpuSpecNeedsRepair || opts.cdiNvidiaGpuSpecMissing;
+}
+
 export function planHostRemediation(assessment: HostAssessment): RemediationAction[] {
   const actions: RemediationAction[] = [];
 

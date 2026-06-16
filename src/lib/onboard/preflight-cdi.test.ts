@@ -4,7 +4,11 @@
 import { describe, expect, it } from "vitest";
 // Import through the compiled dist/ output so coverage is attributed to the
 // CLI build output that the ratchet measures.
-import { assessHost, planHostRemediation } from "../../../dist/lib/onboard/preflight";
+import {
+  assessHost,
+  planHostRemediation,
+  shouldEnforceCdiNvidiaGpuSpec,
+} from "../../../dist/lib/onboard/preflight";
 
 type HostAssessment = Parameters<typeof planHostRemediation>[0];
 
@@ -438,5 +442,51 @@ describe("planHostRemediation — CDI", () => {
         command.startsWith("sudo nvidia-ctk cdi generate --output="),
       ),
     ).toBe(true);
+  });
+});
+
+describe("shouldEnforceCdiNvidiaGpuSpec (#5489 enforcement gate)", () => {
+  it("enforces when the spec is missing and the operator did not explicitly opt out", () => {
+    // The #5489 scenario: GPU hardware present (so cdiNvidiaGpuSpecMissing is
+    // true) with sandbox GPU AUTO-disabled (nvidia-smi unavailable). Auto-disable
+    // must NOT be treated as an opt-out, so the gate enforces.
+    expect(
+      shouldEnforceCdiNvidiaGpuSpec({
+        cdiNvidiaGpuSpecMissing: true,
+        cdiNvidiaGpuSpecNeedsRepair: false,
+        explicitlyOptedOutGpuPassthrough: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("enforces when the spec needs repair (stale) and not explicitly opted out", () => {
+    expect(
+      shouldEnforceCdiNvidiaGpuSpec({
+        cdiNvidiaGpuSpecMissing: false,
+        cdiNvidiaGpuSpecNeedsRepair: true,
+        explicitlyOptedOutGpuPassthrough: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT enforce when the operator explicitly opted out of GPU passthrough (--no-gpu)", () => {
+    // Escape hatch: a host with an unusable GPU can still onboard CPU-only.
+    expect(
+      shouldEnforceCdiNvidiaGpuSpec({
+        cdiNvidiaGpuSpecMissing: true,
+        cdiNvidiaGpuSpecNeedsRepair: true,
+        explicitlyOptedOutGpuPassthrough: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT enforce when the CDI spec is present and healthy", () => {
+    expect(
+      shouldEnforceCdiNvidiaGpuSpec({
+        cdiNvidiaGpuSpecMissing: false,
+        cdiNvidiaGpuSpecNeedsRepair: false,
+        explicitlyOptedOutGpuPassthrough: false,
+      }),
+    ).toBe(false);
   });
 });
