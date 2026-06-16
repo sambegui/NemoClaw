@@ -9,6 +9,11 @@ import { NemoClawCommand } from "../../../lib/cli/nemoclaw-oclif-command";
 export default class SandboxSessionsExportCommand extends NemoClawCommand {
   static id = "sandbox:sessions:export";
   static strict = false;
+  // #5510: keep oclif from treating an option-shaped positional (e.g. a session
+  // key typo like `-mytypo`) as a NonExistentFlag. With `'--' = false`, unknown
+  // `-`-prefixed tokens fall through to argv so the stray-dash guard in run()
+  // can emit actionable guidance instead of oclif's raw "Nonexistent flag".
+  static "--" = false;
   static summary = "Export OpenClaw session JSONL out of a running sandbox";
   static description = [
     "Tar the OpenClaw session store inside the sandbox and download the bundle to",
@@ -68,13 +73,17 @@ export default class SandboxSessionsExportCommand extends NemoClawCommand {
     }
     const stray = rest.filter((token) => token.startsWith("-"));
     if (stray.length > 0) {
-      this.failWithLines(
-        [
-          `  Unknown flag or option-shaped key: ${stray.join(", ")}`,
-          "  Session keys must not start with '-'. Place flags after the sandbox name.",
-        ],
-        2,
-      );
+      const lines = [
+        `  Unknown flag or option-shaped key: ${stray.join(", ")}`,
+        "  Session keys must not start with '-'. Place flags after the sandbox name.",
+      ];
+      const deDashed = stray.map((token) => token.replace(/^-+/, "")).filter(Boolean);
+      if (deDashed.length > 0) {
+        lines.push(
+          `  Did you mean: nemoclaw ${sandboxName} sessions export ${deDashed.join(" ")}?`,
+        );
+      }
+      this.failWithLines(lines, 2);
       return;
     }
     try {
