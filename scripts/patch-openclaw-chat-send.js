@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * Temporary NemoClaw compatibility shim for OpenClaw 2026.5.x chat.send
- * gateway behavior. Remove this when upstream OpenClaw preserves submitted
- * chat.send run lineage and stops emitting empty terminal chat events.
+ * Temporary NemoClaw compatibility shim for OpenClaw 2026.5.x and 2026.6.x
+ * chat.send gateway behavior. Remove this when upstream OpenClaw preserves
+ * submitted chat.send run lineage and stops emitting empty terminal chat
+ * events.
  */
 
 const fs = require("node:fs");
@@ -88,12 +89,13 @@ function patchChatSendEmptyFinal(source, file) {
     return { nextSource: source, status: "already-applied" };
   }
   const nextSource = source.replace(
-    /\n(\s*)broadcastChatFinal\(\{\n(\s*)context,\n\s*runId: clientRunId,\n\s*sessionKey,\n\s*message\n\s*\}\);/,
-    (_match, outerIndent, innerIndent) =>
+    /\n(\s*)broadcastChatFinal\(\{\n(\s*)context,\n\s*runId: clientRunId,\n\s*sessionKey,\n(\s*agentId,\n)?\s*message\n\s*\}\);/,
+    (_match, outerIndent, innerIndent, agentIdLine) =>
       `\n${outerIndent}if (message) broadcastChatFinal({\n` +
       `${innerIndent}context,\n` +
       `${innerIndent}runId: clientRunId,\n` +
       `${innerIndent}sessionKey,\n` +
+      (agentIdLine || "") +
       `${innerIndent}message\n` +
       `${outerIndent}}); else context.logGateway.warn("webchat chat.send completed without visible assistant reply; suppressing empty final event (nemoclaw #2603/#3145)");`,
   );
@@ -146,20 +148,20 @@ function patchGetReplyWebchatQueueMode(source, file) {
     };
   }
   const nextSource = working.replace(
-    /\n(\s*)const piRuntime = useFastReplyRuntime \? null : await traceRunPhase\("reply\.load_pi_runtime", \(\) => loadPiEmbeddedRuntime\(\)\);/,
-    (_match, indent) =>
+    /\n(\s*)(const (?:piRuntime|embeddedAgentRuntime) = useFastReplyRuntime \? null : await traceRunPhase\("reply\.(?:load_pi_runtime|load_embedded_agent_runtime)", \(\) => (?:loadPiEmbeddedRuntime|loadEmbeddedAgentRuntime)\(\)\);)/,
+    (_match, indent, runtimeLine) =>
       `\n${indent}if (opts?.runId && sessionCtx.Provider === "webchat" && resolvedQueue.mode === "steer") resolvedQueue = {\n` +
       `${indent}\t...resolvedQueue,\n` +
       `${indent}\tmode: "followup",\n` +
       `${indent}\tdebounceMs: 0\n` +
       `${indent}}; // nemoclaw: force webchat chat.send queued turns to keep per-message replies (#2603, #3145)\n` +
-      `${indent}const piRuntime = useFastReplyRuntime ? null : await traceRunPhase("reply.load_pi_runtime", () => loadPiEmbeddedRuntime());`,
+      `${indent}${runtimeLine}`,
   );
   if (nextSource === working) {
     return {
       nextSource: source,
       status: "no-match",
-      error: `OpenClaw get-reply pi runtime shape not recognized in ${file}`,
+      error: `OpenClaw get-reply embedded-agent runtime shape not recognized in ${file}`,
     };
   }
   return { nextSource, status: "would-apply" };
@@ -199,7 +201,7 @@ function patchFollowupRunIdPreservation(source, file) {
   );
   if (nextSource === working) {
     nextSource = working.replace(
-      /(const admission = await admitReplyTurn\(\{\n\s*sessionId: run\.sessionId,\n\s*sessionKey: replySessionKey \?\? "",\n\s*kind: "queued_followup",\n\s*resetTriggered: false,\n\s*upstreamAbortSignal: queued\.abortSignal\n\s*\}\);[\s\S]*?replyOperation = admission\.operation;[\s\S]*?\n\s*)const runId = crypto\.randomUUID\(\);/,
+      /(const admission = await admitReplyTurn\(\{\n\s*sessionId: run\.sessionId,\n\s*sessionKey: replySessionKey \?\? "",\n\s*kind: "queued_followup",\n\s*resetTriggered: false,\n\s*(?:routeThreadId: queued\.originatingThreadId,\n\s*)?upstreamAbortSignal: queued\.abortSignal\n\s*\}\);[\s\S]*?replyOperation = admission\.operation;[\s\S]*?\n\s*)const runId = crypto\.randomUUID\(\);/,
       (_match, prefix) =>
         `${prefix}const runId = queued.runId ?? opts?.runId ?? crypto.randomUUID(); ` +
         `// nemoclaw: preserve chat.send run ids in followup queue (#2603, #3145)`,
