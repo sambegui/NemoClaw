@@ -1173,7 +1173,10 @@ section "Phase 7: Verify two-sandbox concurrent gateway-backed agent turns"
 # markers. CI has only one inference provider key available, so both
 # sandboxes share the same NVIDIA Cloud provider; the property being
 # validated — independent per-sandbox watchers + concurrent gateway use —
-# is the same whether providers differ or match.
+# is the same whether providers differ or match. Per-sandbox gateway URL
+# pinning below (sandbox A → :18789, sandbox B → :18790) covers the
+# routing-isolation half of the expected result; the differing-providers
+# half cannot be exercised without a second provider key in CI.
 
 SANDBOX_NAME_B="${SANDBOX_NAME}-b"
 register_sandbox_for_teardown "$SANDBOX_NAME_B"
@@ -1268,19 +1271,32 @@ if grep -Eiq "$multi_marker_re" "$multi_out_b"; then
   fail "sandbox B concurrent agent output contained scope-upgrade or fallback marker"
   multi_pass=0
 fi
-if ! grep -q '^__URL_FOR_MULTI_AGENT__=ws://' "$multi_out_a"; then
-  fail "sandbox A concurrent agent did not preserve OPENCLAW_GATEWAY_URL"
-  multi_pass=0
-fi
-if ! grep -q '^__URL_FOR_MULTI_AGENT__=ws://' "$multi_out_b"; then
-  fail "sandbox B concurrent agent did not preserve OPENCLAW_GATEWAY_URL"
+multi_url_a="$(grep -m1 '^__URL_FOR_MULTI_AGENT__=' "$multi_out_a" | sed 's/^__URL_FOR_MULTI_AGENT__=//')"
+multi_url_b="$(grep -m1 '^__URL_FOR_MULTI_AGENT__=' "$multi_out_b" | sed 's/^__URL_FOR_MULTI_AGENT__=//')"
+
+case "$multi_url_a" in
+  ws://*:18789) : ;;
+  *)
+    fail "sandbox A concurrent agent gateway URL did not pin to :18789 (got: ${multi_url_a:-unset})"
+    multi_pass=0
+    ;;
+esac
+case "$multi_url_b" in
+  ws://*:18790) : ;;
+  *)
+    fail "sandbox B concurrent agent gateway URL did not pin to :18790 (got: ${multi_url_b:-unset})"
+    multi_pass=0
+    ;;
+esac
+if [ -n "$multi_url_a" ] && [ "$multi_url_a" = "$multi_url_b" ]; then
+  fail "sandboxes shared one OPENCLAW_GATEWAY_URL (${multi_url_a}); per-sandbox routing isolation broken"
   multi_pass=0
 fi
 
 rm -f "$multi_out_a" "$multi_out_b"
 
 if [ "$multi_pass" -eq 1 ]; then
-  pass "both sandboxes ran concurrent openclaw agent turns gateway-backed without scope-upgrade, pairing, or EMBEDDED FALLBACK markers"
+  pass "both sandboxes ran concurrent openclaw agent turns gateway-backed (sandbox A → :18789, sandbox B → :18790, distinct URLs, no scope-upgrade, pairing, or EMBEDDED FALLBACK markers)"
 fi
 
 if [ "$FAIL" -gt 0 ]; then
