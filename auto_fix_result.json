@@ -1,3 +1,0 @@
-{
-  "codex_review_resolution": "Restricted the lspci hardware fallback in detectNvidiaGpuHardware to display-class PCI devices (VGA compatible controller / 3D controller / Display controller) that are also NVIDIA, instead of matching any line containing 'nvidia'. This prevents NVIDIA/Mellanox NICs and other non-GPU NVIDIA PCI devices from being marked hasNvidiaGpu and forced through blocking CDI/toolkit remediation. Added a preflight-cdi test asserting a host with only NVIDIA/Mellanox NICs is not flagged as having a GPU; the existing #5489 GPU repro still passes."
-}
