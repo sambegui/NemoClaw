@@ -269,8 +269,9 @@ describe("sandbox sessions export CLI", () => {
         /umask 077 && hermes sessions export \/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl && chmod 600/,
       );
       expect(downloadLine).toContain("alpha");
+      const escapedHome = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       expect(downloadLine).toMatch(
-        new RegExp(`${home}/\\.sessions-export-hermes-[^/]+/hermes-sessions\\.jsonl`),
+        new RegExp(`${escapedHome}/\\.sessions-export-hermes-[^/]+/hermes-sessions\\.jsonl`),
       );
       expect(cleanupLine).toBeDefined();
       expect(cleanupLine).toContain("/tmp/sessions-export-hermes-");

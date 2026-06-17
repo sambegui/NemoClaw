@@ -40,7 +40,8 @@ export const SANDBOX_SESSIONS_DISPLAY_LAYOUT: Record<string, readonly PublicDisp
     {
       group: "Sandbox Management",
       order: 17.4,
-      flags: "[keys...] [--agent <id>] [--format <dir|tar>] [--out <path>] [--include-trajectory] [--json]",
+      flags:
+        "[keys...] [--agent <id>] [--format <dir|tar>] [--out <path>] [--include-trajectory] [--json]",
       description: "Export agent session JSONL out of a running sandbox",
     },
   ],

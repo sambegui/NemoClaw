@@ -1096,13 +1096,13 @@ nemohermes my-assistant sessions delete agent:main:slack:c-9 --json
 Export the agent's session history from a running sandbox to the host.
 The command routes by the sandbox's agent kind recorded in the registry.
 
-**OpenClaw sandbox.** Enumerates the session store through `openclaw sessions list --agent <id> --json` and copies only the matching `<sessionId>.jsonl` (plus optional `<sessionId>.trajectory.jsonl`) files, so the export never picks up `sessions.json`, stale `.jsonl.lock` files, or other store bookkeeping.
+For an OpenClaw sandbox, the command enumerates the session store through `openclaw sessions list --agent <id> --json` and copies only the matching `<sessionId>.jsonl` (plus optional `<sessionId>.trajectory.jsonl`) files, so the export never picks up `sessions.json`, stale `.jsonl.lock` files, or other store bookkeeping.
 By default it writes a browsable directory of session files (`dir` format); pass `--format tar` for a single `.tgz` bundle suited to sharing or upload.
 With no positional keys, the command exports every session for the agent.
 Pass one or more keys (alias or canonical `agent:<id>:<rest>`) to filter.
 
-**Hermes sandbox.** Invokes the in-sandbox `hermes sessions export` against a staging path, then downloads the resulting single JSONL stream to the host.
-Hermes stores session history in a SQLite database, so positional keys, `--agent`, `--format tar`, and `--include-trajectory` are OpenClaw-only and are refused with a clear error when the sandbox is Hermes.
+For a Hermes sandbox, the command invokes the in-sandbox `hermes sessions export` against a staging path, then downloads the resulting single JSONL stream to the host.
+Hermes stores session history in a SQLite database, so the command refuses positional keys, `--agent`, `--format tar`, and `--include-trajectory` with a clear error when the sandbox is Hermes.
 The host destination defaults to `./sessions-<sandbox>.jsonl`; `--out` picks a different path.
 
 ```bash
