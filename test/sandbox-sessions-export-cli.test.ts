@@ -254,8 +254,9 @@ describe("sandbox sessions export CLI", () => {
         PATH: `${localBin}:${process.env.PATH || ""}`,
       });
       // #5510: oclif must no longer swallow the option-shaped positional as a
-      // NonExistentFlag; the run() guard owns the message instead.
-      expect(result.code).not.toBe(0);
+      // NonExistentFlag; the run() guard owns the message instead. The guard
+      // exits 2 (failWithLines(..., 2)); assert it exactly to lock the contract.
+      expect(result.code).toBe(2);
       expect(result.out).toContain("Unknown flag or option-shaped key: -mytypo");
       expect(result.out).toContain("Session keys must not start with '-'.");
       expect(result.out).toContain("Did you mean: nemoclaw alpha sessions export mytypo?");
