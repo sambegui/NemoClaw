@@ -89,6 +89,24 @@ describe("openshell helpers", () => {
     expect(result).toEqual({ status: 1, output: "hello" });
   });
 
+  it("can expose raw stdout and stderr without changing the filtered output", () => {
+    const result = captureOpenshellCommand("openshell", ["status"], {
+      ignoreError: true,
+      includeStreams: true,
+      spawnSyncImpl: stubSpawnSync({
+        status: 1,
+        stdout: "hello\n",
+        stderr: "boom\n",
+      }),
+    });
+    expect(result).toEqual({
+      status: 1,
+      output: "hello",
+      stdout: "hello\n",
+      stderr: "boom\n",
+    });
+  });
+
   it("returns the spawn result when the command succeeds", () => {
     const result = runOpenshellCommand("openshell", ["status"], {
       spawnSyncImpl: stubSpawnSync({

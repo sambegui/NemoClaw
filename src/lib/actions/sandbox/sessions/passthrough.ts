@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { captureOpenshell } from "../../../adapters/openshell/runtime";
 import { CLI_NAME } from "../../../cli/branding";
-import { execSandbox } from "../exec";
+import { buildOpenshellExecArgs, computeExitCode, execSandbox } from "../exec";
 import { ensureLiveSandboxOrExit } from "../gateway-state";
+import { isWarmupSessionId, WARMUP_SESSION_ID_PREFIX } from "../warmup-session";
+import { balancedJsonCandidates, parseSessionIndex } from "./export";
 
 export type SessionsPassthroughVerb = "list";
 
@@ -33,6 +36,139 @@ export function printSessionsPassthroughHelp(verb?: SessionsPassthroughVerb): vo
   console.log("");
 }
 
+function isFilterableListPassthrough(verb: SessionsPassthroughVerb | undefined) {
+  return verb === undefined || verb === "list";
+}
+
+function isJsonOutput(args: readonly string[]) {
+  return args.includes("--json");
+}
+
+function sessionEntryIsWarmup(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const obj = entry as Record<string, unknown>;
+  for (const field of ["sessionId", "id"]) {
+    const value = obj[field];
+    if (typeof value === "string" && isWarmupSessionId(value)) return true;
+  }
+  return false;
+}
+
+function filterWarmupArray(entries: unknown[]): { entries: unknown[]; removed: number } {
+  const filtered = entries.filter((entry) => !sessionEntryIsWarmup(entry));
+  return { entries: filtered, removed: entries.length - filtered.length };
+}
+
+function jsonCandidates(output: string): string[] {
+  const trimmed = output.trim();
+  if (!trimmed) return ["[]"];
+  const lines = trimmed.split(/\r?\n/);
+  const candidates = balancedJsonCandidates(trimmed);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const candidate = lines[index]?.trim();
+    if (candidate && (candidate.startsWith("[") || candidate.startsWith("{"))) {
+      candidates.push(candidate);
+    }
+  }
+  candidates.push(trimmed);
+  return candidates;
+}
+
+function parseJsonPayload(output: string): unknown | null {
+  for (const candidate of jsonCandidates(output)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next tolerant candidate; OpenClaw may prefix Node warnings.
+    }
+  }
+  return null;
+}
+
+function filterWarmupSessionsListPayload(parsed: unknown): unknown | null {
+  if (Array.isArray(parsed)) {
+    return filterWarmupArray(parsed).entries;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const obj = parsed as Record<string, unknown>;
+  for (const key of ["sessions", "entries", "items"]) {
+    const value = obj[key];
+    if (!Array.isArray(value)) continue;
+    const { entries, removed } = filterWarmupArray(value);
+    if (removed === 0) return parsed;
+    const next = { ...obj, [key]: entries };
+    if (typeof next.count === "number") next.count = Math.max(0, next.count - removed);
+    if (typeof next.totalCount === "number") {
+      next.totalCount = Math.max(0, next.totalCount - removed);
+    }
+    return next;
+  }
+  return null;
+}
+
+function writeWithTrailingNewline(stream: NodeJS.WriteStream, value: string | undefined): void {
+  if (!value) return;
+  stream.write(value.endsWith("\n") ? value : `${value}\n`);
+}
+
+function capturedStdout(result: { output: string; stdout?: string }): string {
+  return typeof result.stdout === "string" ? result.stdout.trim() : result.output;
+}
+
+function capturedStderr(result: { stderr?: string }): string {
+  return typeof result.stderr === "string" ? result.stderr.trim() : "";
+}
+
+function printJsonParseFailure(): void {
+  console.error(
+    "  Could not parse `openclaw sessions list --json` output as a session index. Check the OpenClaw version pinned in agents/openclaw/manifest.yaml.",
+  );
+}
+
+export function filterWarmupSessionsListJson(output: string): string | null {
+  const parsedIndex = parseSessionIndex(output);
+  if (parsedIndex === null) {
+    return null;
+  }
+
+  const parsedPayload = parseJsonPayload(output);
+  const filteredPayload =
+    parsedPayload === null ? null : filterWarmupSessionsListPayload(parsedPayload);
+  if (filteredPayload !== null) {
+    return JSON.stringify(filteredPayload, null, 2);
+  }
+
+  const sessions = parsedIndex.filter((entry) => !isWarmupSessionId(entry.sessionId));
+  return JSON.stringify({ count: sessions.length, totalCount: sessions.length, sessions }, null, 2);
+}
+
+function warmupIdInTextRow(line: string): boolean {
+  return line.includes(`id:${WARMUP_SESSION_ID_PREFIX}`);
+}
+
+// Text output is a compatibility wrapper around OpenClaw's current non-TTY
+// table. Prefer the JSON path for stable structure; this only hides warm-up
+// rows from the human display until NemoClaw owns a native renderer.
+export function filterWarmupSessionsListText(output: string): string {
+  const lines = output.split(/\r?\n/);
+  let removed = 0;
+  const filtered = lines.filter((line) => {
+    if (!warmupIdInTextRow(line)) return true;
+    removed += 1;
+    return false;
+  });
+  if (removed === 0) return output;
+  return filtered
+    .map((line) =>
+      line.replace(/^(Sessions listed:\s*)(\d+)(.*)$/, (_match, prefix, count, suffix) => {
+        const nextCount = Math.max(0, Number.parseInt(count, 10) - removed);
+        return `${prefix}${nextCount}${suffix}`;
+      }),
+    )
+    .join("\n");
+}
+
 export async function runSessionsPassthrough(
   sandboxName: string,
   { verb, extraArgs = [] }: SessionsPassthroughOptions = {},
@@ -41,5 +177,43 @@ export async function runSessionsPassthrough(
   const command = ["openclaw", "sessions"];
   if (verb) command.push(verb);
   for (const arg of extraArgs) command.push(arg);
+  if (isFilterableListPassthrough(verb)) {
+    const result = captureOpenshell(buildOpenshellExecArgs(sandboxName, command), {
+      ignoreError: true,
+      includeStreams: true,
+    });
+    const { code, errorMessage } = computeExitCode(result);
+    const capturedOutput = capturedStdout(result);
+    const capturedError = capturedStderr(result);
+    if (code !== 0) {
+      writeWithTrailingNewline(process.stdout, capturedOutput);
+      writeWithTrailingNewline(process.stderr, capturedError);
+      if (errorMessage) console.error(`  Failed to invoke openshell: ${errorMessage}`);
+      process.exit(code);
+    }
+
+    if (isJsonOutput(extraArgs)) {
+      const filtered = filterWarmupSessionsListJson(capturedOutput);
+      if (filtered === null) {
+        // Preserve pass-through compatibility unless the raw payload could leak
+        // an internal warm-up session.
+        if (capturedOutput.includes(WARMUP_SESSION_ID_PREFIX)) {
+          printJsonParseFailure();
+          process.exit(1);
+        }
+        writeWithTrailingNewline(process.stdout, capturedOutput);
+        writeWithTrailingNewline(process.stderr, capturedError);
+        return;
+      }
+      writeWithTrailingNewline(process.stdout, filtered);
+      writeWithTrailingNewline(process.stderr, capturedError);
+      return;
+    }
+
+    const filtered = filterWarmupSessionsListText(capturedOutput);
+    writeWithTrailingNewline(process.stdout, filtered);
+    writeWithTrailingNewline(process.stderr, capturedError);
+    return;
+  }
   await execSandbox(sandboxName, command);
 }

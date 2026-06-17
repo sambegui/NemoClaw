@@ -44,6 +44,7 @@ import path from "node:path";
 import { captureOpenshell, runOpenshell } from "../../../adapters/openshell/runtime";
 import { CLI_NAME } from "../../../cli/branding";
 import { ensureLiveSandboxOrExit } from "../gateway-state";
+import { isWarmupSessionId } from "../warmup-session";
 import {
   DEFAULT_AGENT_ID,
   parseAgentIdFromSessionKey,
@@ -323,7 +324,11 @@ function resolveSelectedFiles(
 
   const entries: { key: string; sessionId: string }[] = [];
   if (keys.length === 0) {
-    for (const entry of index) entries.push(entry);
+    // Export-all hides internal warm-up sessions; explicit keys are honored below.
+    for (const entry of index) {
+      if (isWarmupSessionId(entry.sessionId)) continue;
+      entries.push(entry);
+    }
   } else {
     const missing: string[] = [];
     for (const key of keys) {
@@ -424,7 +429,7 @@ export function parseSessionIndex(output: string): SessionIndexEntry[] | null {
   const trimmed = output.trim();
   if (!trimmed) return [];
   const lines = trimmed.split(/\r?\n/);
-  const candidates: string[] = [];
+  const candidates = balancedJsonCandidates(trimmed);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const candidate = lines[index]?.trim();
     if (candidate && (candidate.startsWith("[") || candidate.startsWith("{"))) {
@@ -440,6 +445,52 @@ export function parseSessionIndex(output: string): SessionIndexEntry[] | null {
   // session index. Distinguish this from the empty-string case so callers
   // can surface a parse error instead of silently treating it as "no
   // sessions" — the latter would mask an upstream contract drift.
+  return null;
+}
+
+export function balancedJsonCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  const lineStartJson = /^(\s*)([\[{])/gm;
+  let match: RegExpExecArray | null;
+  while ((match = lineStartJson.exec(text)) !== null) {
+    const candidate = balancedJsonFrom(text, match.index + match[1].length);
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+function balancedJsonFrom(text: string, start: number): string | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+    if (char !== "}" && char !== "]") continue;
+    if (stack.pop() !== char) return null;
+    if (stack.length === 0) return text.slice(start, index + 1);
+  }
   return null;
 }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import fs from "node:fs";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +16,7 @@ vi.mock("../../../adapters/openshell/runtime", () => ({
 }));
 
 import { captureOpenshell, runOpenshell } from "../../../adapters/openshell/runtime";
+import { isWarmupSessionId, WARMUP_SESSION_ID_PREFIX } from "../warmup-session";
 import { buildSandboxTarArgv, exportSandboxSessions, parseSessionIndex } from "./export";
 
 const captureMock = captureOpenshell as unknown as ReturnType<typeof vi.fn>;
@@ -86,6 +88,14 @@ describe("parseSessionIndex", () => {
     expect(parseSessionIndex(output)).toEqual([{ key: "agent:main:main", sessionId: "sid-1" }]);
   });
 
+  it("tolerates log noise after a pretty JSON payload", () => {
+    const output = [
+      JSON.stringify({ sessions: [{ key: "agent:main:main", sessionId: "sid-1" }] }, null, 2),
+      "(node:1) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental",
+    ].join("\n");
+    expect(parseSessionIndex(output)).toEqual([{ key: "agent:main:main", sessionId: "sid-1" }]);
+  });
+
   it("returns [] when the upstream emits an empty index (empty array)", () => {
     expect(parseSessionIndex("[]")).toEqual([]);
   });
@@ -101,6 +111,80 @@ describe("parseSessionIndex", () => {
   it("returns null when the array is non-empty but every entry uses unknown field names (schema drift)", () => {
     const output = JSON.stringify([{ alias: "agent:main:main", uuid: "sid-1" }]);
     expect(parseSessionIndex(output)).toBeNull();
+  });
+
+  it("does not accept session-shaped arrays under an unknown wrapper", () => {
+    const output = JSON.stringify({
+      records: [{ key: "agent:main:main", sessionId: "sid-1" }],
+    });
+    expect(parseSessionIndex(output)).toBeNull();
+  });
+});
+
+describe("isWarmupSessionId", () => {
+  it("matches the onboard warm-up session id prefix (#5511)", () => {
+    expect(isWarmupSessionId(`${WARMUP_SESSION_ID_PREFIX}123`)).toBe(true);
+    expect(isWarmupSessionId("sid-real")).toBe(false);
+  });
+});
+
+describe("exportSandboxSessions warm-up filtering", () => {
+  it("excludes the onboard warm-up session from export-all but keeps real sessions (#5511)", async () => {
+    captureMock.mockReturnValueOnce(
+      makeCapture(
+        JSON.stringify([
+          { key: "agent:main:main", sessionId: `${WARMUP_SESSION_ID_PREFIX}1` },
+          { key: "agent:main:telegram:t-1", sessionId: "sid-real" },
+        ]),
+      ),
+    );
+
+    const result = await exportSandboxSessions({
+      sandboxName: "alpha",
+      out: "./out.tgz",
+      format: "tar",
+    });
+
+    const tarCall = runMock.mock.calls[0]?.[0] as string[];
+    const shellCommand = tarCall[7] as string;
+    expect(result.resolvedSessionIds).toEqual(["sid-real"]);
+    expect(shellCommand).toMatch(/-- \.\/sid-real\.jsonl/);
+    expect(shellCommand).not.toContain(WARMUP_SESSION_ID_PREFIX);
+  });
+
+  it("refuses export-all when only the onboard warm-up session remains (#5511)", async () => {
+    captureMock.mockReturnValueOnce(
+      makeCapture(
+        JSON.stringify([
+          { key: "agent:main:explicit:warm", sessionId: `${WARMUP_SESSION_ID_PREFIX}1` },
+        ]),
+      ),
+    );
+
+    await expect(
+      exportSandboxSessions({
+        sandboxName: "alpha",
+        out: "./sessions-alpha",
+      }),
+    ).rejects.toThrow(/agent 'main' has no sessions to bundle/);
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it("still exports a warm-up session when the caller names it explicitly", async () => {
+    const warmupId = `${WARMUP_SESSION_ID_PREFIX}explicit`;
+    captureMock.mockReturnValueOnce(
+      makeCapture(JSON.stringify([{ key: "agent:main:main", sessionId: warmupId }])),
+    );
+
+    const result = await exportSandboxSessions({
+      sandboxName: "alpha",
+      keys: ["agent:main:main"],
+      out: "./out.tgz",
+      format: "tar",
+    });
+
+    expect(result.resolvedSessionIds).toEqual([warmupId]);
+    expect(result.resolvedFiles).toEqual([`${warmupId}.jsonl`]);
   });
 });
 
@@ -188,10 +272,10 @@ describe("exportSandboxSessions", () => {
       "download",
       "alpha",
       "/sandbox/.openclaw/agents/main/sessions/sid-a.jsonl",
-      "sessions-alpha/sid-a.jsonl",
+      path.join("sessions-alpha", "sid-a.jsonl"),
     ]);
     // Each downloaded file is locked to owner-only (session JSONL may hold secrets).
-    expect(chmodSpy).toHaveBeenCalledWith("sessions-alpha/sid-a.jsonl", 0o600);
+    expect(chmodSpy).toHaveBeenCalledWith(path.join("sessions-alpha", "sid-a.jsonl"), 0o600);
 
     expect(result.format).toBe("dir");
     expect(result.hostDest).toBe("./sessions-alpha");
@@ -200,13 +284,13 @@ describe("exportSandboxSessions", () => {
       {
         key: "agent:main:main",
         sessionId: "sid-a",
-        path: "sessions-alpha/sid-a.jsonl",
+        path: path.join("sessions-alpha", "sid-a.jsonl"),
         sizeBytes: 42,
       },
       {
         key: "agent:main:telegram:t-1",
         sessionId: "sid-b",
-        path: "sessions-alpha/sid-b.jsonl",
+        path: path.join("sessions-alpha", "sid-b.jsonl"),
         sizeBytes: 42,
       },
     ]);
