@@ -254,15 +254,19 @@ export async function exportSandboxSessions(
   return result;
 }
 
-async function exportHermesSessions(
-  opts: SessionsExportOptions,
-): Promise<SessionsExportResult> {
+async function exportHermesSessions(opts: SessionsExportOptions): Promise<SessionsExportResult> {
   rejectOpenClawOnlyOptions(opts);
   await ensureLiveSandboxOrExit(opts.sandboxName, { allowNonReadyPhase: true });
 
   const hostDest = resolveHermesHostDestination(opts.out, opts.sandboxName);
   const stagingRemote = hermesStagingPath();
   const shellCommand = buildHermesShellInvocation(stagingRemote);
+
+  const absoluteHostDest = path.resolve(hostDest);
+  const hostStagingDir = fs.mkdtempSync(
+    path.join(path.dirname(absoluteHostDest), ".sessions-export-hermes-"),
+  );
+  const hostStagingPath = path.join(hostStagingDir, path.basename(absoluteHostDest));
 
   try {
     const exportResult = runOpenshell(
@@ -276,7 +280,7 @@ async function exportHermesSessions(
     }
 
     const downloadResult = runOpenshell(
-      ["sandbox", "download", opts.sandboxName, stagingRemote, hostDest],
+      ["sandbox", "download", opts.sandboxName, stagingRemote, hostStagingPath],
       { ignoreError: true, stdio: "inherit" },
     );
     if (downloadResult.status !== 0) {
@@ -284,14 +288,18 @@ async function exportHermesSessions(
         `Failed to download '${stagingRemote}' from sandbox '${opts.sandboxName}' (exit ${downloadResult.status}).`,
       );
     }
-  } finally {
-    runOpenshell(
-      ["sandbox", "exec", "--name", opts.sandboxName, "--", "rm", "-f", stagingRemote],
-      { ignoreError: true, stdio: "ignore" },
-    );
-  }
 
-  hardenPermissions(hostDest);
+    fs.chmodSync(hostStagingPath, 0o600);
+    fs.renameSync(hostStagingPath, hostDest);
+  } finally {
+    runOpenshell(["sandbox", "exec", "--name", opts.sandboxName, "--", "rm", "-f", stagingRemote], {
+      ignoreError: true,
+      stdio: "ignore",
+    });
+    try {
+      fs.rmSync(hostStagingDir, { recursive: true, force: true });
+    } catch {}
+  }
 
   let bundleBytes: number | null = null;
   try {

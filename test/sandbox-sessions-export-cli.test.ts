@@ -269,9 +269,14 @@ describe("sandbox sessions export CLI", () => {
         /umask 077 && hermes sessions export \/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl && chmod 600/,
       );
       expect(downloadLine).toContain("alpha");
-      expect(downloadLine).toContain(out);
+      expect(downloadLine).toMatch(
+        new RegExp(`${home}/\\.sessions-export-hermes-[^/]+/hermes-sessions\\.jsonl`),
+      );
       expect(cleanupLine).toBeDefined();
       expect(cleanupLine).toContain("/tmp/sessions-export-hermes-");
+
+      expect(fs.existsSync(out)).toBe(true);
+      expect(fs.readFileSync(out, "utf8")).toBe("session-data");
 
       const manifest = JSON.parse(result.out.trim().split("\n").at(-1) as string);
       expect(manifest).toMatchObject({

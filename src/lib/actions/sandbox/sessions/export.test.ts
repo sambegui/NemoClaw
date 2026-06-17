@@ -429,9 +429,29 @@ describe("exportSandboxSessions", () => {
 });
 
 describe("exportSandboxSessions (hermes sandbox)", () => {
+  let mkdtempSpy: ReturnType<typeof vi.spyOn>;
+  let chmodSpy: ReturnType<typeof vi.spyOn>;
+  let renameSpy: ReturnType<typeof vi.spyOn>;
+  let rmSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mkdtempSpy = vi
+      .spyOn(fs, "mkdtempSync")
+      .mockImplementation((prefix) => `${prefix as string}stubdir`);
+    chmodSpy = vi.spyOn(fs, "chmodSync").mockImplementation(() => {});
+    renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {});
+    rmSpy = vi.spyOn(fs, "rmSync").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    mkdtempSpy.mockRestore();
+    chmodSpy.mockRestore();
+    renameSpy.mockRestore();
+    rmSpy.mockRestore();
+  });
+
   it("routes to `hermes sessions export` instead of `openclaw sessions list` when the registry marks the sandbox as hermes", async () => {
     getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
-    const chmodSpy = vi.spyOn(fs, "chmodSync").mockImplementation(() => {});
 
     const result = await exportSandboxSessions({ sandboxName: "alpha" });
 
@@ -447,14 +467,17 @@ describe("exportSandboxSessions (hermes sandbox)", () => {
     const downloadCall = runMock.mock.calls[1]?.[0] as string[];
     expect(downloadCall.slice(0, 3)).toEqual(["sandbox", "download", "alpha"]);
     expect(downloadCall[3]).toMatch(/^\/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl$/);
-    expect(downloadCall.at(-1)).toBe("./sessions-alpha.jsonl");
+    const hostStagingPath = downloadCall.at(-1) as string;
+    expect(hostStagingPath).toContain(".sessions-export-hermes-");
+    expect(hostStagingPath.endsWith("sessions-alpha.jsonl")).toBe(true);
+    expect(hostStagingPath).not.toBe("./sessions-alpha.jsonl");
 
     const cleanupCall = runMock.mock.calls.at(-1);
     expect(cleanupCall?.[0]).toContain("rm");
     expect(cleanupCall?.[0]).toContain("-f");
 
-    expect(chmodSpy).toHaveBeenCalledWith("./sessions-alpha.jsonl", 0o600);
-    chmodSpy.mockRestore();
+    expect(chmodSpy).toHaveBeenCalledWith(hostStagingPath, 0o600);
+    expect(renameSpy).toHaveBeenCalledWith(hostStagingPath, "./sessions-alpha.jsonl");
 
     expect(result).toMatchObject({
       sandboxName: "alpha",
@@ -470,7 +493,6 @@ describe("exportSandboxSessions (hermes sandbox)", () => {
 
   it("honours --out for the host destination on a hermes sandbox", async () => {
     getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
-    vi.spyOn(fs, "chmodSync").mockImplementation(() => {});
 
     const result = await exportSandboxSessions({
       sandboxName: "alpha",
@@ -478,9 +500,29 @@ describe("exportSandboxSessions (hermes sandbox)", () => {
     });
 
     const downloadCall = runMock.mock.calls[1]?.[0] as string[];
-    expect(downloadCall.at(-1)).toBe("./hermes-bundle.jsonl");
+    const hostStagingPath = downloadCall.at(-1) as string;
+    expect(hostStagingPath).toContain(".sessions-export-hermes-");
+    expect(hostStagingPath.endsWith("hermes-bundle.jsonl")).toBe(true);
+    expect(renameSpy).toHaveBeenCalledWith(hostStagingPath, "./hermes-bundle.jsonl");
     expect(result.hostDest).toBe("./hermes-bundle.jsonl");
     expect(result.resolvedFiles).toEqual(["hermes-bundle.jsonl"]);
+  });
+
+  it("aborts the export and skips download when the in-sandbox `hermes sessions export` exits non-zero, while still cleaning up the staging file", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    runMock.mockReturnValueOnce(makeRun(1));
+
+    await expect(exportSandboxSessions({ sandboxName: "alpha" })).rejects.toThrow(
+      /Failed to export hermes sessions/,
+    );
+
+    expect(runMock).toHaveBeenCalledTimes(2);
+    const execCall = runMock.mock.calls[0]?.[0] as string[];
+    expect(execCall.slice(0, 3)).toEqual(["sandbox", "exec", "--name"]);
+    const cleanupCall = runMock.mock.calls[1]?.[0] as string[];
+    expect(cleanupCall).toContain("rm");
+    expect(cleanupCall).toContain("-f");
+    expect(renameSpy).not.toHaveBeenCalled();
   });
 
   it("cleans up the in-sandbox staging file even when the host download exits non-zero", async () => {
@@ -493,22 +535,36 @@ describe("exportSandboxSessions (hermes sandbox)", () => {
     const cleanupCall = runMock.mock.calls.at(-1);
     expect(cleanupCall?.[0]).toContain("rm");
     expect(cleanupCall?.[0]).toContain("-f");
+    expect(renameSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when chmod on the staging file errors so a permissive host cannot end up with a world-readable session bundle", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    chmodSpy.mockImplementation(() => {
+      throw new Error("EPERM");
+    });
+
+    await expect(exportSandboxSessions({ sandboxName: "alpha" })).rejects.toThrow(/EPERM/);
+    expect(renameSpy).not.toHaveBeenCalled();
+    const cleanupCall = runMock.mock.calls.at(-1);
+    expect(cleanupCall?.[0]).toContain("rm");
+    expect(cleanupCall?.[0]).toContain("-f");
   });
 
   it("refuses OpenClaw-only flags on a hermes sandbox so users see a clear error rather than a silent half-export", async () => {
     getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
-    await expect(
-      exportSandboxSessions({ sandboxName: "alpha", agent: "main" }),
-    ).rejects.toThrow(/--agent is OpenClaw-specific/);
-    await expect(
-      exportSandboxSessions({ sandboxName: "alpha", keys: ["main"] }),
-    ).rejects.toThrow(/positional session keys are OpenClaw-specific/);
+    await expect(exportSandboxSessions({ sandboxName: "alpha", agent: "main" })).rejects.toThrow(
+      /--agent is OpenClaw-specific/,
+    );
+    await expect(exportSandboxSessions({ sandboxName: "alpha", keys: ["main"] })).rejects.toThrow(
+      /positional session keys are OpenClaw-specific/,
+    );
     await expect(
       exportSandboxSessions({ sandboxName: "alpha", includeTrajectory: true }),
     ).rejects.toThrow(/--include-trajectory is OpenClaw-specific/);
-    await expect(
-      exportSandboxSessions({ sandboxName: "alpha", format: "tar" }),
-    ).rejects.toThrow(/--format tar is OpenClaw-specific/);
+    await expect(exportSandboxSessions({ sandboxName: "alpha", format: "tar" })).rejects.toThrow(
+      /--format tar is OpenClaw-specific/,
+    );
     expect(runMock).not.toHaveBeenCalled();
   });
 });
