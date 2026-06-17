@@ -43,6 +43,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { captureOpenshell, runOpenshell } from "../../../adapters/openshell/runtime";
 import { CLI_NAME } from "../../../cli/branding";
+import * as registry from "../../../state/registry";
 import { ensureLiveSandboxOrExit } from "../gateway-state";
 import {
   DEFAULT_AGENT_ID,
@@ -51,7 +52,7 @@ import {
   validateSessionKey,
 } from "./paths";
 
-export type SessionsExportFormat = "dir" | "tar";
+export type SessionsExportFormat = "dir" | "tar" | "jsonl";
 
 export interface SessionsExportOptions {
   sandboxName: string;
@@ -98,6 +99,9 @@ const SAFE_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export async function exportSandboxSessions(
   opts: SessionsExportOptions,
 ): Promise<SessionsExportResult> {
+  if (registry.getSandbox(opts.sandboxName)?.agent === "hermes") {
+    return exportHermesSessions(opts);
+  }
   const agent = resolveAgentId(opts);
   const trimmedKeys = (opts.keys ?? []).map((value) => validateSessionKey(value));
   enforceAgentScope(agent, trimmedKeys);
@@ -248,6 +252,112 @@ export async function exportSandboxSessions(
   }
 
   return result;
+}
+
+async function exportHermesSessions(
+  opts: SessionsExportOptions,
+): Promise<SessionsExportResult> {
+  rejectOpenClawOnlyOptions(opts);
+  await ensureLiveSandboxOrExit(opts.sandboxName, { allowNonReadyPhase: true });
+
+  const hostDest = resolveHermesHostDestination(opts.out, opts.sandboxName);
+  const stagingRemote = hermesStagingPath();
+  const shellCommand = buildHermesShellInvocation(stagingRemote);
+
+  try {
+    const exportResult = runOpenshell(
+      ["sandbox", "exec", "--name", opts.sandboxName, "--", "sh", "-c", shellCommand],
+      { ignoreError: true, stdio: "inherit" },
+    );
+    if (exportResult.status !== 0) {
+      throw new Error(
+        `Failed to export hermes sessions in sandbox '${opts.sandboxName}' (exit ${exportResult.status}). Verify the sandbox is live with \`${CLI_NAME} ${opts.sandboxName} status\`.`,
+      );
+    }
+
+    const downloadResult = runOpenshell(
+      ["sandbox", "download", opts.sandboxName, stagingRemote, hostDest],
+      { ignoreError: true, stdio: "inherit" },
+    );
+    if (downloadResult.status !== 0) {
+      throw new Error(
+        `Failed to download '${stagingRemote}' from sandbox '${opts.sandboxName}' (exit ${downloadResult.status}).`,
+      );
+    }
+  } finally {
+    runOpenshell(
+      ["sandbox", "exec", "--name", opts.sandboxName, "--", "rm", "-f", stagingRemote],
+      { ignoreError: true, stdio: "ignore" },
+    );
+  }
+
+  hardenPermissions(hostDest);
+
+  let bundleBytes: number | null = null;
+  try {
+    bundleBytes = fs.statSync(hostDest).size;
+  } catch {
+    bundleBytes = null;
+  }
+
+  const result: SessionsExportResult = {
+    sandboxName: opts.sandboxName,
+    agent: "hermes",
+    format: "jsonl",
+    selectedKeys: "all",
+    resolvedSessionIds: [],
+    resolvedFiles: [path.basename(hostDest)],
+    hostDest,
+    bundleBytes,
+    sessions: [],
+  };
+
+  if (opts.json) {
+    console.log(JSON.stringify(result));
+  } else {
+    const sizeNote = bundleBytes !== null ? ` (${bundleBytes} byte(s))` : "";
+    console.error(`  Exported hermes sessions to ${hostDest}${sizeNote}`);
+  }
+
+  return result;
+}
+
+function rejectOpenClawOnlyOptions(opts: SessionsExportOptions): void {
+  if (opts.agent) {
+    throw new Error(
+      "Refusing to export: --agent is OpenClaw-specific and is not supported on a Hermes sandbox.",
+    );
+  }
+  if (opts.keys && opts.keys.length > 0) {
+    throw new Error(
+      "Refusing to export: positional session keys are OpenClaw-specific. A Hermes sandbox exports the full session store as a single JSONL.",
+    );
+  }
+  if (opts.includeTrajectory) {
+    throw new Error(
+      "Refusing to export: --include-trajectory is OpenClaw-specific. Hermes has no separate trajectory files.",
+    );
+  }
+  if (opts.format === "tar") {
+    throw new Error(
+      "Refusing to export: --format tar is OpenClaw-specific. Hermes export is a single JSONL stream.",
+    );
+  }
+}
+
+function hermesStagingPath(): string {
+  const suffix = randomBytes(6).toString("hex");
+  return `/tmp/sessions-export-hermes-${suffix}.jsonl`;
+}
+
+function buildHermesShellInvocation(stagingRemote: string): string {
+  const quotedStaging = shellQuote(stagingRemote);
+  return `umask 077 && hermes sessions export ${quotedStaging} && chmod 600 ${quotedStaging}`;
+}
+
+function resolveHermesHostDestination(out: string | undefined, sandboxName: string): string {
+  if (out && out.trim()) return out.trim();
+  return `./sessions-${sandboxName}.jsonl`;
 }
 
 // Restrict a freshly written host artefact to owner-only (0600). Best-effort:

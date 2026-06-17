@@ -14,11 +14,17 @@ vi.mock("../../../adapters/openshell/runtime", () => ({
   runOpenshell: vi.fn(),
 }));
 
+vi.mock("../../../state/registry", () => ({
+  getSandbox: vi.fn(() => null),
+}));
+
 import { captureOpenshell, runOpenshell } from "../../../adapters/openshell/runtime";
+import * as registry from "../../../state/registry";
 import { buildSandboxTarArgv, exportSandboxSessions, parseSessionIndex } from "./export";
 
 const captureMock = captureOpenshell as unknown as ReturnType<typeof vi.fn>;
 const runMock = runOpenshell as unknown as ReturnType<typeof vi.fn>;
+const getSandboxMock = registry.getSandbox as unknown as ReturnType<typeof vi.fn>;
 
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -27,6 +33,8 @@ beforeEach(() => {
   captureMock.mockReset();
   runMock.mockReset();
   runMock.mockReturnValue({ status: 0, stdout: "", stderr: "" });
+  getSandboxMock.mockReset();
+  getSandboxMock.mockReturnValue(null);
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
   consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 });
@@ -417,5 +425,90 @@ describe("exportSandboxSessions", () => {
       hostDest: "./out.tgz",
     });
     expect(parsed).toHaveProperty("bundleBytes");
+  });
+});
+
+describe("exportSandboxSessions (hermes sandbox)", () => {
+  it("routes to `hermes sessions export` instead of `openclaw sessions list` when the registry marks the sandbox as hermes", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    const chmodSpy = vi.spyOn(fs, "chmodSync").mockImplementation(() => {});
+
+    const result = await exportSandboxSessions({ sandboxName: "alpha" });
+
+    expect(captureMock).not.toHaveBeenCalled();
+
+    const execCall = runMock.mock.calls[0]?.[0] as string[];
+    expect(execCall.slice(0, 7)).toEqual(["sandbox", "exec", "--name", "alpha", "--", "sh", "-c"]);
+    const shellCommand = execCall[7] as string;
+    expect(shellCommand).toMatch(
+      /^umask 077 && hermes sessions export \/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl && chmod 600 \/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl$/,
+    );
+
+    const downloadCall = runMock.mock.calls[1]?.[0] as string[];
+    expect(downloadCall.slice(0, 3)).toEqual(["sandbox", "download", "alpha"]);
+    expect(downloadCall[3]).toMatch(/^\/tmp\/sessions-export-hermes-[0-9a-f]+\.jsonl$/);
+    expect(downloadCall.at(-1)).toBe("./sessions-alpha.jsonl");
+
+    const cleanupCall = runMock.mock.calls.at(-1);
+    expect(cleanupCall?.[0]).toContain("rm");
+    expect(cleanupCall?.[0]).toContain("-f");
+
+    expect(chmodSpy).toHaveBeenCalledWith("./sessions-alpha.jsonl", 0o600);
+    chmodSpy.mockRestore();
+
+    expect(result).toMatchObject({
+      sandboxName: "alpha",
+      agent: "hermes",
+      format: "jsonl",
+      selectedKeys: "all",
+      resolvedSessionIds: [],
+      resolvedFiles: ["sessions-alpha.jsonl"],
+      hostDest: "./sessions-alpha.jsonl",
+      sessions: [],
+    });
+  });
+
+  it("honours --out for the host destination on a hermes sandbox", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    vi.spyOn(fs, "chmodSync").mockImplementation(() => {});
+
+    const result = await exportSandboxSessions({
+      sandboxName: "alpha",
+      out: "./hermes-bundle.jsonl",
+    });
+
+    const downloadCall = runMock.mock.calls[1]?.[0] as string[];
+    expect(downloadCall.at(-1)).toBe("./hermes-bundle.jsonl");
+    expect(result.hostDest).toBe("./hermes-bundle.jsonl");
+    expect(result.resolvedFiles).toEqual(["hermes-bundle.jsonl"]);
+  });
+
+  it("cleans up the in-sandbox staging file even when the host download exits non-zero", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    runMock.mockReturnValueOnce(makeRun(0)).mockReturnValueOnce(makeRun(1));
+
+    await expect(exportSandboxSessions({ sandboxName: "alpha" })).rejects.toThrow(
+      /Failed to download/,
+    );
+    const cleanupCall = runMock.mock.calls.at(-1);
+    expect(cleanupCall?.[0]).toContain("rm");
+    expect(cleanupCall?.[0]).toContain("-f");
+  });
+
+  it("refuses OpenClaw-only flags on a hermes sandbox so users see a clear error rather than a silent half-export", async () => {
+    getSandboxMock.mockReturnValue({ name: "alpha", agent: "hermes" });
+    await expect(
+      exportSandboxSessions({ sandboxName: "alpha", agent: "main" }),
+    ).rejects.toThrow(/--agent is OpenClaw-specific/);
+    await expect(
+      exportSandboxSessions({ sandboxName: "alpha", keys: ["main"] }),
+    ).rejects.toThrow(/positional session keys are OpenClaw-specific/);
+    await expect(
+      exportSandboxSessions({ sandboxName: "alpha", includeTrajectory: true }),
+    ).rejects.toThrow(/--include-trajectory is OpenClaw-specific/);
+    await expect(
+      exportSandboxSessions({ sandboxName: "alpha", format: "tar" }),
+    ).rejects.toThrow(/--format tar is OpenClaw-specific/);
+    expect(runMock).not.toHaveBeenCalled();
   });
 });
