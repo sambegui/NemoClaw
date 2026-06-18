@@ -150,108 +150,153 @@ function printMissingLiveSandboxStatusGuidance(
   );
 }
 
-async function printSandboxGatewayLookupStatus({
-  sandboxName,
-  lookup,
-  phase,
-  dockerRuntime,
-  effectivePreflight,
-}: {
+type SandboxGatewayLookupStatusContext = {
   sandboxName: string;
   lookup: SandboxGatewayState;
   phase: string | null;
   dockerRuntime: ReturnType<typeof getSandboxDockerRuntime> | null;
   effectivePreflight: Awaited<ReturnType<typeof getSandboxStatusPreflight>>;
-}): Promise<void> {
-  if (lookup.state === "present") {
+};
+
+async function printSandboxGatewayLookupStatus(
+  context: SandboxGatewayLookupStatusContext,
+): Promise<void> {
+  switch (context.lookup.state) {
+    case "present":
+      printPresentSandboxGatewayLookupStatus(context);
+      return;
+    case "wrong_gateway_active":
+      printWrongGatewayActiveLookupStatus(context);
+      return;
+    case "gateway_schema_mismatch":
+      console.log(context.lookup.output);
+      process.exit(1);
+    case "missing":
+      printMissingLiveSandboxStatusGuidance(context.sandboxName, context.lookup);
+      process.exit(1);
+    case "identity_drift":
+      printIdentityDriftLookupStatus(context);
+      return;
+    case "gateway_unreachable_after_restart":
+      await printGatewayUnreachableAfterRestartLookupStatus(context);
+      return;
+    case "gateway_missing_after_restart":
+      await printGatewayMissingAfterRestartLookupStatus(context);
+      return;
+    default:
+      await printUnknownGatewayLookupStatus(context);
+  }
+}
+
+function printPresentSandboxGatewayLookupStatus({
+  sandboxName,
+  lookup,
+  phase,
+  dockerRuntime,
+}: SandboxGatewayLookupStatusContext): void {
+  console.log("");
+  if ("recoveredGateway" in lookup && lookup.recoveredGateway) {
+    console.log(
+      `  Recovered ${CLI_DISPLAY_NAME} gateway runtime via ${("recoveryVia" in lookup ? lookup.recoveryVia : null) || "gateway reattach"}.`,
+    );
     console.log("");
-    if ("recoveredGateway" in lookup && lookup.recoveredGateway) {
-      console.log(
-        `  Recovered ${CLI_DISPLAY_NAME} gateway runtime via ${("recoveryVia" in lookup ? lookup.recoveryVia : null) || "gateway reattach"}.`,
-      );
-      console.log("");
-    }
-    if ("recoveredSandbox" in lookup && lookup.recoveredSandbox) {
-      const via =
-        "recoverySandboxVia" in lookup && lookup.recoverySandboxVia
-          ? ` via ${lookup.recoverySandboxVia}`
-          : "";
-      console.log(
-        `  Recovered sandbox '${sandboxName}' from Docker${via}; OpenShell now sees it as live.`,
-      );
-      console.log("");
-    }
+  }
+  if ("recoveredSandbox" in lookup && lookup.recoveredSandbox) {
+    const via =
+      "recoverySandboxVia" in lookup && lookup.recoverySandboxVia
+        ? ` via ${lookup.recoverySandboxVia}`
+        : "";
+    console.log(
+      `  Recovered sandbox '${sandboxName}' from Docker${via}; OpenShell now sees it as live.`,
+    );
+    console.log("");
+  }
+  console.log(lookup.output);
+  printNonReadySandboxPhaseGuidance({ sandboxName, phase, dockerRuntime });
+}
+
+function printWrongGatewayActiveLookupStatus({
+  sandboxName,
+  lookup,
+}: SandboxGatewayLookupStatusContext): void {
+  const activeGateway =
+    "activeGateway" in lookup && typeof lookup.activeGateway === "string"
+      ? lookup.activeGateway
+      : undefined;
+  console.log("");
+  printWrongGatewayActiveGuidance(sandboxName, activeGateway, console.log);
+  process.exit(1);
+}
+
+function printIdentityDriftLookupStatus({
+  sandboxName,
+  lookup,
+}: SandboxGatewayLookupStatusContext): void {
+  console.log("");
+  console.log(
+    `  Sandbox '${sandboxName}' is recorded locally, but the gateway trust material rotated after restart.`,
+  );
+  if (lookup.output) {
     console.log(lookup.output);
-    printNonReadySandboxPhaseGuidance({ sandboxName, phase, dockerRuntime });
-    return;
   }
-  if (lookup.state === "wrong_gateway_active") {
-    const activeGateway =
-      "activeGateway" in lookup && typeof lookup.activeGateway === "string"
-        ? lookup.activeGateway
-        : undefined;
-    console.log("");
-    printWrongGatewayActiveGuidance(sandboxName, activeGateway, console.log);
-    process.exit(1);
-  }
-  if (lookup.state === "gateway_schema_mismatch") {
+  console.log(
+    "  Existing sandbox connections cannot be reattached safely after this gateway identity change.",
+  );
+  console.log(
+    `  Recreate this sandbox with \`${CLI_NAME} onboard\` once the gateway runtime is stable.`,
+  );
+  process.exit(1);
+}
+
+async function printGatewayUnreachableAfterRestartLookupStatus({
+  sandboxName,
+  lookup,
+  effectivePreflight,
+}: SandboxGatewayLookupStatusContext): Promise<void> {
+  console.log("");
+  await printGatewayFailureLayerHeader(sandboxName, effectivePreflight.failureLayer);
+  console.log(
+    `  Sandbox '${sandboxName}' may still exist, but the selected ${CLI_DISPLAY_NAME} gateway is still refusing connections after restart.`,
+  );
+  if (lookup.output) {
     console.log(lookup.output);
-    process.exit(1);
   }
-  if (lookup.state === "missing") {
-    printMissingLiveSandboxStatusGuidance(sandboxName, lookup);
-    process.exit(1);
+  console.log(
+    `  Retry \`openshell gateway start --name ${getSandboxTargetGatewayName(sandboxName)}\` and verify \`openshell status\` is healthy before reconnecting.`,
+  );
+  console.log(
+    "  If the gateway never becomes healthy, rebuild the gateway and then recreate the affected sandbox.",
+  );
+  process.exit(1);
+}
+
+async function printGatewayMissingAfterRestartLookupStatus({
+  sandboxName,
+  lookup,
+  effectivePreflight,
+}: SandboxGatewayLookupStatusContext): Promise<void> {
+  console.log("");
+  await printGatewayFailureLayerHeader(sandboxName, effectivePreflight.failureLayer);
+  console.log(
+    `  Sandbox '${sandboxName}' may still exist locally, but the ${CLI_DISPLAY_NAME} gateway is no longer configured after restart/rebuild.`,
+  );
+  if (lookup.output) {
+    console.log(lookup.output);
   }
-  if (lookup.state === "identity_drift") {
-    console.log("");
-    console.log(
-      `  Sandbox '${sandboxName}' is recorded locally, but the gateway trust material rotated after restart.`,
-    );
-    if (lookup.output) {
-      console.log(lookup.output);
-    }
-    console.log(
-      "  Existing sandbox connections cannot be reattached safely after this gateway identity change.",
-    );
-    console.log(
-      `  Recreate this sandbox with \`${CLI_NAME} onboard\` once the gateway runtime is stable.`,
-    );
-    process.exit(1);
-  }
-  if (lookup.state === "gateway_unreachable_after_restart") {
-    console.log("");
-    await printGatewayFailureLayerHeader(sandboxName, effectivePreflight.failureLayer);
-    console.log(
-      `  Sandbox '${sandboxName}' may still exist, but the selected ${CLI_DISPLAY_NAME} gateway is still refusing connections after restart.`,
-    );
-    if (lookup.output) {
-      console.log(lookup.output);
-    }
-    console.log(
-      `  Retry \`openshell gateway start --name ${getSandboxTargetGatewayName(sandboxName)}\` and verify \`openshell status\` is healthy before reconnecting.`,
-    );
-    console.log(
-      "  If the gateway never becomes healthy, rebuild the gateway and then recreate the affected sandbox.",
-    );
-    process.exit(1);
-  }
-  if (lookup.state === "gateway_missing_after_restart") {
-    console.log("");
-    await printGatewayFailureLayerHeader(sandboxName, effectivePreflight.failureLayer);
-    console.log(
-      `  Sandbox '${sandboxName}' may still exist locally, but the ${CLI_DISPLAY_NAME} gateway is no longer configured after restart/rebuild.`,
-    );
-    if (lookup.output) {
-      console.log(lookup.output);
-    }
-    console.log(
-      `  Start the gateway again with \`openshell gateway start --name ${getSandboxTargetGatewayName(sandboxName)}\` before retrying.`,
-    );
-    console.log(
-      "  If the gateway had to be rebuilt from scratch, recreate the affected sandbox afterward.",
-    );
-    process.exit(1);
-  }
+  console.log(
+    `  Start the gateway again with \`openshell gateway start --name ${getSandboxTargetGatewayName(sandboxName)}\` before retrying.`,
+  );
+  console.log(
+    "  If the gateway had to be rebuilt from scratch, recreate the affected sandbox afterward.",
+  );
+  process.exit(1);
+}
+
+async function printUnknownGatewayLookupStatus({
+  sandboxName,
+  lookup,
+  effectivePreflight,
+}: SandboxGatewayLookupStatusContext): Promise<void> {
   console.log("");
   console.log(`  Could not verify sandbox '${sandboxName}' against the live OpenShell gateway.`);
   if (lookup.output) {
