@@ -27,6 +27,7 @@ import {
 import { findReachableOllamaHost, probeLocalProviderHealth } from "../../inference/local";
 import { ensureOllamaAuthProxy, probeOllamaAuthProxyHealth } from "../../inference/ollama/proxy";
 import { LOCAL_INFERENCE_TIMEOUT_SECS } from "../../onboard/env";
+import { resolveSandboxGatewayName } from "../../onboard/gateway-binding";
 import { isWsl } from "../../platform";
 import { ROOT, redact } from "../../runner";
 import * as sandboxVersion from "../../sandbox/version";
@@ -52,10 +53,10 @@ import {
 import { preflightVllmModelEnvOrExit } from "./connect-vllm-preflight";
 import { isDockerRuntimeDown, printDockerRuntimeDownGuidance } from "./gateway-failure-classifier";
 import { ensureLiveSandboxOrExit, printGatewayLifecycleHint } from "./gateway-state";
-import { checkAndRecoverSandboxProcesses } from "./process-recovery";
+import { getSandboxTargetGatewayName } from "./gateway-target";
+import { printGatewayWedgeDiagnostics } from "./gateway-wedge-diagnostics";
+import { checkAndRecoverSandboxProcesses, executeSandboxExecCommand } from "./process-recovery";
 import { applyOpenShellVmDnsMonkeypatch, shouldApplyVmDnsMonkeypatch } from "./vm-dns-monkeypatch";
-
-const NEMOCLAW_GATEWAY_NAME = "nemoclaw";
 
 export type SandboxConnectOptions = {
   probeOnly?: boolean;
@@ -183,6 +184,33 @@ export function parseSandboxConnectArgs(
   return options;
 }
 
+function exitOnSecretBoundaryRefusal(
+  sandboxName: string,
+  agentName: string,
+  processCheck: Record<string, unknown>,
+  contextLabel: "Probe" | "Connect",
+): never {
+  console.error("");
+  const reason =
+    "secretBoundaryReason" in processCheck
+      ? (processCheck.secretBoundaryReason as "raw-secret" | "inconclusive" | undefined)
+      : undefined;
+  if (reason === "raw-secret") {
+    console.error(
+      `  ${contextLabel} failed: refused to confirm ${agentName} gateway in '${sandboxName}' — /sandbox/.hermes/.env contains raw secret-shaped values.`,
+    );
+    console.error(
+      "  Replace raw secret values with openshell:resolve:env:<name> placeholders and re-run.",
+    );
+  } else {
+    console.error(
+      `  ${contextLabel} failed: secret-boundary check did not complete for ${agentName} gateway in '${sandboxName}'.`,
+    );
+    console.error("  Inspect the validator output above and re-run `nemoclaw <sandbox> recover`.");
+  }
+  process.exit(1);
+}
+
 function runSandboxConnectProbe(sandboxName: string): void {
   const agent = agentRuntime.getSessionAgent(sandboxName);
   const agentName = agentRuntime.getAgentDisplayName(agent);
@@ -211,6 +239,9 @@ function runSandboxConnectProbe(sandboxName: string): void {
     );
     process.exit(1);
   }
+  if ("secretBoundaryRefused" in processCheck && processCheck.secretBoundaryRefused) {
+    exitOnSecretBoundaryRefusal(sandboxName, agentName, processCheck, "Probe");
+  }
   if (processCheck.wasRunning) {
     ensureSandboxInferenceRoute(sandboxName, { quiet: true });
     // Defense-in-depth scope-upgrade approval on the probe-only / `recover`
@@ -237,6 +268,10 @@ function runSandboxConnectProbe(sandboxName: string): void {
   console.error(
     `  Probe failed: ${agentName} gateway is not running in '${sandboxName}' and automatic recovery failed.`,
   );
+  // Surface the #4710 wedge signature: recovery ran with quiet=true, so this
+  // is the operator's only window into a gateway that served briefly and
+  // then dropped its listener.
+  printGatewayWedgeDiagnostics(sandboxName, executeSandboxExecCommand);
   console.error("  Check /tmp/gateway.log inside the sandbox for details.");
   process.exit(1);
 }
@@ -272,7 +307,9 @@ function failConnectReadinessGatewayUnavailable(sandboxName: string, detailOutpu
     printGatewayLifecycleHint(detailOutput, sandboxName, console.error);
   }
   console.error("  Recovery:");
-  console.error("    1. Run: openshell gateway start --name nemoclaw");
+  console.error(
+    `    1. Run: openshell gateway start --name ${getSandboxTargetGatewayName(sandboxName)}`,
+  );
   console.error(`    2. If the gateway cannot be restarted, run: ${CLI_NAME} onboard`);
   console.error(`    3. Retry: ${CLI_NAME} ${sandboxName} connect`);
   process.exit(1);
@@ -292,7 +329,8 @@ function failConnectReadinessDockerRuntimeDown(sandboxName: string): never {
 }
 
 function failIfGatewayBlocksConnectReadiness(sandboxName: string): void {
-  const lifecycle = getNamedGatewayLifecycleState();
+  const sb = registry.getSandbox(sandboxName);
+  const lifecycle = getNamedGatewayLifecycleState(resolveSandboxGatewayName(sb));
   if (isBlockingGatewayLifecycle(lifecycle)) {
     failConnectReadinessGatewayUnavailable(
       sandboxName,
@@ -531,7 +569,7 @@ function repairSandboxInferenceRouteIfNeeded(
       reapplyVmInferenceRoute,
       repairLegacyDnsProxy: (name, isQuiet) =>
         runSetupDnsProxy(
-          { gatewayName: NEMOCLAW_GATEWAY_NAME, sandboxName: name },
+          { gatewayName: resolveSandboxGatewayName(sb), sandboxName: name },
           { log: isQuiet ? () => undefined : console.log },
         ),
     },
@@ -872,7 +910,11 @@ export async function connectSandbox(
     /* non-fatal — don't block connect on session detection failure */
   }
 
-  checkAndRecoverSandboxProcesses(sandboxName);
+  const processCheck = checkAndRecoverSandboxProcesses(sandboxName);
+  if ("secretBoundaryRefused" in processCheck && processCheck.secretBoundaryRefused) {
+    const agentName = agentRuntime.getAgentDisplayName(agentRuntime.getSessionAgent(sandboxName));
+    exitOnSecretBoundaryRefusal(sandboxName, agentName, processCheck, "Connect");
+  }
   // Ensure Ollama auth proxy is running (recovers from host reboots)
   ensureOllamaAuthProxy();
 

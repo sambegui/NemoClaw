@@ -8,6 +8,7 @@ import {
   buildManualRecoveryCommand,
   buildRecoveryScript,
   getTerminalCommand,
+  TERMINAL_AGENT_RECOVERY_SCRIPT,
 } from "../../../dist/lib/agent/runtime";
 import type { AgentDefinition } from "./defs";
 
@@ -23,8 +24,8 @@ const terminalAgent = {
 } as AgentDefinition;
 
 describe("terminal agent runtime helpers", () => {
-  it("returns null for terminal agents without a gateway process", () => {
-    expect(buildRecoveryScript(terminalAgent, 18789)).toBeNull();
+  it("returns an explicit terminal sentinel for agents without a gateway process", () => {
+    expect(buildRecoveryScript(terminalAgent, 18789)).toBe(TERMINAL_AGENT_RECOVERY_SCRIPT);
   });
 
   it("resolves terminal launch commands without synthesizing gateway recovery", () => {

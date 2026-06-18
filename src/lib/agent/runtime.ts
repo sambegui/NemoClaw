@@ -18,6 +18,16 @@ import {
 } from "./hermes-recovery-boundary";
 import { buildGatewayGuardRecoveryLines } from "./runtime-recovery-preload";
 
+export const TERMINAL_AGENT_RECOVERY_SCRIPT = Object.freeze({ kind: "terminal" } as const);
+
+export type AgentRecoveryScript = string | typeof TERMINAL_AGENT_RECOVERY_SCRIPT | null;
+
+export function isTerminalAgentRecoveryScript(
+  script: AgentRecoveryScript,
+): script is typeof TERMINAL_AGENT_RECOVERY_SCRIPT {
+  return script === TERMINAL_AGENT_RECOVERY_SCRIPT;
+}
+
 /**
  * Resolve the agent for a sandbox. Checks the per-sandbox registry first
  * (so status/connect/recovery use the right agent even when multiple
@@ -154,6 +164,10 @@ function buildGatewayLogSelection(): string {
   return '_GATEWAY_LOG=/tmp/gateway.log; if ! : >> "$_GATEWAY_LOG" 2>/dev/null; then _GATEWAY_LOG=/tmp/gateway-recovery.log; : >> "$_GATEWAY_LOG" 2>/dev/null || true; fi;';
 }
 
+function gatewayGuardRefusalCommand(): string {
+  return '[ "$_GUARDS_MISSING" = "1" ] && { _E="[gateway-recovery] ERROR: NODE_OPTIONS missing safety-net preload or ciao preload after trusted recovery - refusing unguarded gateway relaunch (#2478/#2701)"; echo "$_E" >&2; echo "$_E" >> "$_GATEWAY_LOG"; exit 1; };';
+}
+
 function gatewayLaunchCommand(command: string, runAsUser?: string): string {
   const logSelection = buildGatewayLogSelection();
   const userLaunch = `nohup ${command} >> "$_GATEWAY_LOG" 2>&1 &`;
@@ -193,10 +207,11 @@ export function buildHermesDashboardProcessRecoveryScript(
   config: HermesDashboardRecoveryConfig,
 ): string {
   return [
-    "[ -f ~/.bashrc ] && . ~/.bashrc;",
     "export HERMES_HOME=/sandbox/.hermes;",
     buildHermesEnvFileBoundaryGuard(),
-    "if [ -r /tmp/nemoclaw-proxy-env.sh ]; then . /tmp/nemoclaw-proxy-env.sh; fi;",
+    ...buildGatewayGuardRecoveryLines(),
+    '[ "$_GUARDS_MISSING" = "1" ] && { _E="[gateway-recovery] ERROR: NODE_OPTIONS missing safety-net preload or ciao preload after trusted recovery - refusing unguarded dashboard relaunch (#2478/#2701)"; echo "$_E" >&2; exit 1; };',
+    "[ -f ~/.bashrc ] && . ~/.bashrc;",
     buildHermesRuntimeEnvBoundaryGuard(),
     'AGENT_BIN=/usr/local/bin/hermes; if [ ! -x "$AGENT_BIN" ]; then AGENT_BIN="$(command -v hermes)"; fi;',
     'if [ -z "$AGENT_BIN" ]; then echo AGENT_MISSING; exit 1; fi;',
@@ -213,7 +228,7 @@ export function buildOpenClawRecoveryScript(port: number): string {
     ...buildGatewayLogSetup(true, "gateway"),
     buildGatewayLogSelection(),
     ...buildGatewayGuardRecoveryLines(),
-    '[ "$_GUARDS_MISSING" = "1" ] && { _E="[gateway-recovery] ERROR: NODE_OPTIONS missing safety-net preload or ciao preload after trusted recovery - refusing unguarded gateway relaunch (#2478/#2701)"; echo "$_E" >&2; echo "$_E" >> "$_GATEWAY_LOG"; exit 1; };',
+    gatewayGuardRefusalCommand(),
     "[ -f ~/.bashrc ] && . ~/.bashrc;",
     `_GW_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:${port}/health 2>/dev/null || echo 000); case "$_GW_CODE" in 200|401) echo ALREADY_RUNNING; exit 0 ;; esac;`,
     "rm -rf /tmp/openclaw-*/gateway.*.lock 2>/dev/null;",
@@ -229,16 +244,27 @@ export function buildOpenClawRecoveryScript(port: number): string {
 
 /**
  * Build the recovery shell script for a non-OpenClaw agent.
- * Returns the script string, or null if agent is null (use existing inline
- * OpenClaw script instead).
+ * Returns the script string, null if agent is null (use existing inline
+ * OpenClaw script instead), or a terminal sentinel for agents without a
+ * gateway process.
  */
+export function buildRecoveryScript(
+  agent: AgentDefinition & { runtime: { kind: "terminal" } },
+  port: number,
+  options?: { hermesDashboard?: HermesDashboardRecoveryConfig | null },
+): typeof TERMINAL_AGENT_RECOVERY_SCRIPT;
+export function buildRecoveryScript(
+  agent: AgentDefinition | null,
+  port: number,
+  options?: { hermesDashboard?: HermesDashboardRecoveryConfig | null },
+): string | null;
 export function buildRecoveryScript(
   agent: AgentDefinition | null,
   port: number,
   options: { hermesDashboard?: HermesDashboardRecoveryConfig | null } = {},
-): string | null {
+): AgentRecoveryScript {
   if (!agent) return null;
-  if (isTerminalAgent(agent)) return null;
+  if (isTerminalAgent(agent)) return TERMINAL_AGENT_RECOVERY_SCRIPT;
 
   const probeUrl = getHealthProbeUrl(agent);
   const binaryPath = agent.binary_path || "/usr/local/bin/openclaw";
@@ -283,7 +309,7 @@ export function buildRecoveryScript(
     ...buildGatewayLogSetup(false),
     buildGatewayLogSelection(),
     ...buildGatewayGuardRecoveryLines(),
-    '[ "$_GUARDS_MISSING" = "1" ] && { _E="[gateway-recovery] ERROR: NODE_OPTIONS missing safety-net preload or ciao preload after trusted recovery - refusing unguarded gateway relaunch (#2478/#2701)"; echo "$_E" >&2; echo "$_E" >> "$_GATEWAY_LOG"; exit 1; };',
+    gatewayGuardRefusalCommand(),
     "[ -f ~/.bashrc ] && . ~/.bashrc;",
     `_GW_CODE=$(curl -so /dev/null -w '%{http_code}' --max-time 3 ${shellQuote(probeUrl)} 2>/dev/null || echo 000); case "$_GW_CODE" in 200|401) echo ALREADY_RUNNING; exit 0 ;; esac;`,
     `_GATEWAY_PROC_PATTERN=${shellQuote(staleGatewayPattern)};`,
@@ -327,8 +353,18 @@ export function buildManualRecoveryCommand(agent: AgentDefinition | null, port: 
   const isHermes = agent?.name === "hermes";
   const envPrefix = isHermes ? `${hermesGatewayEnvPrefix()} ` : "";
   const portFlag = isHermes ? "" : ` --port ${port}`;
-  const boundaryGuards = isHermes
-    ? `${buildHermesEnvFileBoundaryGuard()} ${buildHermesRuntimeEnvBoundaryGuard()} `
-    : "";
-  return `${buildGatewayLogSelection()} ${boundaryGuards}${envPrefix}nohup ${gatewayCmd}${portFlag} >> "$_GATEWAY_LOG" 2>&1 &`;
+  const hermesHome = isHermes ? "export HERMES_HOME=/sandbox/.hermes;" : "";
+  return [
+    hermesHome,
+    ...(isHermes ? [buildHermesEnvFileBoundaryGuard()] : []),
+    ...buildGatewayLogSetup(false),
+    buildGatewayLogSelection(),
+    ...buildGatewayGuardRecoveryLines(),
+    gatewayGuardRefusalCommand(),
+    "[ -f ~/.bashrc ] && . ~/.bashrc;",
+    ...(isHermes ? [buildHermesRuntimeEnvBoundaryGuard()] : []),
+    `${envPrefix}nohup ${gatewayCmd}${portFlag} >> "$_GATEWAY_LOG" 2>&1 &`,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
