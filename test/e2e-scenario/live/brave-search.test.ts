@@ -10,6 +10,8 @@
  * the OpenShell credential placeholder.
  */
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { buildAvailabilityProbeEnv } from "../fixtures/availability-env.ts";
@@ -88,6 +90,11 @@ function parsePlaceholder(configText: string): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
+/**
+ * Source boundary: `openclaw agent --json` may emit launcher progress before
+ * the final JSON envelope. This mirrors the legacy shell parser until OpenClaw
+ * exposes a stable JSON-only stdout contract for live E2E consumers.
+ */
 function extractOpenClawAgentText(output: string): string {
   for (const index of [...output]
     .map((char, idx) => (char === "{" ? idx : -1))
@@ -219,12 +226,33 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       timeoutMs: 60_000,
     });
     expect(config.exitCode, resultText(config)).toBe(0);
+    const secretDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-brave-secret-"));
+    const secretFile = path.join(secretDir, "brave-key");
+    fs.writeFileSync(secretFile, braveKey, { mode: 0o600 });
+    const remoteSecretFile = "/tmp/nemoclaw-brave-key-leak-check";
+    cleanup.add("remove temporary Brave leak-check secret", async () => {
+      fs.rmSync(secretDir, { recursive: true, force: true });
+      await bestEffort(() =>
+        sandbox.execShell(SANDBOX_NAME, trustedSandboxShellScript(`rm -f ${remoteSecretFile}`), {
+          artifactName: "cleanup-brave-leak-secret",
+          env: commandEnv(),
+          timeoutMs: 30_000,
+        }),
+      );
+    });
+    const uploadSecret = await sandbox.upload(SANDBOX_NAME, secretFile, remoteSecretFile, {
+      artifactName: "phase-3-upload-brave-leak-secret",
+      env: commandEnv(),
+      redactionValues,
+      timeoutMs: 30_000,
+    });
+    expect(uploadSecret.exitCode, resultText(uploadSecret)).toBe(0);
     const rawLeakCheck = await sandbox.execShell(
       SANDBOX_NAME,
       trustedSandboxShellScript(
         `python3 - <<'PY'
 from pathlib import Path
-needle = ${JSON.stringify(braveKey)}
+needle = Path('${remoteSecretFile}').read_text(encoding='utf-8')
 body = Path('/sandbox/.openclaw/openclaw.json').read_text(encoding='utf-8')
 raise SystemExit(1 if needle in body else 0)
 PY`,
@@ -232,7 +260,6 @@ PY`,
       {
         artifactName: "phase-3-openclaw-config-raw-secret-leak-check",
         env: commandEnv(),
-        redactionValues,
         timeoutMs: 30_000,
       },
     );
