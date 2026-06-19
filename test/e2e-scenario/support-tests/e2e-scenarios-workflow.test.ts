@@ -565,7 +565,7 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     },
   );
 
-  it("derives the free-standing inventory from workflow job metadata", () => {
+  it("derives the free-standing inventory from workflow job metadata", testTimeoutOptions(), () => {
     const inventory = readFreeStandingJobsInventory();
     expect(validateFreeStandingWorkflowInventory()).toEqual([]);
     expect(inventory.allowedJobs).toContain("openshell-version-pin-vitest");
