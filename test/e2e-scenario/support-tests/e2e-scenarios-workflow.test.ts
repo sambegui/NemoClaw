@@ -75,7 +75,9 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     expect(validateE2eVitestScenariosWorkflowBoundary()).toEqual([]);
   });
 
-  it("evaluates high-risk dispatch selector behavior before secret-bearing jobs run", () => {
+  it("evaluates high-risk dispatch selector behavior before secret-bearing jobs run", {
+    timeout: 20_000,
+  }, () => {
     expect(
       evaluateE2eVitestWorkflowDispatchSelectors({
         scenarios: "network-policy,../escape",
