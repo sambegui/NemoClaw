@@ -90,32 +90,66 @@ function parsePlaceholder(configText: string): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
-/**
- * Source boundary: `openclaw agent --json` may emit launcher progress before
- * the final JSON envelope. This mirrors the legacy shell parser until OpenClaw
- * exposes a stable JSON-only stdout contract for live E2E consumers.
- */
-function extractOpenClawAgentText(output: string): string {
-  for (const index of [...output]
-    .map((char, idx) => (char === "{" ? idx : -1))
-    .filter((idx) => idx >= 0)) {
-    try {
-      const parsed = JSON.parse(output.slice(index)) as {
-        payloads?: Array<{ text?: unknown }>;
-        meta?: { finalAssistantVisibleText?: unknown };
-      };
-      const payloadText = parsed.payloads
-        ?.map((payload) => payload.text)
-        .find((value): value is string => typeof value === "string" && value.trim().length > 0);
-      if (payloadText) return payloadText;
-      if (typeof parsed.meta?.finalAssistantVisibleText === "string") {
-        return parsed.meta.finalAssistantVisibleText;
+function firstJsonObject(output: string): unknown {
+  for (let start = output.indexOf("{"); start >= 0; start = output.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < output.length; index += 1) {
+      const char = output[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
       }
-    } catch {
-      // Keep scanning; OpenClaw can emit non-JSON progress before the result.
+      if (char === '"') inString = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(output.slice(start, index + 1));
+          } catch {
+            break;
+          }
+        }
+      }
     }
   }
-  return "";
+  return undefined;
+}
+
+function collectAssistantText(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap(collectAssistantText);
+  const record = value as Record<string, unknown>;
+  const texts: string[] = [];
+  for (const key of [
+    "result",
+    "payloads",
+    "messages",
+    "choices",
+    "message",
+    "delta",
+    "content",
+    "text",
+  ]) {
+    if (key in record) texts.push(...collectAssistantText(record[key]));
+  }
+  return texts;
+}
+
+/**
+ * Source boundary: `openclaw agent --json` may emit launcher progress before
+ * and after the final JSON envelope. This mirrors the retained legacy shell
+ * parser's tolerant envelope handling until OpenClaw exposes a stable
+ * JSON-only stdout contract for live E2E consumers.
+ */
+function extractOpenClawAgentText(output: string): string {
+  const parsed = firstJsonObject(output);
+  return collectAssistantText(parsed)[0] ?? "";
 }
 
 test.skipIf(!shouldRunLiveE2EScenarios())(
