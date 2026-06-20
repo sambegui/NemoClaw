@@ -564,25 +564,21 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     },
   );
 
-  it(
-    "derives the free-standing inventory from workflow job metadata",
-    testTimeoutOptions(60_000),
-    () => {
-      const inventory = readFreeStandingJobsInventory();
-      expect(validateFreeStandingWorkflowInventory()).toEqual([]);
-      expect(inventory.allowedJobs).toContain("openshell-version-pin-vitest");
-      expect(inventory.allowedJobs).toContain("gateway-guard-recovery");
-      expect(inventory.scenarioToJob.get("openshell-version-pin")).toBe(
-        "openshell-version-pin-vitest",
-      );
-      expect(inventory.scenarioToJob.get("credential-migration")).toBeUndefined();
-      expect(
-        inventory.allowedJobs.every((job) =>
-          Object.keys((readWorkflow().jobs as Record<string, unknown>) ?? {}).includes(job),
-        ),
-      ).toBe(true);
-    },
-  );
+  it("derives the free-standing inventory from workflow job metadata", { timeout: 60_000 }, () => {
+    const inventory = readFreeStandingJobsInventory();
+    expect(validateFreeStandingWorkflowInventory()).toEqual([]);
+    expect(inventory.allowedJobs).toContain("openshell-version-pin-vitest");
+    expect(inventory.allowedJobs).toContain("gateway-guard-recovery");
+    expect(inventory.scenarioToJob.get("openshell-version-pin")).toBe(
+      "openshell-version-pin-vitest",
+    );
+    expect(inventory.scenarioToJob.get("credential-migration")).toBeUndefined();
+    expect(
+      inventory.allowedJobs.every((job) =>
+        Object.keys((readWorkflow().jobs as Record<string, unknown>) ?? {}).includes(job),
+      ),
+    ).toBe(true);
+  });
 
   it("rejects malformed free-standing workflow metadata before matrix generation", {
     timeout: 60_000,
