@@ -6,27 +6,15 @@ import { loadAgent } from "../../../dist/lib/agent/defs";
 // Import from compiled dist/ so coverage is attributed correctly.
 import { handleAgentSetup } from "../../../dist/lib/agent/onboard";
 import type { AgentDefinition } from "./defs";
+import {
+  recordFailingDeepAgentsSmokeCall,
+  recordSuccessfulDeepAgentsRuntimeCall,
+} from "./onboard-terminal-fixtures";
 
 type RunCaptureOpenshell = (args: string[], opts?: { ignoreError?: boolean }) => string | null;
 
 function makeDeepAgentsCodeAgent(): AgentDefinition {
   return loadAgent("langchain-deepagents-code");
-}
-
-function recordSuccessfulDeepAgentsRuntimeCall(args: string[], calls: string[]): string {
-  calls.push(args.join(" "));
-  const call = calls[calls.length - 1] || "";
-  const command = args[args.length - 1] || "";
-  if (call.includes("NEMOCLAW_AGENT_BINARY_CHECK")) {
-    return "NEMOCLAW_AGENT_BINARY_CHECK:ok";
-  }
-  if (command.includes("dcode --version")) {
-    return "dcode 0.1.12\nNEMOCLAW_AGENT_SMOKE_EXIT:0";
-  }
-  if (command.includes("/sandbox/.deepagents/config.toml")) {
-    return "NEMOCLAW_DEEPAGENTS_CONFIG_OK\nNEMOCLAW_AGENT_SMOKE_EXIT:0";
-  }
-  return "";
 }
 
 function createAgentSetupContext(
@@ -119,13 +107,7 @@ describe("Deep Agents Code terminal onboard acceptance", () => {
   });
 
   it("fails setup with an actionable terminal smoke error", async () => {
-    const runCaptureOpenshell = vi.fn((args: string[]) => {
-      const call = args.join(" ");
-      if (call.includes("NEMOCLAW_AGENT_BINARY_CHECK")) {
-        return "NEMOCLAW_AGENT_BINARY_CHECK:ok";
-      }
-      return "dcode provider route failed\nNEMOCLAW_AGENT_SMOKE_EXIT:42";
-    });
+    const runCaptureOpenshell = vi.fn(recordFailingDeepAgentsSmokeCall);
     const context = createAgentSetupContext(runCaptureOpenshell);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number | string) => {
