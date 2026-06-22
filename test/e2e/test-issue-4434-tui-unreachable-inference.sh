@@ -25,6 +25,8 @@ PLAIN_CAPTURE_FILE="${CAPTURE_DIR}/openclaw-tui-capture.plain.log"
 TUI_TIMEOUT_SEC="${NEMOCLAW_ISSUE_4434_TUI_TIMEOUT_SEC:-180}"
 EXPECTED_OPENCLAW_VERSION="${NEMOCLAW_ISSUE_4434_OPENCLAW_VERSION:-$(sed -nE 's/^ARG OPENCLAW_VERSION=([^[:space:]]+).*/\1/p' "${SCRIPT_DIR}/../../Dockerfile.base" | head -n 1)}"
 VISIBLE_ERROR_RE="error|failed|timeout|timed out|unavailable|fetch failed|ETIMEDOUT|ECONN|upstream"
+TUI_RUN_ERROR_RE="run[[:space:]]+error:"
+TUI_ERROR_CAUSE_RE="run[[:space:]]+error:.*(${VISIBLE_ERROR_RE})"
 SPINNER_CONNECTED_RE="flibbertigibbeting|[0-9]+m[[:space:]][0-9]+s[[:space:]]*\\|[[:space:]]*connected"
 STATUS_LINE_RE="(connecting|gateway connected|connected|sending|running|flibbertigibbeting).*\\|[[:space:]]*(connected|error)"
 BLOCKED_IPS=("75.2.113.119" "99.83.136.103")
@@ -216,6 +218,12 @@ if ! grep -Eiq "$VISIBLE_ERROR_RE" "$PLAIN_CAPTURE_FILE"; then
   fi
   fail "TUI did not surface a visible inference error before the timeout window"
 fi
+if ! grep -Eiq "$TUI_RUN_ERROR_RE" "$PLAIN_CAPTURE_FILE"; then
+  fail "TUI capture did not include the run-error reporting layer"
+fi
+if ! grep -Eiq "$TUI_ERROR_CAUSE_RE" "$PLAIN_CAPTURE_FILE"; then
+  fail "TUI capture did not include a concrete unreachable-inference cause on the run-error line"
+fi
 if [ "$expect_rc" -ne 0 ]; then
   fail "expect harness exited ${expect_rc} even though an error-looking capture was found"
 fi
@@ -230,5 +238,9 @@ if ! grep -Eiq "\\|[[:space:]]*error\\b" <<<"$last_status_line"; then
   fail "TUI capture did not end with a visible error status after the failed run"
 fi
 
+# OpenClaw 2026.6.9 renders this non-auth transport outage as
+# `run error: <cause>` plus a final `... | error` status line. It does not emit
+# a one-line recovery hint for the synthetic iptables block; keep this
+# version-bump validation on the visible-error/status regression boundary.
 info "PASS: openclaw tui surfaced a visible unreachable-inference error and stopped the spinner"
 info "capture: ${PLAIN_CAPTURE_FILE}"
