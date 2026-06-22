@@ -921,15 +921,8 @@ describe("E2E reusable workflow contract", () => {
     });
     expect(workflowCall?.inputs?.nvidia_secret_as_compatible_api_key).toBeUndefined();
     expect(exportStep?.if).toBe("${{ inputs.nvidia_api_key }}");
-    expect(exportStep?.env?.NVIDIA_INFERENCE_API_KEY).toBe(RAW_HOSTED_INFERENCE_SECRET);
-    expect(exportStep?.run).toContain("withheld for workflow_dispatch target_ref runs");
-    expect(exportStep?.run).toContain("NEMOCLAW_E2E_USE_HOSTED_INFERENCE=1");
-    expect(exportStep?.run).toContain("NEMOCLAW_PROVIDER=custom");
-    expect(exportStep?.run).toContain("NEMOCLAW_ENDPOINT_URL=https://inference-api.nvidia.com/v1");
-    expect(exportStep?.run).toContain("NEMOCLAW_MODEL=nvidia/nvidia/nemotron-3-super-v3");
-    expect(exportStep?.run).toContain("NEMOCLAW_COMPAT_MODEL=nvidia/nvidia/nemotron-3-super-v3");
-    expect(exportStep?.run).toContain("NEMOCLAW_PREFERRED_API=openai-completions");
-    expect(exportStep?.run).toContain("COMPATIBLE_API_KEY=%s");
+    expect(exportStep?.uses).toBe("./workflow-actions/.github/actions/export-e2e-hosted-inference");
+    expect(exportStep?.with?.["nvidia-inference-api-key"]).toBe(RAW_HOSTED_INFERENCE_SECRET);
 
     expect(hostedJobs.length).toBeGreaterThan(20);
     for (const [name, job] of hostedJobs) {

@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Export E2E hosted inference environment
+description: Canonicalize NemoClaw hosted inference secrets and export the shared E2E env contract.
+inputs:
+  nvidia-inference-api-key:
+    description: Canonical repository-hosted NVIDIA inference credential.
+    required: false
+    default: ""
+  nvidia-api-key:
+    description: Legacy/public NVIDIA API key alias used by older E2E lanes.
+    required: false
+    default: ""
+  require-hosted-inference:
+    description: Fail when no nvapi-prefixed hosted inference credential is available.
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Export hosted inference env
+      shell: bash
+      env:
+        INPUT_NVIDIA_INFERENCE_API_KEY: ${{ inputs.nvidia-inference-api-key }}
+        INPUT_NVIDIA_API_KEY: ${{ inputs.nvidia-api-key }}
+        INPUT_REQUIRE_HOSTED_INFERENCE: ${{ inputs.require-hosted-inference }}
+      run: |
+        set -euo pipefail
+
+        canonical="${INPUT_NVIDIA_INFERENCE_API_KEY:-}"
+        public_alias="${INPUT_NVIDIA_API_KEY:-}"
+
+        # Keep the bash test/e2e contract canonical: NVIDIA_INFERENCE_API_KEY is
+        # the hosted CI source secret and COMPATIBLE_API_KEY is the custom
+        # endpoint credential. Preserve NVIDIA_API_KEY as a compatibility alias
+        # for Vitest migrations that still assert the older env name.
+        if [[ -z "${canonical}" && "${public_alias}" == nvapi-* ]]; then
+          canonical="${public_alias}"
+        fi
+        if [[ -z "${public_alias}" && "${canonical}" == nvapi-* ]]; then
+          public_alias="${canonical}"
+        fi
+
+        if [[ "${INPUT_REQUIRE_HOSTED_INFERENCE}" == "true" ]]; then
+          if [[ -z "${canonical}" ]]; then
+            echo "::error::NVIDIA_INFERENCE_API_KEY secret is required for hosted CI inference." >&2
+            exit 1
+          fi
+          if [[ "${canonical}" != nvapi-* ]]; then
+            echo "::error::NVIDIA_INFERENCE_API_KEY must be nvapi-prefixed for hosted CI inference." >&2
+            exit 1
+          fi
+        fi
+
+        {
+          printf 'NEMOCLAW_E2E_USE_HOSTED_INFERENCE=1\n'
+          printf 'NEMOCLAW_PROVIDER=custom\n'
+          printf 'NEMOCLAW_ENDPOINT_URL=https://inference-api.nvidia.com/v1\n'
+          printf 'NEMOCLAW_MODEL=nvidia/nvidia/nemotron-3-super-v3\n'
+          printf 'NEMOCLAW_COMPAT_MODEL=nvidia/nvidia/nemotron-3-super-v3\n'
+          printf 'NEMOCLAW_PREFERRED_API=openai-completions\n'
+          if [[ -n "${canonical}" ]]; then
+            printf 'NVIDIA_INFERENCE_API_KEY=%s\n' "${canonical}"
+            printf 'COMPATIBLE_API_KEY=%s\n' "${canonical}"
+          fi
+          if [[ -n "${public_alias}" ]]; then
+            printf 'NVIDIA_API_KEY=%s\n' "${public_alias}"
+          fi
+        } >> "${GITHUB_ENV}"

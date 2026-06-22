@@ -25,6 +25,22 @@ on:
 permissions:
   contents: read
 
+env:
+  # Single hosted-inference wiring contract for the Vitest suite, matching the
+  # shared test/e2e script runner semantics: NVIDIA_INFERENCE_API_KEY is
+  # canonical, COMPATIBLE_API_KEY targets the hosted custom endpoint, and
+  # NVIDIA_API_KEY remains an alias for Vitest migrations that still assert the
+  # historical env name.
+  NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+  NEMOCLAW_PROVIDER: custom
+  NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+  NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+  NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+  NEMOCLAW_PREFERRED_API: openai-completions
+  NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || secrets.NVIDIA_API_KEY }}
+  NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || secrets.NVIDIA_INFERENCE_API_KEY }}
+  COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || secrets.NVIDIA_API_KEY }}
+
 concurrency:
   group: e2e-vitest-scenarios-${{ github.ref }}-${{ inputs.scenarios || 'supported' }}-${{ inputs.jobs || 'all-jobs' }}
   cancel-in-progress: false
@@ -247,7 +263,6 @@ jobs:
 
       - name: Run Vitest live E2E scenarios
         env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
           SCENARIO_ID: ${{ matrix.id }}
         run: |
           set -euo pipefail
@@ -472,8 +487,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run skill-agent live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -571,8 +584,6 @@ jobs:
         run: npm run build:cli
 
       - name: Run OpenClaw skill CLI live test
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -724,8 +735,6 @@ jobs:
         # preserves the legacy install.sh/onboard path, posts a live PONG
         # request through sandbox inference.local, and reuses the skill
         # filesystem validators from the retained bash helpers.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -830,8 +839,6 @@ jobs:
       - name: Install OpenShell CLI
         run: bash scripts/install-openshell.sh
       - name: Run agent turn latency live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -936,8 +943,6 @@ jobs:
       - name: Install OpenShell CLI
         run: bash scripts/install-openshell.sh
       - name: Run Hermes inference switch live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -991,7 +996,6 @@ jobs:
       - name: Run Brave search live Vitest test
         env:
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1095,8 +1099,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run cron preflight inference.local live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1191,8 +1193,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run issue #4434 TUI unreachable inference live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1283,8 +1283,6 @@ jobs:
         # same ubuntu-latest + Docker/OpenShell + NVIDIA_INFERENCE_API_KEY lane by running
         # install.sh, onboarding a real sandbox, and probing sandbox state from
         # Vitest while fixture redaction owns evidence logs.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1368,7 +1366,6 @@ jobs:
         # repo-scoped secret is inference-api.nvidia.com, not Build/NVIDIA
         # Endpoints, so the test must exercise the compatible-provider route.
         env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
           NEMOCLAW_PROVIDER: custom
           NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
           NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
@@ -1457,8 +1454,6 @@ jobs:
         # host-side CLI live test because the contract is argv translation,
         # OpenClaw gateway dispatch, pending pairing/scope approval, and JSON
         # envelope handling for sessions/agents commands.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1555,8 +1550,6 @@ jobs:
         run: npm run build:cli
 
       - name: Run Hermes live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1619,8 +1612,6 @@ jobs:
         # Migrated from test/e2e/test-network-policy.sh. Free-standing anchor
         # for live network policy allow/deny probes; shell retirement remains
         # deferred to #5098 Phase 11.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1682,8 +1673,6 @@ jobs:
         # Migrated from test/e2e/test-common-egress-agent-e2e.sh. Preserves
         # OpenClaw balanced/open and Hermes open common-egress agent-turn
         # coverage against real sandbox policy and live hosted inference.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1771,8 +1760,6 @@ jobs:
         # Migrated from test/e2e/test-shields-config.sh. The Vitest test runs
         # bash install.sh to preserve installer/onboard fidelity, then probes
         # real shields/config behavior against the live sandbox.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1855,8 +1842,6 @@ jobs:
           env -u DOCKER_CONFIG -u DOCKERHUB_USERNAME -u DOCKERHUB_TOKEN -u NVIDIA_INFERENCE_API_KEY -u GITHUB_TOKEN bash scripts/install-openshell.sh
 
       - name: Run OpenClaw rebuild live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1949,8 +1934,6 @@ jobs:
         # Migrated from test/e2e/test-rebuild-hermes.sh. Preserves the real
         # install.sh, Docker/OpenShell, Hermes base-image rebuild, registry,
         # messaging-placeholder, and backup hygiene boundaries.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -2032,8 +2015,6 @@ jobs:
         # Migrated from test/e2e/test-rebuild-hermes.sh with
         # NEMOCLAW_HERMES_STALE_BASE_REBUILD_E2E=1, preserving issue #3025's
         # stale cached base-image regression boundary.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -2115,8 +2096,6 @@ jobs:
           env -u DOCKER_CONFIG -u DOCKERHUB_USERNAME -u DOCKERHUB_TOKEN -u NVIDIA_INFERENCE_API_KEY -u GITHUB_TOKEN bash scripts/install-openshell.sh
 
       - name: Run sandbox rebuild live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2211,8 +2190,6 @@ jobs:
           env -u DOCKER_CONFIG -u DOCKERHUB_USERNAME -u DOCKERHUB_TOKEN -u NVIDIA_API_KEY -u GITHUB_TOKEN bash scripts/install-openshell.sh
 
       - name: Run state backup restore live test
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2311,8 +2288,6 @@ jobs:
             bash scripts/install-openshell.sh
 
       - name: Run upgrade stale sandbox live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2565,9 +2540,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run onboard-resume live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
-          COMPATIBLE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2630,8 +2602,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run full-e2e live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2696,8 +2666,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run cloud-onboard live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2886,8 +2854,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run issue-4462-scope-upgrade-approval live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -3117,7 +3083,6 @@ jobs:
         # the legacy fake-token defaults, optional _REAL secret overrides,
         # provider placeholder redaction checks, and WhatsApp QR-only parity.
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           TELEGRAM_BOT_TOKEN_REAL: ${{ secrets.TELEGRAM_BOT_TOKEN_REAL }}
           DISCORD_BOT_TOKEN_REAL: ${{ secrets.DISCORD_BOT_TOKEN_REAL }}
           SLACK_BOT_TOKEN_REAL: ${{ secrets.SLACK_BOT_TOKEN_REAL }}
@@ -3198,8 +3163,6 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Run launchable smoke live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3285,8 +3248,6 @@ jobs:
         # the real provider-routed onboard, host model-router health, and
         # sandbox inference.local completion boundaries without adding registry
         # or migration-ledger wiring.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3373,8 +3334,6 @@ jobs:
         # Migrated from test/e2e/test-snapshot-commands.sh. Preserves the
         # original ubuntu-latest + Docker/OpenShell + NVIDIA_API_KEY runner
         # contract by driving install.sh and the real snapshot CLI lifecycle.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3463,8 +3422,6 @@ jobs:
         # runs install.sh from Vitest to preserve installer/OpenShell/onboard
         # fidelity before exercising gateway restart, state survival, and live
         # inference.local before and after restart.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3525,8 +3482,6 @@ jobs:
         # ubuntu-latest + Docker/OpenShell + NVIDIA_API_KEY lane by running
         # debug archives, install.sh/onboard, sandbox exec/status, and
         # gateway-backed credentials list/reset from Vitest.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live             test/e2e-scenario/live/diagnostics.test.ts             --silent=false --reporter=default
@@ -3647,8 +3602,6 @@ jobs:
         run: npm run build:cli
 
       - name: Run OpenClaw TUI chat correlation live test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3722,8 +3675,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run Vitest gateway-guard-recovery scenario
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           # OpenShell installs to /usr/local/bin on GitHub-hosted runners
@@ -3824,8 +3775,6 @@ jobs:
         # the real install.sh/OpenShell/Docker/live-provider boundary while
         # Vitest owns the route, config, registry, inference.local, and agent
         # assertions.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -4073,8 +4022,6 @@ jobs:
         run: bash scripts/install-openshell.sh
 
       - name: Run device auth health live Vitest test
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -4182,7 +4129,6 @@ jobs:
         # channels add, rebuild, gateway credential reuse, policy-list, and
         # channels remove cleanup.
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           TELEGRAM_BOT_TOKEN: "test-fake-telegram-token-add-remove-e2e"
           TELEGRAM_ALLOWED_IDS: "123456789"
           TELEGRAM_REQUIRE_MENTION: "0"
@@ -4295,8 +4241,6 @@ jobs:
         # Migrated from test/e2e/test-telegram-injection.sh. Preserves the
         # real OpenShell sandbox boundary for shell metacharacter payloads,
         # process-table leak checks, and validateName rejection probes.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -4398,7 +4342,6 @@ jobs:
         # OpenClaw/Hermes messaging channel stop/start, rebuild, provider
         # reuse, registry, policy-list, and in-sandbox config contracts.
         env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
           TELEGRAM_BOT_TOKEN: test-fake-telegram-token-stop-start-${{ matrix.agent }}
           DISCORD_BOT_TOKEN: test-fake-discord-token-stop-start-${{ matrix.agent }}
           SLACK_BOT_TOKEN: xoxb-fake-slack-token-stop-start-${{ matrix.agent }}
@@ -4632,8 +4575,6 @@ jobs:
         # real Docker/OpenShell onboard, host cloudflared quick-tunnel,
         # local-dashboard readiness, public tunnel probe, and stop/status
         # cleanup boundaries under Vitest.
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \

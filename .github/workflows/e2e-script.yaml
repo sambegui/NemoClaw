@@ -143,6 +143,7 @@ jobs:
         with:
           ref: ${{ github.ref }}
           sparse-checkout: |
+            .github/actions/export-e2e-hosted-inference
             .github/actions/run-e2e-script
           path: workflow-actions
           persist-credentials: false
@@ -214,26 +215,9 @@ jobs:
 
       - name: Export hosted CI inference environment
         if: ${{ inputs.nvidia_api_key }}
-        env:
-          NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -z "${NVIDIA_INFERENCE_API_KEY:-}" ]; then
-            echo "::error::NVIDIA_INFERENCE_API_KEY secret is required for hosted CI inference; it is withheld for workflow_dispatch target_ref runs." >&2
-            exit 1
-          fi
-
-          {
-            printf 'NEMOCLAW_E2E_USE_HOSTED_INFERENCE=1\n'
-            printf 'NEMOCLAW_PROVIDER=custom\n'
-            printf 'NEMOCLAW_ENDPOINT_URL=https://inference-api.nvidia.com/v1\n'
-            printf 'NEMOCLAW_MODEL=nvidia/nvidia/nemotron-3-super-v3\n'
-            printf 'NEMOCLAW_COMPAT_MODEL=nvidia/nvidia/nemotron-3-super-v3\n'
-            printf 'NEMOCLAW_PREFERRED_API=openai-completions\n'
-            printf 'COMPATIBLE_API_KEY=%s\n' "${NVIDIA_INFERENCE_API_KEY}"
-          } >> "$GITHUB_ENV"
+        uses: ./workflow-actions/.github/actions/export-e2e-hosted-inference
+        with:
+          nvidia-inference-api-key: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
 
       - name: Run E2E script
         uses: ./workflow-actions/.github/actions/run-e2e-script
