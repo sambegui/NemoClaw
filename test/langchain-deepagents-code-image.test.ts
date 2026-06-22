@@ -166,8 +166,8 @@ describe("LangChain Deep Agents Code image contracts", () => {
     );
   });
 
-  it("ships a live policy behavior check for Deep Agents Code Landlock paths", () => {
-    const checkScript = fs.readFileSync(
+  it("ships live policy behavior checks for Deep Agents Code", () => {
+    const landlockCheck = fs.readFileSync(
       path.join(
         process.cwd(),
         "test",
@@ -178,14 +178,31 @@ describe("LangChain Deep Agents Code image contracts", () => {
       ),
       "utf8",
     );
+    const pythonEgressCheck = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "test",
+        "e2e",
+        "e2e-cloud-experimental",
+        "checks",
+        "06-deepagents-code-python-egress.sh",
+      ),
+      "utf8",
+    );
 
-    expect(checkScript).toContain("test -d /sandbox/.deepagents && command -v dcode");
-    expect(checkScript).toContain("touch /sandbox/.deepagents/deepagents-landlock-test");
-    expect(checkScript).toContain("touch /usr/deepagents-landlock-test");
-    expect(checkScript).toContain("touch /etc/deepagents-landlock-test");
-    expect(checkScript).toContain("touch /tmp/deepagents-landlock-test");
-    expect(checkScript).toContain("/usr is Landlock read-only for Deep Agents Code");
-    expect(checkScript).toContain("/etc is Landlock read-only for Deep Agents Code");
+    expect(landlockCheck).toContain("test -d /sandbox/.deepagents && command -v dcode");
+    expect(landlockCheck).toContain("touch /sandbox/.deepagents/deepagents-landlock-test");
+    expect(landlockCheck).toContain("touch /usr/deepagents-landlock-test");
+    expect(landlockCheck).toContain("touch /etc/deepagents-landlock-test");
+    expect(landlockCheck).toContain("touch /tmp/deepagents-landlock-test");
+    expect(landlockCheck).toContain("/usr is Landlock read-only for Deep Agents Code");
+    expect(landlockCheck).toContain("/etc is Landlock read-only for Deep Agents Code");
+    expect(pythonEgressCheck).toContain("python3 - <<'PY'");
+    expect(pythonEgressCheck).toContain("https://api.tavily.com/");
+    expect(pythonEgressCheck).toContain("https://api.smith.langchain.com/");
+    expect(pythonEgressCheck).toContain("https://modelcontextprotocol.io/");
+    expect(pythonEgressCheck).toContain("https://example.com/");
+    expect(pythonEgressCheck).toContain("arbitrary Python cannot reach unapproved hosts");
   });
 
   it("hash-locks Deep Agents Code base image PyPI installs", () => {
@@ -204,6 +221,17 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(requirementsLock).toContain("deepagents-code==0.1.12 \\");
     expect(requirementsLock).toContain("langchain-nvidia-ai-endpoints==");
     expect(requirementsLock).toMatch(/--hash=sha256:[a-f0-9]{64}/);
+  });
+
+  it("records dependency advisory review for the lockfile", () => {
+    const review = readAgentFile("dependency-review.md");
+
+    expect(review).toContain("requirements.lock");
+    expect(review).toContain("a0b986369ff564ed9105c4e95915541ccc161d6f1e8032cc496127ea3e7d2e45");
+    expect(review).toContain(
+      "pip-audit -r agents/langchain-deepagents-code/requirements.lock --progress-spinner off",
+    );
+    expect(review).toContain("No known vulnerabilities found");
   });
 
   it("patches direct module execution back to NemoClaw managed posture", () => {
