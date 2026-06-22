@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import fs from "node:fs";
-import path from "node:path";
-
 import type { ArtifactSink } from "../fixtures/artifacts.ts";
 import type { CleanupRegistry } from "../fixtures/cleanup.ts";
 import type { HostCliClient } from "../fixtures/clients/host.ts";
@@ -16,17 +13,16 @@ import {
   cleanupSandbox,
   expectExitZero,
   phase6Env,
-  REPO_ROOT,
   resultText,
   sandboxEncodedSh,
   sandboxNode,
+  shellQuote,
   sandboxSh,
 } from "./phase6-messaging-helpers.ts";
 
-export type PairingChannel = "slack" | "discord";
+export type PairingChannel = "discord";
 
 export const PAIRING_USER = {
-  slack: process.env.NEMOCLAW_SLACK_PAIRING_USER ?? "U3730E2E",
   discord: process.env.NEMOCLAW_DISCORD_PAIRING_USER ?? "1005536447329222676",
 };
 
@@ -36,35 +32,20 @@ export function pairingEnv(options: {
   sandboxName: string;
   apiKey: string;
   channel: PairingChannel;
-  slackBot?: string;
-  slackApp?: string;
   discordToken?: string;
 }): NodeJS.ProcessEnv {
-  const extra: NodeJS.ProcessEnv =
-    options.channel === "slack"
-      ? {
-          SLACK_BOT_TOKEN: options.slackBot ?? "xoxb-fake-slack-pairing-e2e",
-          SLACK_APP_TOKEN: options.slackApp ?? "xapp-fake-slack-pairing-e2e",
-          NEMOCLAW_SKIP_SLACK_AUTH_VALIDATION: "1",
-        }
-      : {
-          DISCORD_BOT_TOKEN: options.discordToken ?? "test-fake-discord-pairing-e2e",
-        };
   return phase6Env({
     sandboxName: options.sandboxName,
     agent: "openclaw",
     apiKey: options.apiKey,
-    extra,
+    extra: {
+      DISCORD_BOT_TOKEN: options.discordToken ?? "test-fake-discord-pairing-e2e",
+    },
   });
 }
 
-export function pairingRedactions(options: {
-  apiKey: string;
-  slackBot?: string;
-  slackApp?: string;
-  discordToken?: string;
-}): string[] {
-  return [options.apiKey, options.slackBot, options.slackApp, options.discordToken].filter(
+export function pairingRedactions(options: { apiKey: string; discordToken?: string }): string[] {
+  return [options.apiKey, options.discordToken].filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
 }
@@ -87,80 +68,6 @@ export async function cleanupPairingSandbox(
   );
 }
 
-function policyTextHasHost(text: string, host: string): boolean {
-  const accepted = new Set([
-    `host: ${host}`,
-    `host: "${host}"`,
-    `host: '${host}'`,
-    `- host: ${host}`,
-    `- host: "${host}"`,
-    `- host: '${host}'`,
-  ]);
-  return text.split(/\r?\n/).some((line) => accepted.has(line.trim()));
-}
-
-export async function premergeSlackPolicyIfNeeded(cleanup: CleanupRegistry): Promise<void> {
-  const basePolicy = path.join(
-    REPO_ROOT,
-    "nemoclaw-blueprint",
-    "policies",
-    "openclaw-sandbox.yaml",
-  );
-  const original = fs.readFileSync(basePolicy, "utf8");
-  if (policyTextHasHost(original, "api.slack.com")) return;
-  fs.appendFileSync(
-    basePolicy,
-    `
-
-  # Slack - pre-merged for OpenClaw Slack pairing Vitest E2E (#3730)
-  slack:
-    name: slack
-    endpoints:
-      - host: slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: api.slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: hooks.slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: wss-primary.slack.com
-        port: 443
-        protocol: websocket
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: WEBSOCKET_TEXT, path: "/**" }
-      - host: wss-backup.slack.com
-        port: 443
-        protocol: websocket
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: WEBSOCKET_TEXT, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/node }
-      - { path: /usr/bin/node }
-`,
-  );
-  cleanup.add("restore Slack pairing base policy pre-merge", async () => {
-    fs.writeFileSync(basePolicy, original);
-  });
-}
-
 export async function startFakeDiscordGateway(
   host: HostCliClient,
   cleanup: CleanupRegistry,
@@ -176,31 +83,6 @@ export async function startFakeDiscordGateway(
     portFileEnv: "FAKE_DISCORD_GATEWAY_PORT_FILE",
     captureFileEnv: "FAKE_DISCORD_GATEWAY_CAPTURE_FILE",
     expectedEnv: { FAKE_DISCORD_GATEWAY_EXPECTED_TOKEN: token },
-    env,
-    redactionValues: redactions,
-  });
-}
-
-export async function startFakeSlackApi(
-  host: HostCliClient,
-  cleanup: CleanupRegistry,
-  env: NodeJS.ProcessEnv,
-  botToken: string,
-  appToken: string,
-  redactions: string[],
-): Promise<FakeDockerApi> {
-  return startFakeDockerApi(host, cleanup.add.bind(cleanup), {
-    kind: "slack",
-    imageScript: "fake-slack-api.cjs",
-    containerPrefix: "nemoclaw-fake-slack-pairing",
-    portEnv: "FAKE_SLACK_API_PORT",
-    portFileEnv: "FAKE_SLACK_API_PORT_FILE",
-    captureFileEnv: "FAKE_SLACK_API_CAPTURE_FILE",
-    expectedEnv: {
-      FAKE_SLACK_API_EXPECTED_BOT_TOKEN: botToken,
-      FAKE_SLACK_API_EXPECTED_APP_TOKEN: appToken,
-      FAKE_SLACK_API_SOCKET_USER_ID: PAIRING_USER.slack,
-    },
     env,
     redactionValues: redactions,
   });
@@ -342,175 +224,27 @@ console.log("DISCORD_PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, 
 NODE
 `.replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE);
 
-export const SLACK_PAIRING_SCRIPT = String.raw`
-set -eu
-set -a
-[ -f /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh
-set +a
-fake_slack_api_port="$1"
-slack_pairing_user="$2"
-: "\${OPENCLAW_HOME:?OPENCLAW_HOME missing}"
-: "\${OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
-: "\${OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
-: "\${OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
-exec env HOME=/sandbox OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="\${HTTP_PROXY:-}" HTTPS_PROXY="\${HTTPS_PROXY:-}" http_proxy="\${http_proxy:-}" https_proxy="\${https_proxy:-}" NO_PROXY="\${NO_PROXY:-}" no_proxy="\${no_proxy:-}" NODE_OPTIONS="\${NODE_OPTIONS:-}" FAKE_SLACK_API_HOST="host.openshell.internal" FAKE_SLACK_API_PORT="$fake_slack_api_port" SLACK_PAIRING_USER="$slack_pairing_user" node --input-type=module <<'NODE'
-__LOAD_CONVERSATION_RUNTIME_SOURCE__
-import crypto from "node:crypto";
-import http from "node:http";
-import net from "node:net";
+export type PairingResult = {
+  code: string;
+  senderId: string;
+  channelId: string;
+  replyText: string;
+};
 
-function parseProxyTarget() {
-  const raw = process.env.HTTP_PROXY || process.env.http_proxy || "";
-  if (!raw) return null;
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === "http:" ? { host: parsed.hostname, port: Number(parsed.port || "80") } : null;
-  } catch {
-    return null;
-  }
-}
-function encodeClientText(payload) {
-  const body = Buffer.from(payload, "utf8");
-  const mask = crypto.randomBytes(4);
-  const masked = Buffer.alloc(body.length);
-  for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4];
-  if (body.length < 126) return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
-  const header = Buffer.alloc(4);
-  header[0] = 0x81;
-  header[1] = 0x80 | 126;
-  header.writeUInt16BE(body.length, 2);
-  return Buffer.concat([header, mask, masked]);
-}
-function decodeServerFrame(buffer) {
-  if (buffer.length < 2) return null;
-  const opcode = buffer[0] & 0x0f;
-  let payloadLength = buffer[1] & 0x7f;
-  let offset = 2;
-  if (payloadLength === 126) {
-    if (buffer.length < 4) return null;
-    payloadLength = buffer.readUInt16BE(2);
-    offset = 4;
-  } else if (payloadLength === 127) {
-    if (buffer.length < 10) return null;
-    payloadLength = Number(buffer.readBigUInt64BE(2));
-    offset = 10;
-  }
-  if (buffer.length < offset + payloadLength) return null;
-  return { opcode, payload: buffer.slice(offset, offset + payloadLength), totalLength: offset + payloadLength };
-}
-function receiveSlackSocketEvent() {
-  const host = "host.openshell.internal";
-  const port = Number(process.env.FAKE_SLACK_API_PORT);
-  const proxy = parseProxyTarget();
-  return new Promise((resolve, reject) => {
-    const socket = proxy ? net.createConnection({ host: proxy.host, port: proxy.port }) : net.createConnection({ host, port });
-    const timer = setTimeout(() => { socket.destroy(); reject(new Error("timed out waiting for fake Slack Socket Mode event")); }, 30000);
-    let handshake = Buffer.alloc(0);
-    let framed = Buffer.alloc(0);
-    let upgraded = false;
-    socket.on("connect", () => {
-      const key = crypto.randomBytes(16).toString("base64");
-      const requestTarget = proxy ? "http://" + host + ":" + port + "/socket-mode" : "/socket-mode";
-      socket.write([
-        "GET " + requestTarget + " HTTP/1.1",
-        "Host: " + host + ":" + port,
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        "Sec-WebSocket-Key: " + key,
-        "Sec-WebSocket-Version: 13",
-        "\r\n",
-      ].join("\r\n"));
-    });
-    socket.on("data", (chunk) => {
-      if (!upgraded) {
-        handshake = Buffer.concat([handshake, chunk]);
-        const end = handshake.indexOf("\r\n\r\n");
-        if (end === -1) return;
-        const statusLine = handshake.slice(0, end).toString("latin1").split("\r\n")[0] || "";
-        if (!statusLine.includes("101")) {
-          clearTimeout(timer);
-          socket.destroy();
-          reject(new Error("fake Slack websocket upgrade failed: " + statusLine));
-          return;
-        }
-        upgraded = true;
-        framed = Buffer.concat([framed, handshake.slice(end + 4)]);
-        socket.write(encodeClientText(JSON.stringify({ type: "socket_mode_client_hello", token: "xapp-OPENSHELL-RESOLVE-ENV-SLACK_APP_TOKEN" })));
-      } else {
-        framed = Buffer.concat([framed, chunk]);
-      }
-      while (framed.length > 0) {
-        const frame = decodeServerFrame(framed);
-        if (!frame) break;
-        framed = framed.slice(frame.totalLength);
-        if (frame.opcode !== 1) continue;
-        const envelope = JSON.parse(frame.payload.toString("utf8"));
-        socket.write(encodeClientText(JSON.stringify({ envelope_id: envelope.envelope_id })));
-        clearTimeout(timer);
-        socket.end();
-        socket.destroy();
-        resolve(envelope);
-        return;
-      }
-    });
-    socket.on("error", (error) => { clearTimeout(timer); reject(error); });
-  });
-}
-function postPairingReply(text, channel) {
-  const host = "host.openshell.internal";
-  const port = Number(process.env.FAKE_SLACK_API_PORT);
-  const token = "xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN";
-  const data = new URLSearchParams({ token, channel, text }).toString();
-  return new Promise((resolve, reject) => {
-    const req = http.request({
-      hostname: host,
-      port,
-      path: "/api/chat.postMessage",
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(data),
-      },
-      timeout: 30000,
-    }, (res) => {
-      let body = "";
-      res.on("data", (chunk) => { body += chunk; });
-      res.on("end", () => {
-        if (res.statusCode !== 200) reject(new Error("chat.postMessage failed: " + res.statusCode + " " + body.slice(0, 200)));
-        else resolve(body);
-      });
-    });
-    req.on("error", reject);
-    req.on("timeout", () => req.destroy(new Error("chat.postMessage timed out")));
-    req.write(data);
-    req.end();
-  });
-}
-const { issuePairingChallenge, upsertChannelPairingRequest } = await loadConversationRuntime();
-const envelope = await receiveSlackSocketEvent();
-const event = envelope?.payload?.event;
-if (!event || event.type !== "message" || !event.user || !event.channel) throw new Error("unexpected fake Slack envelope: " + JSON.stringify(envelope).slice(0, 400));
-if (event.user !== process.env.SLACK_PAIRING_USER) throw new Error("unexpected fake Slack user: " + event.user);
-const result = await issuePairingChallenge({
-  channel: "slack",
-  senderId: event.user,
-  senderIdLine: "Slack user ID: " + event.user,
-  meta: { accountId: "default", channelId: event.channel, teamId: envelope.payload?.team_id || "" },
-  upsertPairingRequest: async ({ id, meta }) => upsertChannelPairingRequest({ channel: "slack", id, accountId: "default", meta }),
-  sendPairingReply: async (text) => { await postPairingReply(text, event.channel); },
-});
-if (!result.created || !result.code) throw new Error("pairing challenge was not created: " + JSON.stringify(result));
-console.log("PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, senderId: event.user, channelId: event.channel }));
-NODE
-`.replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE);
-
-export function extractPairingCode(output: string, marker: string): string {
+export function extractPairingResult(output: string, marker: string): PairingResult {
   const line = output.split(/\r?\n/).find((candidate) => candidate.startsWith(`${marker} `));
   if (!line) throw new Error(`missing ${marker} line: ${output.slice(0, 500)}`);
-  const data = JSON.parse(line.slice(marker.length + 1)) as { code?: string };
+  const data = JSON.parse(line.slice(marker.length + 1)) as Partial<PairingResult>;
   if (!data.code) throw new Error(`missing pairing code in ${line}`);
-  return data.code;
+  if (!data.senderId) throw new Error(`missing pairing sender in ${line}`);
+  if (!data.channelId) throw new Error(`missing pairing channel in ${line}`);
+  if (!data.replyText) throw new Error(`missing pairing reply text in ${line}`);
+  return {
+    code: data.code,
+    senderId: data.senderId,
+    channelId: data.channelId,
+    replyText: data.replyText,
+  };
 }
 
 export async function issuePairingRequest(options: {
@@ -518,21 +252,34 @@ export async function issuePairingRequest(options: {
   sandboxName: string;
   channel: PairingChannel;
   redactions: string[];
-  fakeSlackPort?: string;
 }): Promise<ShellProbeResult> {
   return sandboxEncodedSh(
     options.sandbox,
     options.sandboxName,
-    options.channel === "slack" ? SLACK_PAIRING_SCRIPT : DISCORD_PAIRING_SCRIPT,
-    options.channel === "slack"
-      ? [options.fakeSlackPort ?? "", PAIRING_USER.slack]
-      : [PAIRING_USER.discord, DISCORD_DM_CHANNEL],
+    DISCORD_PAIRING_SCRIPT,
+    [PAIRING_USER.discord, DISCORD_DM_CHANNEL],
     {
       artifactName: `${options.channel}-issue-pairing-request`,
       redactionValues: options.redactions,
       timeoutMs: 120_000,
     },
   );
+}
+
+export function buildPairingPendingCommand(
+  channel: PairingChannel,
+  code: string,
+  user: string,
+): string {
+  return `test -f /sandbox/.openclaw/credentials/${channel}-pairing.json && grep -F ${shellQuote(code)} /sandbox/.openclaw/credentials/${channel}-pairing.json && grep -F ${shellQuote(user)} /sandbox/.openclaw/credentials/${channel}-pairing.json`;
+}
+
+export function buildPairingApproveCommand(channel: PairingChannel, code: string): string {
+  return `openclaw pairing approve ${channel} ${shellQuote(code)} 2>&1`;
+}
+
+export function buildPairingAllowFromCommand(channel: PairingChannel, user: string): string {
+  return `test -f /sandbox/.openclaw/credentials/${channel}-default-allowFrom.json && grep -F ${shellQuote(user)} /sandbox/.openclaw/credentials/${channel}-default-allowFrom.json`;
 }
 
 export async function approveAndAssertPairing(options: {
@@ -546,7 +293,7 @@ export async function approveAndAssertPairing(options: {
   const pending = await sandboxSh(
     options.sandbox,
     options.sandboxName,
-    `test -f /sandbox/.openclaw/credentials/${options.channel}-pairing.json && grep -F ${JSON.stringify(options.code)} /sandbox/.openclaw/credentials/${options.channel}-pairing.json && grep -F ${JSON.stringify(user)} /sandbox/.openclaw/credentials/${options.channel}-pairing.json`,
+    buildPairingPendingCommand(options.channel, options.code, user),
     { artifactName: `${options.channel}-pending-file`, redactionValues: options.redactions },
   );
   expectExitZero(pending, `${options.channel} pending file`);
@@ -568,7 +315,7 @@ export async function approveAndAssertPairing(options: {
   const approve = await sandboxSh(
     options.sandbox,
     options.sandboxName,
-    `openclaw pairing approve ${options.channel} ${JSON.stringify(options.code)} 2>&1`,
+    buildPairingApproveCommand(options.channel, options.code),
     { artifactName: `${options.channel}-pairing-approve`, redactionValues: options.redactions },
   );
   expectExitZero(approve, `${options.channel} pairing approve`);
@@ -593,7 +340,7 @@ export async function approveAndAssertPairing(options: {
   const allow = await sandboxSh(
     options.sandbox,
     options.sandboxName,
-    `test -f /sandbox/.openclaw/credentials/${options.channel}-default-allowFrom.json && grep -F ${JSON.stringify(user)} /sandbox/.openclaw/credentials/${options.channel}-default-allowFrom.json`,
+    buildPairingAllowFromCommand(options.channel, user),
     { artifactName: `${options.channel}-allow-from`, redactionValues: options.redactions },
   );
   expectExitZero(allow, `${options.channel} allowFrom file`);
@@ -601,7 +348,7 @@ export async function approveAndAssertPairing(options: {
   const repeat = await sandboxSh(
     options.sandbox,
     options.sandboxName,
-    `openclaw pairing approve ${options.channel} ${JSON.stringify(options.code)} 2>&1`,
+    buildPairingApproveCommand(options.channel, options.code),
     { artifactName: `${options.channel}-repeat-approve`, redactionValues: options.redactions },
   );
   if (repeat.exitCode === 0 || !resultText(repeat).includes("No pending pairing request found")) {
