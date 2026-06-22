@@ -40,10 +40,8 @@ const REPO_ROOT = join(import.meta.dirname, "../../..");
 function readBundledOpenClawVersion(): string {
   const dockerfile = readFileSync(join(REPO_ROOT, "Dockerfile.base"), "utf8");
   const match = dockerfile.match(/^ARG OPENCLAW_VERSION=(\S+)\s*$/m);
-  if (!match?.[1]) {
-    throw new Error("could not parse OPENCLAW_VERSION from Dockerfile.base");
-  }
-  return match[1];
+  expect(match?.[1], "could not parse OPENCLAW_VERSION from Dockerfile.base").toBeTruthy();
+  return match![1]!;
 }
 
 // Historical buggy builds were older than the post-fix regression guard; this
