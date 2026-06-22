@@ -46,6 +46,15 @@ const COMMON_SECRET_ENV_NAMES = [
   "DOCKERHUB_TOKEN",
   "GITHUB_TOKEN",
 ];
+const HOSTED_INFERENCE_SECRET_ENV_NAMES = [
+  "NVIDIA_INFERENCE_API_KEY",
+  "NVIDIA_API_KEY",
+  "COMPATIBLE_API_KEY",
+];
+const HOSTED_INFERENCE_SECRET_EXPR =
+  "${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}";
+const HOSTED_NVIDIA_API_KEY_EXPR =
+  "${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}";
 const FREE_STANDING_SELECTOR_SPECIAL_CASES = new Set([
   "hermes-e2e-vitest",
   "hermes-root-entrypoint-smoke-vitest",
@@ -356,6 +365,36 @@ function requireEnvDoesNotExposeSecret(
   }
 }
 
+function hasHostedInferenceCredentialEnv(env: WorkflowRecord): boolean {
+  return HOSTED_INFERENCE_SECRET_ENV_NAMES.some((secret) => Object.hasOwn(env, secret));
+}
+
+function requireNoHostedInferenceCredentialEnv(
+  errors: string[],
+  owner: string,
+  env: WorkflowRecord,
+): void {
+  for (const secret of HOSTED_INFERENCE_SECRET_ENV_NAMES) {
+    requireEnvDoesNotExposeSecret(errors, owner, env, secret);
+  }
+}
+
+function requireHostedInferenceCredentialEnv(
+  errors: string[],
+  owner: string,
+  env: WorkflowRecord,
+): void {
+  if (env.NVIDIA_INFERENCE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
+    errors.push(`${owner} must receive NVIDIA_INFERENCE_API_KEY from hosted inference secrets`);
+  }
+  if (env.NVIDIA_API_KEY !== HOSTED_NVIDIA_API_KEY_EXPR) {
+    errors.push(`${owner} must receive NVIDIA_API_KEY from hosted inference secrets`);
+  }
+  if (env.COMPATIBLE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
+    errors.push(`${owner} must receive COMPATIBLE_API_KEY from hosted inference secrets`);
+  }
+}
+
 function requireWorkflowDispatch(errors: string[], triggers: WorkflowRecord): WorkflowRecord {
   const workflowDispatch = asRecord(triggers.workflow_dispatch);
   if (Object.keys(workflowDispatch).length === 0)
@@ -437,6 +476,7 @@ function validateFreeStandingInventoryBoundary(
     for (const secret of COMMON_SECRET_ENV_NAMES) {
       requireEnvDoesNotExposeSecret(errors, `${jobName} job`, jobEnv, secret);
     }
+    requireNoHostedInferenceCredentialEnv(errors, `${jobName} job`, jobEnv);
 
     const steps = asSteps(job.steps);
     requireNoDispatchInputInterpolation(errors, steps);
@@ -448,6 +488,14 @@ function validateFreeStandingInventoryBoundary(
         errors.push(
           `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' run script must not interpolate secrets directly`,
         );
+      }
+      if (hasHostedInferenceCredentialEnv(asRecord(step.env))) {
+        const run = stringValue(step.run);
+        if (!run.includes("npx vitest run") || !run.includes("--project e2e-scenarios-live")) {
+          errors.push(
+            `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' must not receive hosted inference credential env`,
+          );
+        }
       }
     }
   }
@@ -647,9 +695,7 @@ function validateSkillAgentVitestJob(errors: string[], jobs: WorkflowRecord): vo
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run skill-agent live test");
   const runEnv = asRecord(runVitest?.env);
-  if (runEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("skill-agent-vitest run step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "skill-agent-vitest run step", runEnv);
   requireRunContains(
     errors,
     runVitest,
@@ -811,11 +857,7 @@ function validateNetworkPolicyVitestJob(errors: string[], jobs: WorkflowRecord):
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run network-policy live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(
-      "network-policy-vitest Vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
-    );
-  }
+  requireHostedInferenceCredentialEnv(errors, "network-policy-vitest Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/network-policy.test.ts");
 
@@ -944,9 +986,7 @@ function validateCommonEgressAgentVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run common-egress agent live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("common-egress-agent-vitest step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "common-egress-agent-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/common-egress-agent.test.ts");
@@ -1077,9 +1117,7 @@ function validateShieldsConfigVitestJob(errors: string[], jobs: WorkflowRecord):
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run shields-config live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("shields-config-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "shields-config-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/shields-config.test.ts");
 
@@ -1202,9 +1240,7 @@ function validateRebuildOpenClawVitestJob(errors: string[], jobs: WorkflowRecord
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run OpenClaw rebuild live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("rebuild-openclaw-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "rebuild-openclaw-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/rebuild-openclaw.test.ts");
@@ -1348,9 +1384,7 @@ function validateRebuildHermesVitestJob(
     options.staleBase ? "Run Hermes stale-base rebuild live test" : "Run Hermes rebuild live test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(`${jobName} step must receive NVIDIA_INFERENCE_API_KEY from secrets`);
-  }
+  requireHostedInferenceCredentialEnv(errors, `${jobName} step`, runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/rebuild-hermes.test.ts");
 
@@ -1490,9 +1524,7 @@ function validateSandboxRebuildVitestJob(errors: string[], jobs: WorkflowRecord)
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run sandbox rebuild live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("sandbox-rebuild-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "sandbox-rebuild-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/sandbox-rebuild.test.ts");
@@ -1630,9 +1662,7 @@ function validateStateBackupRestoreVitestJob(errors: string[], jobs: WorkflowRec
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run state backup restore live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("state-backup-restore-vitest step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "state-backup-restore-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/state-backup-restore.test.ts");
@@ -1788,11 +1818,7 @@ function validateUpgradeStaleSandboxVitestJob(errors: string[], jobs: WorkflowRe
     "Run upgrade stale sandbox live Vitest test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(
-      "upgrade-stale-sandbox-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
-    );
-  }
+  requireHostedInferenceCredentialEnv(errors, "upgrade-stale-sandbox-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/upgrade-stale-sandbox.test.ts");
@@ -2306,9 +2332,7 @@ function validateCloudInferenceVitestJob(errors: string[], jobs: WorkflowRecord)
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run cloud inference live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("cloud-inference-vitest run step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "cloud-inference-vitest run step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/cloud-inference.test.ts");
 
@@ -2628,9 +2652,7 @@ function validateHermesE2EVitestJob(errors: string[], jobs: WorkflowRecord): voi
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run Hermes live Vitest test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("hermes-e2e-vitest Vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "hermes-e2e-vitest Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/hermes-e2e.test.ts");
   requireRunDoesNotContain(errors, runVitest, "${{ inputs.");
@@ -2910,9 +2932,7 @@ function validateDiagnosticsVitestJob(errors: string[], jobs: WorkflowRecord): v
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run diagnostics live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("diagnostics-vitest Vitest step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "diagnostics-vitest Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/diagnostics.test.ts");
   requireRunDoesNotContain(errors, runVitest, "${{ inputs.");
@@ -3060,9 +3080,7 @@ function validateSnapshotCommandsVitestJob(errors: string[], jobs: WorkflowRecor
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run snapshot commands live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("snapshot-commands-vitest Vitest step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "snapshot-commands-vitest Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/snapshot-commands.test.ts");
 
@@ -3238,11 +3256,7 @@ function validateModelRouterProviderRoutedInferenceVitestJob(
     "Run Model Router provider-routed inference live test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(
-      "model-router-provider-routed-inference-vitest Vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
-    );
-  }
+  requireHostedInferenceCredentialEnv(errors, "model-router-provider-routed-inference-vitest Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(
     errors,
@@ -3446,11 +3460,7 @@ function validateTunnelLifecycleVitestJob(errors: string[], jobs: WorkflowRecord
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run tunnel lifecycle live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(
-      "tunnel-lifecycle-vitest Vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
-    );
-  }
+  requireHostedInferenceCredentialEnv(errors, "tunnel-lifecycle-vitest Vitest step", runVitestEnv);
   if (runContainsCloudflaredAptInstall(stringValue(runVitest?.run))) {
     errors.push(
       "tunnel-lifecycle-vitest Vitest step must not run cloudflared APT installation with NVIDIA_INFERENCE_API_KEY in scope",
@@ -3786,9 +3796,7 @@ function validateChannelsAddRemoveVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run channels add/remove live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_API_KEY !== undefined && runVitestEnv.NVIDIA_API_KEY !== "${{ env.NVIDIA_API_KEY }}") {
-    errors.push("channels-add-remove-vitest step must receive NVIDIA_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "channels-add-remove-vitest step", runVitestEnv);
   if (runVitestEnv.TELEGRAM_BOT_TOKEN !== "test-fake-telegram-token-add-remove-e2e") {
     errors.push("channels-add-remove-vitest step must set the fake Telegram token");
   }
@@ -3972,9 +3980,14 @@ function validateChannelsStopStartVitestJob(errors: string[], jobs: WorkflowReco
     runVitestEnv,
     "NVIDIA_API_KEY",
   );
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
+  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
     errors.push(
-      "channels-stop-start-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
+      "channels-stop-start-vitest step must receive NVIDIA_INFERENCE_API_KEY from hosted inference secrets",
+    );
+  }
+  if (runVitestEnv.COMPATIBLE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
+    errors.push(
+      "channels-stop-start-vitest step must receive COMPATIBLE_API_KEY from hosted inference secrets",
     );
   }
   if (
@@ -4112,11 +4125,7 @@ function validateTelegramInjectionVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run Telegram injection live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push(
-      "telegram-injection-vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets",
-    );
-  }
+  requireHostedInferenceCredentialEnv(errors, "telegram-injection-vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/telegram-injection.test.ts");
 
@@ -4397,15 +4406,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   if (permissions.contents !== "read") errors.push("workflow permissions.contents must be read");
 
   const workflowEnv = asRecord(workflow.env);
-  if (workflowEnv.NVIDIA_INFERENCE_API_KEY !== "${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || secrets.NVIDIA_API_KEY }}") {
-    errors.push("workflow env must centralize NVIDIA_INFERENCE_API_KEY with NVIDIA_API_KEY fallback");
-  }
-  if (workflowEnv.NVIDIA_API_KEY !== "${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || secrets.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("workflow env must centralize NVIDIA_API_KEY with NVIDIA_INFERENCE_API_KEY fallback");
-  }
-  if (workflowEnv.COMPATIBLE_API_KEY !== "${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || secrets.NVIDIA_API_KEY }}") {
-    errors.push("workflow env must centralize COMPATIBLE_API_KEY from the hosted inference credential");
-  }
+  requireNoHostedInferenceCredentialEnv(errors, "workflow", workflowEnv);
   for (const [name, expected] of Object.entries({
     NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1",
     NEMOCLAW_PROVIDER: "custom",
@@ -4558,9 +4559,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   if (runVitestEnv.SCENARIO_ID !== "${{ matrix.id }}") {
     errors.push("Vitest step must pass matrix.id through SCENARIO_ID env");
   }
-  if (runVitestEnv.NVIDIA_INFERENCE_API_KEY !== undefined && runVitestEnv.NVIDIA_INFERENCE_API_KEY !== "${{ env.NVIDIA_INFERENCE_API_KEY }}") {
-    errors.push("Vitest step must receive NVIDIA_INFERENCE_API_KEY from secrets");
-  }
+  requireHostedInferenceCredentialEnv(errors, "Vitest step", runVitestEnv);
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/registry-scenarios.test.ts");
   requireRunContains(errors, runVitest, '"^${SCENARIO_ID}$"');

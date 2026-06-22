@@ -9,7 +9,14 @@ inputs:
     required: false
     default: ""
   nvidia-api-key:
-    description: Legacy/public NVIDIA API key alias used by older E2E lanes.
+    description: >-
+      Temporary compatibility alias for Vitest lanes that still read NVIDIA_API_KEY
+      directly: openclaw-skill-cli, cloud-inference, sessions-agents-cli,
+      common-egress-agent, state-backup-restore, messaging-providers,
+      snapshot-commands, diagnostics, openclaw-inference-switch,
+      channels-add-remove. Remove after those lanes migrate to
+      NVIDIA_INFERENCE_API_KEY or require the public endpoint credential by
+      design.
     required: false
     default: ""
   require-hosted-inference:
@@ -35,6 +42,13 @@ runs:
         # the hosted CI source secret and COMPATIBLE_API_KEY is the custom
         # endpoint credential. Preserve NVIDIA_API_KEY as a compatibility alias
         # for Vitest migrations that still assert the older env name.
+        for value in "${canonical}" "${public_alias}"; do
+          if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+            echo "::error::Hosted inference credentials must be single-line values." >&2
+            exit 1
+          fi
+        done
+
         if [[ -z "${canonical}" && "${public_alias}" == nvapi-* ]]; then
           canonical="${public_alias}"
         fi
