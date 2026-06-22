@@ -256,39 +256,47 @@ function managedPresetsBase64(): string {
   ).toString("base64");
 }
 
-async function requireDocker(probe: DockerProbe, skip: (message: string) => void): Promise<void> {
-  const result = await probe.run(["info"], { artifactName: "docker-info", timeoutMs: 30_000 });
-  if (result.exitCode === 0) return;
-
-  if (process.env.GITHUB_ACTIONS === "true") {
-    throw new Error(
-      `Docker is required for Hermes sandbox secret-boundary:\n${resultText(result)}`,
-    );
-  }
-  skip("Docker daemon is required for Hermes sandbox secret-boundary");
+function throwDockerRequired(result: DockerCommandResult): never {
+  throw new Error(`Docker is required for Hermes sandbox secret-boundary:\n${resultText(result)}`);
 }
 
-async function buildHermesImageIfNeeded(
+async function requireDocker(probe: DockerProbe, skip: (message: string) => void): Promise<void> {
+  const result = await probe.run(["info"], { artifactName: "docker-info", timeoutMs: 30_000 });
+  result.exitCode === 0
+    ? undefined
+    : process.env.GITHUB_ACTIONS === "true"
+      ? throwDockerRequired(result)
+      : skip("Docker daemon is required for Hermes sandbox secret-boundary");
+}
+
+function inspectPrebuiltImage(probe: DockerProbe, image: string): Promise<false> {
+  return probe
+    .expect(["image", "inspect", image], {
+      artifactName: "inspect-prebuilt-hermes-image",
+      timeoutMs: 30_000,
+    })
+    .then(() => false);
+}
+
+async function buildBaseImageWhenNeeded(
+  probe: DockerProbe,
+  baseImage: string,
+  baseImageFromEnv: boolean,
+  artifactName: string,
+): Promise<void> {
+  await (baseImageFromEnv
+    ? Promise.resolve()
+    : probe.expect(["build", "-f", "agents/hermes/Dockerfile.base", "-t", baseImage, "."], {
+        artifactName,
+        timeoutMs: BUILD_TIMEOUT_MS,
+      }));
+}
+
+async function buildHermesProductionImage(
   probe: DockerProbe,
   image: string,
   baseImage: string,
-  baseImageFromEnv: boolean,
-): Promise<boolean> {
-  if (process.env.NEMOCLAW_HERMES_TEST_IMAGE) {
-    await probe.expect(["image", "inspect", image], {
-      artifactName: "inspect-prebuilt-hermes-image",
-      timeoutMs: 30_000,
-    });
-    return false;
-  }
-
-  if (!baseImageFromEnv) {
-    await probe.expect(["build", "-f", "agents/hermes/Dockerfile.base", "-t", baseImage, "."], {
-      artifactName: "build-hermes-base-image",
-      timeoutMs: BUILD_TIMEOUT_MS,
-    });
-  }
-
+): Promise<true> {
   await probe.expect(
     [
       "build",
@@ -305,31 +313,54 @@ async function buildHermesImageIfNeeded(
   return true;
 }
 
-async function buildManagedImageIfNeeded(
+async function buildHermesImageIfNeeded(
   probe: DockerProbe,
-  managedImage: string,
+  image: string,
   baseImage: string,
   baseImageFromEnv: boolean,
 ): Promise<boolean> {
-  if (process.env.NEMOCLAW_HERMES_MANAGED_TEST_IMAGE) {
-    await probe.expect(["image", "inspect", managedImage], {
+  return process.env.NEMOCLAW_HERMES_TEST_IMAGE
+    ? inspectPrebuiltImage(probe, image)
+    : (await buildBaseImageWhenNeeded(
+        probe,
+        baseImage,
+        baseImageFromEnv,
+        "build-hermes-base-image",
+      ),
+      buildHermesProductionImage(probe, image, baseImage));
+}
+
+function inspectPrebuiltManagedImage(probe: DockerProbe, managedImage: string): Promise<false> {
+  return probe
+    .expect(["image", "inspect", managedImage], {
       artifactName: "inspect-prebuilt-managed-hermes-image",
       timeoutMs: 30_000,
-    });
-    return false;
-  }
+    })
+    .then(() => false);
+}
 
+async function buildManagedBaseImageWhenNeeded(
+  probe: DockerProbe,
+  baseImage: string,
+  baseImageFromEnv: boolean,
+): Promise<void> {
   const baseExists = await probe.run(["image", "inspect", baseImage], {
     artifactName: "inspect-managed-base-image",
     timeoutMs: 30_000,
   });
-  if (!baseImageFromEnv && baseExists.exitCode !== 0) {
-    await probe.expect(["build", "-f", "agents/hermes/Dockerfile.base", "-t", baseImage, "."], {
-      artifactName: "build-managed-hermes-base-image",
-      timeoutMs: BUILD_TIMEOUT_MS,
-    });
-  }
+  await (baseImageFromEnv || baseExists.exitCode === 0
+    ? Promise.resolve()
+    : probe.expect(["build", "-f", "agents/hermes/Dockerfile.base", "-t", baseImage, "."], {
+        artifactName: "build-managed-hermes-base-image",
+        timeoutMs: BUILD_TIMEOUT_MS,
+      }));
+}
 
+async function buildManagedProductionImage(
+  probe: DockerProbe,
+  managedImage: string,
+  baseImage: string,
+): Promise<true> {
   await probe.expect(
     [
       "build",
@@ -348,6 +379,18 @@ async function buildManagedImageIfNeeded(
     { artifactName: "build-managed-hermes-production-image", timeoutMs: BUILD_TIMEOUT_MS },
   );
   return true;
+}
+
+async function buildManagedImageIfNeeded(
+  probe: DockerProbe,
+  managedImage: string,
+  baseImage: string,
+  baseImageFromEnv: boolean,
+): Promise<boolean> {
+  return process.env.NEMOCLAW_HERMES_MANAGED_TEST_IMAGE
+    ? inspectPrebuiltManagedImage(probe, managedImage)
+    : (await buildManagedBaseImageWhenNeeded(probe, baseImage, baseImageFromEnv),
+      buildManagedProductionImage(probe, managedImage, baseImage));
 }
 
 async function inspectImageBoundary(probe: DockerProbe, image: string): Promise<void> {
@@ -514,11 +557,12 @@ liveTest(
         removeManagedImage ? managedImage : undefined,
         removeBaseImage ? baseImage : undefined,
       ].filter((value): value is string => Boolean(value));
-      if (images.length === 0) return;
-      await probe.run(["rmi", "-f", ...images], {
-        artifactName: "cleanup-hermes-secret-boundary-images",
-        timeoutMs: 60_000,
-      });
+      await (images.length === 0
+        ? Promise.resolve()
+        : probe.run(["rmi", "-f", ...images], {
+            artifactName: "cleanup-hermes-secret-boundary-images",
+            timeoutMs: 60_000,
+          }));
     });
 
     await requireDocker(probe, skip);
