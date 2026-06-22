@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 title: "Messaging Channels"
 sidebar-title: "Set Up Messaging Channels"
-description: "Connect Telegram, Discord, Slack, WeChat, and WhatsApp to your sandboxed OpenClaw or Hermes agent, or Zalo to OpenClaw, using OpenShell-managed channel messaging."
-description-agent: "Explains how Telegram, Discord, Slack, WeChat, and WhatsApp reach sandboxed OpenClaw and Hermes agents, and Zalo reaches OpenClaw, through OpenShell-managed processes and NemoClaw channel commands. Use when setting up messaging channels, chat interfaces, or integrations without relying on nemoclaw tunnel start for bridges."
-keywords: ["nemoclaw messaging channels", "nemoclaw telegram", "nemoclaw discord", "nemoclaw slack", "nemoclaw wechat", "nemoclaw whatsapp", "nemoclaw zalo", "openshell channel messaging"]
+description: "Connect Telegram, Discord, Slack, WeChat, or WhatsApp to your sandboxed OpenClaw or Hermes agent using OpenShell-managed channel messaging."
+description-agent: "Explains how Telegram, Discord, Slack, WeChat, and WhatsApp reach sandboxed OpenClaw and Hermes agents through OpenShell-managed processes and NemoClaw channel commands. Use when setting up messaging channels, chat interfaces, or integrations without relying on nemoclaw tunnel start for bridges."
+keywords: ["nemoclaw messaging channels", "nemoclaw telegram", "nemoclaw discord", "nemoclaw slack", "nemoclaw wechat", "nemoclaw whatsapp", "openshell channel messaging"]
 content:
   type: "how_to"
 skill:
@@ -59,7 +59,6 @@ For details, refer to [Commands](../reference/commands).
 | Slack | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | `SLACK_ALLOWED_USERS` for DM and channel `@mention` user allowlisting, `SLACK_ALLOWED_CHANNELS` for channel ID allowlisting |
 | WeChat (experimental) | None. Captured through host-side QR scan during `$$nemoclaw onboard` | `WECHAT_ALLOWED_IDS` for DM allowlisting |
 | WhatsApp (experimental) | None. Pair through QR after rebuild | None |
-| Zalo (OpenClaw only) | `ZALO_BOT_TOKEN` | `ZALO_ALLOWED_IDS` for DM allowlisting, `ZALO_GROUP_POLICY` for OpenClaw group access |
 
 Telegram uses a bot token from [BotFather](https://t.me/BotFather).
 Open Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather), follow the prompts, and copy the token.
@@ -134,18 +133,9 @@ This is the runtime tradeoff of enabling WhatsApp without a host bridge: a paire
 NemoClaw cannot detect cross-sandbox WhatsApp conflicts the way it does for token-based channels.
 Pair only one sandbox per WhatsApp account at a time.
 
-Zalo connects OpenClaw sandboxes through the [Zalo Bot Platform](https://bot.zaloplatforms.com) Bot API.
-It is available for OpenClaw only; Hermes does not expose a Zalo platform.
-Create a bot on the Zalo Bot Platform and copy its token (format `id:secret`) into `ZALO_BOT_TOKEN`.
-NemoClaw registers the token as the `<sandbox>-zalo-bridge` OpenShell provider and substitutes the `openshell:resolve:env:ZALO_BOT_TOKEN` placeholder inside the sandbox, so the token never lands in the image.
-The bridge runs in long-polling mode (`getUpdates`), so no inbound webhook or public URL is required.
-Unknown direct-message senders are paired first: the bot replies with a pairing code, and you approve it from the host with `nemoclaw <sandbox> exec -- openclaw pairing approve zalo <code>` (or `openclaw pairing approve zalo <code>` inside the sandbox).
-Set `ZALO_ALLOWED_IDS` to a comma-separated list of numeric Zalo user IDs to allowlist DM access directly; Zalo has no username lookup, so use numeric IDs.
-`ZALO_GROUP_POLICY` controls OpenClaw Zalo group access and defaults to `allowlist`; set it to `open` to allow any group member or `disabled` to turn off group access.
-
 ## Enable Channels During Onboarding
 
-When the wizard reaches **Messaging channels**, it lists Telegram, Discord, Slack, WeChat, WhatsApp, and Zalo.
+When the wizard reaches **Messaging channels**, it lists Telegram, Discord, Slack, WeChat, and WhatsApp.
 Press a channel number to toggle it on or off, then press **Enter** when done.
 If you select no channels, pressing **Enter** skips messaging setup.
 If a token-based channel token is not already in the environment or credential store, the wizard prompts for it and saves it.
@@ -170,8 +160,6 @@ export SLACK_BOT_TOKEN=<your-slack-bot-token>
 export SLACK_APP_TOKEN=<your-slack-app-token>
 export SLACK_ALLOWED_USERS=<your-slack-member-id>
 export SLACK_ALLOWED_CHANNELS=<your-slack-channel-id>
-export ZALO_BOT_TOKEN=<your-zalo-bot-token>
-export ZALO_ALLOWED_IDS=<your-zalo-user-id>
 ```
 
 This release does not support non-interactive WeChat configuration because the iLink QR handshake requires a human to scan the QR on a paired phone.
@@ -202,7 +190,6 @@ $$nemoclaw my-assistant channels add discord
 $$nemoclaw my-assistant channels add slack
 $$nemoclaw my-assistant channels add wechat
 $$nemoclaw my-assistant channels add whatsapp
-$$nemoclaw my-assistant channels add zalo
 ```
 
 `channels add` collects whatever each channel needs.
@@ -219,7 +206,7 @@ Verify the gateway bridge before relying on the channel.
 Restore the preset YAML and re-run `$$nemoclaw <sandbox> channels add <channel>`.
 Choose the rebuild so the running sandbox image picks up the new channel.
 For Telegram, Discord, and Slack, `channels add` also checks the rebuilt runtime for the selected bridge and reports startup, credential, or missing-plugin warnings before returning.
-If you need optional channel settings such as `TELEGRAM_ALLOWED_IDS`, `TELEGRAM_REQUIRE_MENTION`, `TELEGRAM_GROUP_POLICY`, `DISCORD_SERVER_ID`, `DISCORD_USER_ID`, `DISCORD_REQUIRE_MENTION`, `SLACK_ALLOWED_USERS`, `SLACK_ALLOWED_CHANNELS`, `ZALO_ALLOWED_IDS`, or `ZALO_GROUP_POLICY`, export them before the rebuild starts.
+If you need optional channel settings such as `TELEGRAM_ALLOWED_IDS`, `TELEGRAM_REQUIRE_MENTION`, `TELEGRAM_GROUP_POLICY`, `DISCORD_SERVER_ID`, `DISCORD_USER_ID`, `DISCORD_REQUIRE_MENTION`, `SLACK_ALLOWED_USERS`, or `SLACK_ALLOWED_CHANNELS`, export them before the rebuild starts.
 You can omit `TELEGRAM_REQUIRE_MENTION` and `DISCORD_REQUIRE_MENTION` when you want the default mention-only mode.
 You can omit `TELEGRAM_GROUP_POLICY` when you want OpenClaw Telegram group access to stay open.
 Telegram Bot API `sendMessage` calls prove outbound delivery from the bot; to test inbound agent replies, send a message from the Telegram client as an allowed user.
@@ -317,7 +304,7 @@ For WeChat specifically, `channels stop wechat` followed by a rebuild keeps the 
 A subsequent `channels start wechat` plus rebuild revives the bridge against the same iLink account without a fresh QR scan.
 The bot token is held by the OpenShell provider across the stop/start cycle.
 
-Telegram, Discord, Slack, WeChat, and Zalo each allow only one active consumer per channel credential.
+Telegram, Discord, Slack, and WeChat each allow only one active consumer per channel credential.
 Multiple sandboxes can use the same channel type at the same time when each sandbox uses a distinct bot/app token (or a distinct WeChat iLink bot account).
 For example, two Telegram sandboxes can DM the same `TELEGRAM_ALLOWED_IDS` account as long as they use different `TELEGRAM_BOT_TOKEN` values.
 For WeChat, each sandbox must own a distinct iLink `accountId` (bot identity).
@@ -343,7 +330,7 @@ Stopping the in-sandbox gateway stops Telegram, Discord, Slack, WeChat, and What
 
 After the sandbox is running, send a message to the configured bot or app.
 If delivery fails, use `openshell term` on the host, check gateway logs, and verify network policy allows the channel API.
-Use the matching policy preset (`telegram`, `discord`, `slack`, `wechat`, `whatsapp`, or `zalo`) or review [Common Integration Policy Examples](../network-policy/integration-policy-examples).
+Use the matching policy preset (`telegram`, `discord`, `slack`, `wechat`, or `whatsapp`) or review [Common Integration Policy Examples](../network-policy/integration-policy-examples).
 
 ## Tunnel Command
 
