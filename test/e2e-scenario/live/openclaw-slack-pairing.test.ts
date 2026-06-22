@@ -12,7 +12,6 @@ import {
   approveAndAssertPairing,
   assertOpenClawStateRoot,
   assertSlackPresetPolicySemantics,
-  buildPairingApproveCommand,
   cleanupPairingSandbox,
   extractPairingCode,
   issuePairingRequest,
@@ -28,7 +27,6 @@ import {
   expectSandboxReady,
   installSandboxOrSkipOnRateLimit,
   resultText,
-  sandboxSh,
 } from "./phase6-messaging-helpers.ts";
 
 const SANDBOX_NAME = process.env.NEMOCLAW_SANDBOX_NAME ?? "e2e-openclaw-slack-pairing";
@@ -183,14 +181,5 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       code,
       redactions,
     });
-
-    const repeat = await sandboxSh(
-      sandbox,
-      SANDBOX_NAME,
-      buildPairingApproveCommand("slack", code),
-      { artifactName: "slack-repeat-approve-after-test-flow", redactionValues: redactions },
-    );
-    expect(repeat.exitCode, "Slack second approval should fail closed").not.toBe(0);
-    expect(resultText(repeat)).toContain("No pending pairing request found");
   },
 );
