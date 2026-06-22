@@ -370,7 +370,22 @@ import net from "node:net";
 const host = "host.openshell.internal";
 const port = Number(process.env.FAKE_DISCORD_GATEWAY_PORT);
 const identifyToken = "openshell:resolve:env:DISCORD_BOT_TOKEN";
+const proxyUrl = process.env.HTTP_PROXY || process.env.http_proxy || "";
 const results = [];
+
+function proxyTarget() {
+  if (!proxyUrl) return null;
+  try {
+    const parsed = new URL(proxyUrl);
+    if (parsed.protocol !== "http:") return null;
+    return {
+      host: parsed.hostname,
+      port: Number(parsed.port || "80"),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function finish(message) {
   if (message) results.push(message);
@@ -430,7 +445,10 @@ function decodeFrame(buffer) {
   };
 }
 
-const socket = net.createConnection({ host, port });
+const proxy = proxyTarget();
+const socket = proxy
+  ? net.createConnection({ host: proxy.host, port: proxy.port })
+  : net.createConnection({ host, port });
 const timer = setTimeout(() => {
   try { socket.destroy(); } catch {}
   finish("TIMEOUT");
@@ -438,11 +456,15 @@ const timer = setTimeout(() => {
 let handshake = Buffer.alloc(0);
 let framed = Buffer.alloc(0);
 let upgraded = false;
+let sawReady = false;
 
 socket.on("connect", () => {
   const key = crypto.randomBytes(16).toString("base64");
+  const requestTarget = proxy
+    ? "http://" + host + ":" + port + "/gateway?v=10&encoding=json"
+    : "/gateway?v=10&encoding=json";
   socket.write([
-    "GET /gateway?v=10&encoding=json HTTP/1.1",
+    "GET " + requestTarget + " HTTP/1.1",
     "Host: " + host + ":" + port,
     "Upgrade: websocket",
     "Connection: Upgrade",
@@ -487,6 +509,7 @@ socket.on("data", (chunk) => {
         })));
         results.push("IDENTIFY_SENT_PLACEHOLDER");
       } else if (message.op === 0 && message.t === "READY") {
+        sawReady = true;
         results.push("READY");
         socket.write(encodeClientText(JSON.stringify({ op: 1, d: message.s ?? null })));
       } else if (message.op === 11) {
@@ -496,15 +519,20 @@ socket.on("data", (chunk) => {
         finish();
       }
     } else if (frame.opcode === 8) {
+      const code = frame.payload.length >= 2 ? frame.payload.readUInt16BE(0) : 0;
       clearTimeout(timer);
-      finish("CLOSE_BEFORE_ACK");
+      finish("CLOSE_" + code);
     }
   }
 });
 
 socket.on("error", (error) => {
   clearTimeout(timer);
-  finish("ERROR:" + error.message);
+  finish("ERROR " + error.message);
+});
+socket.on("close", () => {
+  clearTimeout(timer);
+  if (!sawReady) finish("CLOSED");
 });
 `;
 
