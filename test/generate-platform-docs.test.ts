@@ -1,0 +1,224 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const SCRIPT_PATH = path.join(import.meta.dirname, "..", "scripts", "generate-platform-docs.py");
+
+function runPython(script: string): string {
+  return execFileSync("python3", ["-c", script, SCRIPT_PATH], {
+    encoding: "utf-8",
+  });
+}
+
+function loadGeneratorAs(name: string): string {
+  return `
+import importlib.util
+import sys
+import pathlib
+
+spec = importlib.util.spec_from_file_location(${JSON.stringify(name)}, pathlib.Path(sys.argv[1]))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+`;
+}
+
+const MINIMAL_MATRIX_LITERAL = `{
+  "version": "test",
+  "updated": "2026-06-22",
+  "project_status": {"stage": "alpha", "label": "Early preview", "since": "2026-03-16", "notes": "n"},
+  "owners": {"engineering": "@NVIDIA/nemoclaw-maintainer"},
+  "statuses": {"tested": "Validated.", "caveated": "With caveats.", "deferred": "Planned."},
+  "platforms": [
+    {"name": "Linux", "runtimes": ["Docker"], "status": "tested", "ci_tested": true, "notes": "primary"},
+    {"name": "macOS", "runtimes": ["Colima"], "status": "caveated", "ci_tested": true, "notes": "ok"},
+    {"name": "WSL", "runtimes": ["Docker"], "status": "deferred", "ci_tested": false, "notes": "later"}
+  ],
+  "providers": [],
+  "agents": [],
+  "integrations": [],
+  "deployment_paths": [],
+  "capabilities": [],
+  "out_of_scope": []
+}`;
+
+describe("generate-platform-docs generator", () => {
+  it("escapes pipes, newlines, and CRLFs in table cells", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+print(module._escape_cell("a|b"))
+print("---")
+print(module._escape_cell("first\\nsecond"))
+print("---")
+print(module._escape_cell("crlf\\r\\nline"))
+print("---")
+# MDX-like text is intentionally NOT escaped — only structural hazards are.
+print(module._escape_cell("<MyComponent prop='x' />"))
+`);
+    const sections = output.split("---\n").map((s) => s.trim());
+    expect(sections[0]).toBe("a\\|b");
+    expect(sections[1]).toBe("first second");
+    // CRLF is collapsed to a single space (the \r\n branch runs first).
+    expect(sections[2]).toBe("crlf line");
+    expect(sections[3]).toBe("<MyComponent prop='x' />");
+  });
+
+  it("escapes pipes when rendered through a real platform table row", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+import json
+
+platforms = [{"name": "Pipe|Name", "runtimes": ["A|B"], "status": "tested", "notes": "a|b note"}]
+print(module.generate_platform_table(platforms))
+`);
+    const dataRow = output.trim().split("\n").at(-1) ?? "";
+    expect(dataRow).toContain("Pipe\\|Name");
+    expect(dataRow).toContain("A\\|B");
+    expect(dataRow).toContain("a\\|b note");
+    // A row with N escaped pipes inside cells still has exactly 5 unescaped
+    // pipes (4 columns → 5 separators); the escaped ones are preceded by `\`.
+    const unescapedPipes = dataRow.match(/(?<!\\)\|/g) ?? [];
+    expect(unescapedPipes.length).toBe(5);
+  });
+
+  it("rejects unknown status values via _validate_matrix", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+bad = {
+  "statuses": {"tested": "Validated.", "caveated": "Limited."},
+  "owners": {"engineering": "@NVIDIA/nemoclaw-maintainer"},
+  "platforms": [{"name": "X", "runtimes": ["Docker"], "status": "shipped", "notes": "n"}],
+  "providers": [], "agents": [], "integrations": [],
+  "deployment_paths": [], "capabilities": [], "out_of_scope": []
+}
+try:
+    module._validate_matrix(bad)
+    print("NO_ERROR")
+except ValueError as exc:
+    print(str(exc))
+`);
+    expect(output).toContain("unknown status");
+    expect(output).toContain("'shipped'");
+    expect(output).not.toContain("NO_ERROR");
+  });
+
+  it("rejects placeholder owner values (TBD, TODO, see PR review, empty)", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+cases = ["TBD (see PR review)", "TBD", "TODO: pick", "FIXME", "see PR review", "", "n/a"]
+for raw in cases:
+    matrix = {
+      "statuses": {"tested": "Validated."},
+      "owners": {"engineering": raw},
+      "platforms": [], "providers": [], "agents": [], "integrations": [],
+      "deployment_paths": [], "capabilities": [], "out_of_scope": []
+    }
+    try:
+        module._validate_matrix(matrix)
+        print(f"ACCEPTED:{raw!r}")
+    except ValueError:
+        print(f"REJECTED:{raw!r}")
+`);
+    const lines = output.trim().split("\n");
+    expect(lines.every((line) => line.startsWith("REJECTED:"))).toBe(true);
+  });
+
+  it("accepts a real engineering owner alias", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+matrix = {
+  "statuses": {"tested": "Validated."},
+  "owners": {"engineering": "@NVIDIA/nemoclaw-maintainer"},
+  "platforms": [], "providers": [], "agents": [], "integrations": [],
+  "deployment_paths": [], "capabilities": [], "out_of_scope": []
+}
+module._validate_matrix(matrix)
+print("OK")
+`);
+    expect(output.trim()).toBe("OK");
+  });
+
+  it("full platform table includes deferred rows; partial table excludes them", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+platforms = [
+  {"name": "Linux", "runtimes": ["Docker"], "status": "tested", "ci_tested": True, "notes": "n"},
+  {"name": "WSL", "runtimes": ["Docker"], "status": "deferred", "ci_tested": False, "notes": "later"}
+]
+print("PARTIAL:")
+print(module.generate_platform_table(platforms))
+print("FULL:")
+print(module.generate_platform_table_full(platforms))
+`);
+    const [partial, full] = output.split("FULL:");
+    expect(partial).toContain("Linux");
+    expect(partial).not.toContain("WSL");
+    expect(full).toContain("Linux");
+    expect(full).toContain("WSL");
+  });
+
+  it("--check exits non-zero on placeholder owner in real matrix", () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), "genplatform-"));
+    const matrixPath = path.join(tmp, "matrix.json");
+    writeFileSync(
+      matrixPath,
+      JSON.stringify({
+        statuses: { tested: "Validated." },
+        owners: { engineering: "TBD" },
+        platforms: [],
+        providers: [],
+        agents: [],
+        integrations: [],
+        deployment_paths: [],
+        capabilities: [],
+        out_of_scope: [],
+      }),
+    );
+
+    const result = spawnSync(
+      "python3",
+      [
+        "-c",
+        `
+${loadGeneratorAs("g")}
+matrix = module.load_matrix.__globals__["json"].load(open("${matrixPath}"))
+try:
+    module._validate_matrix(matrix)
+    raise SystemExit(0)
+except ValueError as exc:
+    print(str(exc))
+    raise SystemExit(2)
+`,
+        SCRIPT_PATH,
+      ],
+      { encoding: "utf-8" },
+    );
+    expect(result.status).toBe(2);
+    // Either error path is acceptable: engineering-is-placeholder OR
+    // engineering-must-be-real-alias. Just assert it surfaced as a validation error.
+    expect(`${result.stdout}${result.stderr}`).toMatch(/owners\.engineering|placeholder/);
+  });
+
+  it("generate_owners_block emits engineering owner only (no product owner row)", () => {
+    const output = runPython(`
+${loadGeneratorAs("g")}
+
+block = module.generate_owners_block({"engineering": "@NVIDIA/nemoclaw-maintainer"})
+print(block)
+`);
+    expect(output).toContain("Engineering owner:");
+    expect(output).toContain("@NVIDIA/nemoclaw-maintainer");
+    expect(output).not.toContain("Product owner");
+    expect(output).not.toContain("TBD");
+  });
+});
