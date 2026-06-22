@@ -87,6 +87,56 @@ function runHermesConfigIntegrityVerifierAsRoot() {
   }
 }
 
+function runHermesDashboardSeedAsRoot() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-dashboard-seed-"));
+  const scriptPath = path.join(tmpDir, "run.sh");
+  const fakePython = path.join(tmpDir, "fake-python.sh");
+  const logPath = path.join(tmpDir, "seed.log");
+  const hermesHome = path.join(tmpDir, ".hermes");
+  const dashboardHome = path.join(hermesHome, "dashboard-home");
+  const src = fs.readFileSync(START_SCRIPT, "utf-8");
+  fs.mkdirSync(dashboardHome, { recursive: true });
+  fs.writeFileSync(path.join(dashboardHome, "gateway_state.json"), "stale\n");
+  fs.writeFileSync(
+    fakePython,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `printf 'stepped=%s\\n' "\${NEMOCLAW_TEST_STEPPED_DOWN:-0}" >>${shellQuote(logPath)}`,
+      `printf 'args=%s\\n' "$*" >>${shellQuote(logPath)}`,
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  fs.writeFileSync(
+    scriptPath,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      'id() { if [ "${1:-}" = "-u" ]; then printf "0\\n"; else command id "$@"; fi; }',
+      extractShellFunctionFromSource(src, "seed_hermes_dashboard_config"),
+      `HERMES_DIR=${shellQuote(hermesHome)}`,
+      `HERMES_DASHBOARD_HOME=${shellQuote(dashboardHome)}`,
+      `_HERMES_PYTHON=${shellQuote(fakePython)}`,
+      `_HERMES_DASHBOARD_CONFIG_SEEDER=${shellQuote(path.join(tmpDir, "seed-dashboard-config.py"))}`,
+      "STEP_DOWN_PREFIX_SANDBOX=(env NEMOCLAW_TEST_STEPPED_DOWN=1)",
+      "seed_hermes_dashboard_config sandbox:sandbox",
+      `if [ -e ${shellQuote(path.join(dashboardHome, "gateway_state.json"))} ]; then echo gateway_state_exists=1; else echo gateway_state_exists=0; fi`,
+      `cat ${shellQuote(logPath)}`,
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+
+  try {
+    return spawnSync("bash", [scriptPath], {
+      encoding: "utf-8",
+      timeout: 5000,
+      env: process.env,
+    });
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 function extractDashboardPortBootstrap(src: string): string {
   const start = src.indexOf('NEMOCLAW_CMD=("$@")');
   const end = src.indexOf('\nHERMES="$(command -v hermes)"', start);
@@ -740,6 +790,17 @@ describe("agents/hermes/start.sh config integrity", () => {
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout.trim()).toMatch(/:stepped=1$/);
+  });
+
+  it("runs root dashboard state cleanup and config seeding through the sandbox identity", () => {
+    const result = runHermesDashboardSeedAsRoot();
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("gateway_state_exists=0");
+    expect(result.stdout).toContain("stepped=1");
+    expect(result.stdout).toContain("/config.yaml");
+    expect(result.stdout).toContain("/.env");
   });
 });
 

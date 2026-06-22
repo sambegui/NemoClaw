@@ -684,11 +684,6 @@ prepare_hermes_dashboard_home() {
     chown "$owner" "$HERMES_DASHBOARD_HOME"
   fi
   chmod 700 "$HERMES_DASHBOARD_HOME"
-  # The dashboard can attempt a gateway restart from its isolated HERMES_HOME.
-  # In NemoClaw the real gateway lives under /sandbox/.hermes, so a failed
-  # dashboard-scoped restart can leave stale startup_failed state that poisons
-  # /api/status even while the real gateway is healthy.
-  rm -f "${HERMES_DASHBOARD_HOME}/gateway_state.json" 2>/dev/null || true
   seed_hermes_dashboard_config "$owner"
 }
 
@@ -703,16 +698,33 @@ seed_hermes_dashboard_config() {
   local owner="${1:-}"
   local dst="${HERMES_DASHBOARD_HOME}/config.yaml"
   local env_dst="${HERMES_DASHBOARD_HOME}/.env"
-  local -a seed_env=()
   local rc=0
 
   if [ "$(id -u)" -eq 0 ] && [ -n "$owner" ]; then
-    seed_env=(NEMOCLAW_DASHBOARD_SEED_OWNER="$owner")
+    # shellcheck disable=SC2016  # inner shell expands after sandbox step-down
+    env HERMES_DIR="$HERMES_DIR" \
+      HERMES_DASHBOARD_HOME="$HERMES_DASHBOARD_HOME" \
+      _HERMES_PYTHON="$_HERMES_PYTHON" \
+      _HERMES_DASHBOARD_CONFIG_SEEDER="$_HERMES_DASHBOARD_CONFIG_SEEDER" \
+      "${STEP_DOWN_PREFIX_SANDBOX[@]}" sh -c '
+        # The dashboard can attempt a gateway restart from its isolated
+        # HERMES_HOME. In NemoClaw the real gateway lives under /sandbox/.hermes,
+        # so a failed dashboard-scoped restart can leave stale startup_failed
+        # state that poisons /api/status even while the real gateway is healthy.
+        rm -f "${HERMES_DASHBOARD_HOME}/gateway_state.json" 2>/dev/null || true
+        exec "$_HERMES_PYTHON" "$_HERMES_DASHBOARD_CONFIG_SEEDER" \
+          "${HERMES_DIR}/config.yaml" "${HERMES_DASHBOARD_HOME}/config.yaml" \
+          "${HERMES_DIR}/.env" "${HERMES_DASHBOARD_HOME}/.env"
+      ' || rc=$?
+  else
+    # Non-root and explicit same-user launches perform the same cleanup and
+    # seeding under the current service user; no root path operations are needed.
+    rm -f "${HERMES_DASHBOARD_HOME}/gateway_state.json" 2>/dev/null || true
+    env "$_HERMES_PYTHON" "$_HERMES_DASHBOARD_CONFIG_SEEDER" \
+      "${HERMES_DIR}/config.yaml" "$dst" \
+      "${HERMES_DIR}/.env" "$env_dst" || rc=$?
   fi
 
-  env "${seed_env[@]}" "$_HERMES_PYTHON" "$_HERMES_DASHBOARD_CONFIG_SEEDER" \
-    "${HERMES_DIR}/config.yaml" "$dst" \
-    "${HERMES_DIR}/.env" "$env_dst" || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "[dashboard] ERROR: config seed exited ${rc}; refusing dashboard startup" >&2
     return "$rc"
