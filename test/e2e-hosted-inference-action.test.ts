@@ -39,6 +39,17 @@ describe("export-e2e-hosted-inference action", () => {
     expect(result.exported).toBe("");
   });
 
+  it("promotes the legacy-only NVIDIA_API_KEY input to canonical hosted exports", () => {
+    const result = runExportAction({
+      INPUT_NVIDIA_API_KEY: "nvapi-test-legacy-credential",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.exported).toContain("NVIDIA_INFERENCE_API_KEY=nvapi-test-legacy-credential\n");
+    expect(result.exported).toContain("COMPATIBLE_API_KEY=nvapi-test-legacy-credential\n");
+    expect(result.exported).toContain("NVIDIA_API_KEY=nvapi-test-legacy-credential\n");
+  });
+
   it("exports hosted inference aliases from the canonical credential", () => {
     const result = runExportAction({
       INPUT_NVIDIA_INFERENCE_API_KEY: "nvapi-test-hosted-credential",

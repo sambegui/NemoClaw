@@ -10,13 +10,9 @@ inputs:
     default: ""
   nvidia-api-key:
     description: >-
-      Temporary compatibility alias for Vitest lanes that still read NVIDIA_API_KEY
-      directly: openclaw-skill-cli, cloud-inference, sessions-agents-cli,
-      common-egress-agent, state-backup-restore, messaging-providers,
-      snapshot-commands, diagnostics, openclaw-inference-switch,
-      channels-add-remove. Remove after those lanes migrate to
-      NVIDIA_INFERENCE_API_KEY or require the public endpoint credential by
-      design.
+      Temporary compatibility alias for legacy Vitest lanes that still read
+      NVIDIA_API_KEY directly. The source-owned inventory and removal condition
+      live in tools/e2e-scenarios/hosted-inference-legacy-alias.mts.
     required: false
     default: ""
   require-hosted-inference:

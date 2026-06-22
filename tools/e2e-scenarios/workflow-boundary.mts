@@ -6,6 +6,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
+import {
+  HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOBS,
+  HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET,
+} from "./hosted-inference-legacy-alias.mts";
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_VITEST_WORKFLOW_PATH = join(
   REPO_ROOT,
@@ -46,11 +51,7 @@ const COMMON_SECRET_ENV_NAMES = [
   "DOCKERHUB_TOKEN",
   "GITHUB_TOKEN",
 ];
-const HOSTED_INFERENCE_SECRET_ENV_NAMES = [
-  "NVIDIA_INFERENCE_API_KEY",
-  "NVIDIA_API_KEY",
-  "COMPATIBLE_API_KEY",
-];
+const HOSTED_INFERENCE_SECRET_ENV_NAMES = ["NVIDIA_INFERENCE_API_KEY", "COMPATIBLE_API_KEY"];
 const HOSTED_INFERENCE_SECRET_EXPR =
   "${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}";
 const HOSTED_NVIDIA_API_KEY_EXPR =
@@ -383,12 +384,23 @@ function requireHostedInferenceCredentialEnv(
   errors: string[],
   owner: string,
   env: WorkflowRecord,
+  options: { jobName?: string; allowLegacyNvidiaApiKey?: boolean } = {},
 ): void {
+  const allowLegacyNvidiaApiKey =
+    options.allowLegacyNvidiaApiKey ??
+    (options.jobName
+      ? HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(options.jobName)
+      : false);
+
   if (env.NVIDIA_INFERENCE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
     errors.push(`${owner} must receive NVIDIA_INFERENCE_API_KEY from hosted inference secrets`);
   }
-  if (env.NVIDIA_API_KEY !== HOSTED_NVIDIA_API_KEY_EXPR) {
-    errors.push(`${owner} must receive NVIDIA_API_KEY from hosted inference secrets`);
+  if (allowLegacyNvidiaApiKey) {
+    if (env.NVIDIA_API_KEY !== HOSTED_NVIDIA_API_KEY_EXPR) {
+      errors.push(`${owner} must receive NVIDIA_API_KEY from hosted inference secrets`);
+    }
+  } else if (Object.hasOwn(env, "NVIDIA_API_KEY")) {
+    errors.push(`${owner} must not receive NVIDIA_API_KEY unless listed as a legacy alias consumer`);
   }
   if (env.COMPATIBLE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
     errors.push(`${owner} must receive COMPATIBLE_API_KEY from hosted inference secrets`);
@@ -489,7 +501,8 @@ function validateFreeStandingInventoryBoundary(
           `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' run script must not interpolate secrets directly`,
         );
       }
-      if (hasHostedInferenceCredentialEnv(asRecord(step.env))) {
+      const stepEnv = asRecord(step.env);
+      if (hasHostedInferenceCredentialEnv(stepEnv)) {
         const run = stringValue(step.run);
         if (!run.includes("npx vitest run") || !run.includes("--project e2e-scenarios-live")) {
           errors.push(
@@ -497,6 +510,35 @@ function validateFreeStandingInventoryBoundary(
           );
         }
       }
+      if (
+        Object.hasOwn(stepEnv, "NVIDIA_API_KEY") &&
+        !HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(jobName)
+      ) {
+        errors.push(
+          `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' must not receive NVIDIA_API_KEY unless listed as a legacy alias consumer`,
+        );
+      }
+    }
+  }
+}
+
+
+function validateHostedInferenceLegacyAliasInventoryBoundary(
+  errors: string[],
+  jobs: WorkflowRecord,
+): void {
+  for (const jobName of HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOBS) {
+    const job = asRecord(jobs[jobName]);
+    if (Object.keys(job).length === 0) continue;
+    const vitestSteps = asSteps(job.steps).filter((step) =>
+      stringValue(step.run).includes("npx vitest run"),
+    );
+    if (
+      !vitestSteps.some(
+        (step) => asRecord(step.env).NVIDIA_API_KEY === HOSTED_NVIDIA_API_KEY_EXPR,
+      )
+    ) {
+      errors.push(`${jobName} legacy alias consumer must receive NVIDIA_API_KEY`);
     }
   }
 }
@@ -695,7 +737,7 @@ function validateSkillAgentVitestJob(errors: string[], jobs: WorkflowRecord): vo
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run skill-agent live test");
   const runEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "skill-agent-vitest run step", runEnv);
+  requireHostedInferenceCredentialEnv(errors, "skill-agent-vitest run step", runEnv, { jobName });
   requireRunContains(
     errors,
     runVitest,
@@ -857,7 +899,7 @@ function validateNetworkPolicyVitestJob(errors: string[], jobs: WorkflowRecord):
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run network-policy live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "network-policy-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "network-policy-vitest Vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/network-policy.test.ts");
 
@@ -986,7 +1028,7 @@ function validateCommonEgressAgentVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run common-egress agent live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "common-egress-agent-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "common-egress-agent-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/common-egress-agent.test.ts");
@@ -1117,7 +1159,7 @@ function validateShieldsConfigVitestJob(errors: string[], jobs: WorkflowRecord):
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run shields-config live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "shields-config-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "shields-config-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/shields-config.test.ts");
 
@@ -1240,7 +1282,7 @@ function validateRebuildOpenClawVitestJob(errors: string[], jobs: WorkflowRecord
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run OpenClaw rebuild live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "rebuild-openclaw-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "rebuild-openclaw-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/rebuild-openclaw.test.ts");
@@ -1384,7 +1426,7 @@ function validateRebuildHermesVitestJob(
     options.staleBase ? "Run Hermes stale-base rebuild live test" : "Run Hermes rebuild live test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, `${jobName} step`, runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, `${jobName} step`, runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/rebuild-hermes.test.ts");
 
@@ -1524,7 +1566,7 @@ function validateSandboxRebuildVitestJob(errors: string[], jobs: WorkflowRecord)
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run sandbox rebuild live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "sandbox-rebuild-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "sandbox-rebuild-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/sandbox-rebuild.test.ts");
@@ -1662,7 +1704,7 @@ function validateStateBackupRestoreVitestJob(errors: string[], jobs: WorkflowRec
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run state backup restore live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "state-backup-restore-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "state-backup-restore-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/state-backup-restore.test.ts");
@@ -1818,7 +1860,7 @@ function validateUpgradeStaleSandboxVitestJob(errors: string[], jobs: WorkflowRe
     "Run upgrade stale sandbox live Vitest test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "upgrade-stale-sandbox-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "upgrade-stale-sandbox-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "OPENSHELL_BIN");
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/upgrade-stale-sandbox.test.ts");
@@ -2332,7 +2374,7 @@ function validateCloudInferenceVitestJob(errors: string[], jobs: WorkflowRecord)
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run cloud inference live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "cloud-inference-vitest run step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "cloud-inference-vitest run step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/cloud-inference.test.ts");
 
@@ -2652,7 +2694,7 @@ function validateHermesE2EVitestJob(errors: string[], jobs: WorkflowRecord): voi
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run Hermes live Vitest test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "hermes-e2e-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "hermes-e2e-vitest Vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/hermes-e2e.test.ts");
   requireRunDoesNotContain(errors, runVitest, "${{ inputs.");
@@ -2932,7 +2974,7 @@ function validateDiagnosticsVitestJob(errors: string[], jobs: WorkflowRecord): v
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run diagnostics live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "diagnostics-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "diagnostics-vitest Vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/diagnostics.test.ts");
   requireRunDoesNotContain(errors, runVitest, "${{ inputs.");
@@ -3080,7 +3122,7 @@ function validateSnapshotCommandsVitestJob(errors: string[], jobs: WorkflowRecor
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run snapshot commands live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "snapshot-commands-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "snapshot-commands-vitest Vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/snapshot-commands.test.ts");
 
@@ -3256,7 +3298,7 @@ function validateModelRouterProviderRoutedInferenceVitestJob(
     "Run Model Router provider-routed inference live test",
   );
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "model-router-provider-routed-inference-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "model-router-provider-routed-inference-vitest Vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(
     errors,
@@ -3460,7 +3502,7 @@ function validateTunnelLifecycleVitestJob(errors: string[], jobs: WorkflowRecord
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run tunnel lifecycle live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "tunnel-lifecycle-vitest Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "tunnel-lifecycle-vitest Vitest step", runVitestEnv, { jobName });
   if (runContainsCloudflaredAptInstall(stringValue(runVitest?.run))) {
     errors.push(
       "tunnel-lifecycle-vitest Vitest step must not run cloudflared APT installation with NVIDIA_INFERENCE_API_KEY in scope",
@@ -3796,7 +3838,7 @@ function validateChannelsAddRemoveVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run channels add/remove live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "channels-add-remove-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "channels-add-remove-vitest step", runVitestEnv, { jobName });
   if (runVitestEnv.TELEGRAM_BOT_TOKEN !== "test-fake-telegram-token-add-remove-e2e") {
     errors.push("channels-add-remove-vitest step must set the fake Telegram token");
   }
@@ -4125,7 +4167,7 @@ function validateTelegramInjectionVitestJob(errors: string[], jobs: WorkflowReco
 
   const runVitest = requireJobStep(errors, jobName, steps, "Run Telegram injection live test");
   const runVitestEnv = asRecord(runVitest?.env);
-  requireHostedInferenceCredentialEnv(errors, "telegram-injection-vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "telegram-injection-vitest step", runVitestEnv, { jobName });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/telegram-injection.test.ts");
 
@@ -4423,6 +4465,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
     deriveFreeStandingJobsInventoryFromJobs(jobs);
   errors.push(...inventoryErrors);
   validateFreeStandingInventoryBoundary(errors, jobs, freeStandingInventory);
+  validateHostedInferenceLegacyAliasInventoryBoundary(errors, jobs);
   const generateMatrix = asRecord(jobs["generate-matrix"]);
   if (Object.keys(generateMatrix).length === 0) errors.push("workflow missing generate-matrix job");
   if (generateMatrix["runs-on"] !== "ubuntu-latest") {
@@ -4559,7 +4602,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   if (runVitestEnv.SCENARIO_ID !== "${{ matrix.id }}") {
     errors.push("Vitest step must pass matrix.id through SCENARIO_ID env");
   }
-  requireHostedInferenceCredentialEnv(errors, "Vitest step", runVitestEnv);
+  requireHostedInferenceCredentialEnv(errors, "Vitest step", runVitestEnv, { jobName: "live-scenarios" });
   requireRunContains(errors, runVitest, "npx vitest run --project e2e-scenarios-live");
   requireRunContains(errors, runVitest, "test/e2e-scenario/live/registry-scenarios.test.ts");
   requireRunContains(errors, runVitest, '"^${SCENARIO_ID}$"');
