@@ -444,21 +444,7 @@ const { setupInference } = require(${onboardPath});
           },
         });
 
-        if (result.status !== 0) {
-          throw new Error(
-            JSON.stringify(
-              {
-                status: result.status,
-                signal: result.signal,
-                error: result.error?.message,
-                stdout: result.stdout,
-                stderr: result.stderr,
-              },
-              null,
-              2,
-            ),
-          );
-        }
+        assert.equal(result.status, 0, result.stderr);
         const log = fs.readFileSync(setupLog, "utf-8");
         assert.ok(log.includes(`python3 -m venv ${venvDir}`), log);
         assert.ok(
@@ -874,7 +860,7 @@ const { setupInference } = require(${onboardPath});
           },
         });
 
-        assert.equal(result.status, 0, [result.stderr, result.stdout].filter(Boolean).join("\n"));
+        assert.equal(result.status, 0, result.stderr);
         const log = fs.readFileSync(setupLog, "utf-8");
         assert.ok(log.includes(`python3 -m venv ${venvDir}`), log);
         assert.ok(
@@ -1064,13 +1050,13 @@ const { setupInference } = require(${onboardPath});
   const fpContent = fpExists ? fs.readFileSync(fpPath, "utf8").trim() : null;
 
   // Verify isManagedModelRouterCurrent returns true on a subsequent check
-  // when git is unavailable but the source tree still yields a files: fingerprint.
+  // when sourceFingerprint is null but the install: fingerprint file exists.
   // Import the module and call it directly.
   const modelRouter = require(${JSON.stringify(
     path.join(repoRoot, "dist", "lib", "onboard", "model-router.js"),
   )});
   const isCurrent = modelRouter.isManagedModelRouterCurrent(
-    path.join(repoRoot, "nemoclaw-blueprint", "router", "llm-router"),
+    ${JSON.stringify(path.join(tmpDir, "nonexistent-router-dir"))},
     ${JSON.stringify(venvDir)},
   );
 
@@ -1093,21 +1079,7 @@ const { setupInference } = require(${onboardPath});
           },
         });
 
-        if (result.status !== 0) {
-          throw new Error(
-            JSON.stringify(
-              {
-                status: result.status,
-                signal: result.signal,
-                error: result.error?.message,
-                stdout: result.stdout,
-                stderr: result.stderr,
-              },
-              null,
-              2,
-            ),
-          );
-        }
+        assert.equal(result.status, 0, result.stderr);
         const payload = parseStdoutJson<{
           fpExists: boolean;
           fpContent: string | null;
@@ -1117,12 +1089,17 @@ const { setupInference } = require(${onboardPath});
         assert.ok(payload.fpContent, "fingerprint content must not be empty");
         assert.match(
           payload.fpContent!,
-          /^files:[0-9a-f]{64}$/,
-          "fallback fingerprint must use deterministic files:<sha256> format",
+          /^install:.+$/,
+          "fallback fingerprint must use install:<token> format",
+        );
+        assert.doesNotMatch(
+          payload.fpContent!,
+          /^install:\d{13,}$/,
+          "fallback fingerprint must not use a timestamp",
         );
         assert.ok(
           payload.isCurrent,
-          "isManagedModelRouterCurrent must return true when git is unavailable but files: fingerprint matches",
+          "isManagedModelRouterCurrent must return true when install: fingerprint exists and source is unavailable",
         );
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
