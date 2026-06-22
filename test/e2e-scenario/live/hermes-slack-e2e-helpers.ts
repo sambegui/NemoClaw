@@ -203,6 +203,10 @@ async function providerExists(options: {
   return result.exitCode === 0;
 }
 
+type HermesSlackE2EFixtures = E2EScenarioFixtures & {
+  skip: (note?: string) => never;
+};
+
 export async function runHermesSlackE2E({
   artifacts,
   cleanup,
@@ -210,7 +214,7 @@ export async function runHermesSlackE2E({
   sandbox,
   secrets,
   skip,
-}: E2EScenarioFixtures): Promise<void> {
+}: HermesSlackE2EFixtures): Promise<void> {
   const apiKey = secrets.required("NVIDIA_INFERENCE_API_KEY");
   const env = hermesSlackEnv(apiKey);
   const redactionValues = redactions(apiKey);
