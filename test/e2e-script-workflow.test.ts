@@ -938,7 +938,7 @@ describe("E2E reusable workflow contract", () => {
     expect(hostedJobs.length).toBeGreaterThan(20);
     for (const [name, job] of hostedJobs) {
       expect(job.with?.nvidia_secret_as_compatible_api_key, name).toBeUndefined();
-      expect(job.with?.nvidia_api_key_alias ?? false, name).toBe(
+      expect(String(job.with?.nvidia_api_key_alias) === "true", name).toBe(
         HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name),
       );
     }
@@ -946,7 +946,7 @@ describe("E2E reusable workflow contract", () => {
 
   it("exposes the reusable shell NVIDIA_API_KEY alias only to documented legacy consumers", () => {
     const aliasJobs = reusableNightlyJobs(nightlyWorkflow)
-      .filter(([, job]) => job.with?.nvidia_api_key_alias === true)
+      .filter(([, job]) => String(job.with?.nvidia_api_key_alias) === "true")
       .map(([name]) => name)
       .sort();
 
@@ -958,7 +958,7 @@ describe("E2E reusable workflow contract", () => {
     for (const { name, job, script } of shellScriptJobs) {
       const readsLegacyAlias = readFileSync(script, "utf8").includes("NVIDIA_API_KEY");
       expect(HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name), name).toBe(
-        readsLegacyAlias && job.with?.nvidia_api_key === true,
+        readsLegacyAlias && String(job.with?.nvidia_api_key) === "true",
       );
     }
   });
