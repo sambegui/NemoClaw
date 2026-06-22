@@ -2847,8 +2847,11 @@ fi
 #   - another user is denied by channels.*.users
 #   - sendMessageSlack posts back to the channel through the hermetic fake API
 # OpenClaw 2026.6.9 ships only the public runtime API, so that package shape
-# falls back to the installed sendMessageSlack proof and skips private helper
-# assertions explicitly.
+# falls back to the M-S17-runtime send/token-rewrite proof. It intentionally
+# does not claim private @mention allowlist or denied-feedback coverage; the
+# static config assertions above still prove the allowlist is rendered, and the
+# private-helper branch below keeps the stronger runtime proof for package
+# shapes that expose that surface.
 info "Running Slack channel @mention allowlist proof through installed OpenClaw..."
 sl_channel_proof=""
 sl_allowed_user="${SLACK_IDS%%,*}"
@@ -2904,21 +2907,22 @@ if echo "$sl_channel_proof" | grep -q '"ok":true' \
   fi
 elif echo "$sl_channel_proof" | grep -q '"ok":true' \
   && [ "$sl_proof_kind" = "openclaw-runtime-api" ]; then
-  pass "M-S17: installed OpenClaw Slack runtime API posted through host fake Slack"
+  pass "M-S17-runtime: installed OpenClaw Slack runtime API posted through host fake Slack"
   sl_post_capture=$(check_fake_slack_capture_token "/api/chat.postMessage" "$SLACK_TOKEN" || true)
   if [ "$sl_post_capture" = "OK" ]; then
-    pass "M-S17a: fake Slack saw host-side bot token for runtime API channel send"
+    pass "M-S17-runtime-a: fake Slack saw host-side bot token for runtime API channel send"
   else
-    fail "M-S17a: fake Slack capture did not prove runtime API token rewrite: ${sl_post_capture:0:300}"
+    fail "M-S17-runtime-a: fake Slack capture did not prove runtime API token rewrite: ${sl_post_capture:0:300}"
   fi
   sl_message_capture=$(check_fake_slack_capture_message "/api/chat.postMessage" "C0E2ESLACK" "NemoClaw Slack channel mention proof" || true)
   if [ "$sl_message_capture" = "OK" ]; then
     slack_openclaw_plugin_mock_send_ok=1
-    pass "M-S17b: fake Slack captured runtime API channel/text metadata"
-    pass "M-S17c: installed OpenClaw Slack send helper drove the host-side fake Slack message"
+    pass "M-S17-runtime-b: fake Slack captured runtime API channel/text metadata"
+    pass "M-S17-runtime-c: installed OpenClaw Slack send helper drove the host-side fake Slack message"
   else
-    fail "M-S17b: fake Slack did not capture expected runtime API channel send: ${sl_message_capture:0:300}"
+    fail "M-S17-runtime-b: fake Slack did not capture expected runtime API channel send: ${sl_message_capture:0:300}"
   fi
+  skip "M-S17: OpenClaw 2026.6.9 runtime API does not expose private @mention allowlist helpers"
   skip "M-S17d: OpenClaw 2026.6.9 ships Slack runtime API but not private @mention test helpers"
 elif [ "$fake_slack_ready" != "1" ]; then
   skip "M-S17: fake Slack API was not ready"
