@@ -54,7 +54,9 @@ export function prepareSandboxCreateLaunch(input: SandboxCreateLaunchInput): San
 
   appendOpenClawRuntimeEnvArgs(envArgs, input.agent ?? null);
   appendHermesDashboardEnvArgs(envArgs, input.hermesDashboardState, formatEnvAssignment);
-  appendHostProxyEnvArgs(envArgs, env);
+  appendHostProxyEnvArgs(envArgs, env, {
+    dropCredentialBearingProxyUrls: input.agent?.name === "langchain-deepagents-code",
+  });
 
   // Propagate NEMOCLAW_PROXY_HOST / NEMOCLAW_PROXY_PORT to the runtime
   // sandbox container. patchStagedDockerfile() already substitutes them
