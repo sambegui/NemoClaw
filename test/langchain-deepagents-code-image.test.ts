@@ -195,7 +195,7 @@ describe("LangChain Deep Agents Code image contracts", () => {
       'pip3 install --no-cache-dir --break-system-packages \\"uv==',
     );
     expect(baseDockerfile).not.toContain("deepagents-code[nvidia]==${DEEPAGENTS_CODE_VERSION}");
-    expect(requirementsLock).toContain("uv==0.11.8 \\");
+    expect(requirementsLock).toContain("uv==0.11.15 \\");
     expect(requirementsLock).toContain("deepagents-code==0.1.12 \\");
     expect(requirementsLock).toContain("langchain-nvidia-ai-endpoints==");
     expect(requirementsLock).toMatch(/--hash=sha256:[a-f0-9]{64}/);
