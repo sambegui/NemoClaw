@@ -15,8 +15,7 @@ import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
 import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
-const SANDBOX_NAME =
-  process.env.NEMOCLAW_SANDBOX_NAME ?? "e2e-spark-install-vitest";
+const SANDBOX_NAME = process.env.NEMOCLAW_SANDBOX_NAME ?? "e2e-spark-install-vitest";
 const DEFAULT_INSTALL_URL = "https://www.nvidia.com/nemoclaw.sh";
 const LIVE_TIMEOUT_MS = 40 * 60_000;
 const INSTALL_TIMEOUT_MS = 30 * 60_000;
@@ -53,8 +52,7 @@ function env(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 function buildInstallerInvocation(installLog: string): InstallerInvocation {
-  const installUrl =
-    process.env.NEMOCLAW_INSTALL_SCRIPT_URL ?? DEFAULT_INSTALL_URL;
+  const installUrl = process.env.NEMOCLAW_INSTALL_SCRIPT_URL ?? DEFAULT_INSTALL_URL;
   return process.env.NEMOCLAW_E2E_PUBLIC_INSTALL === "1"
     ? {
         mode: "public",
@@ -105,18 +103,14 @@ async function bestEffortCleanup(host: HostCliClient): Promise<void> {
 }
 
 function logTail(file: string, lineCount = 80): string {
-  const lines = fs.existsSync(file)
-    ? fs.readFileSync(file, "utf8").split(/\r?\n/)
-    : [];
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
   return lines.slice(-lineCount).join("\n");
 }
 
 function exitDetail(result: ShellProbeResult, installLog?: string): string {
   return [
     resultText(result),
-    installLog
-      ? `--- install log tail (${installLog}) ---\n${logTail(installLog)}`
-      : "",
+    installLog ? `--- install log tail (${installLog}) ---\n${logTail(installLog)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -143,10 +137,9 @@ liveTest(
 
     expect(process.platform).toBe("linux");
 
-    expect(
-      fs.existsSync(path.join(REPO_ROOT, "install.sh")),
-      "repo install.sh must exist",
-    ).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, "install.sh")), "repo install.sh must exist").toBe(
+      true,
+    );
 
     const docker = await host.command("docker", ["info"], {
       artifactName: "phase-0-docker-info",
@@ -160,13 +153,10 @@ liveTest(
 
     const apiKey = secrets.required("NVIDIA_API_KEY");
     const redactionValues = [apiKey];
-    cleanup.add(`remove ${SANDBOX_NAME} after Spark install smoke`, () =>
-      bestEffortCleanup(host),
-    );
+    cleanup.add(`remove ${SANDBOX_NAME} after Spark install smoke`, () => bestEffortCleanup(host));
     await bestEffortCleanup(host);
 
-    const installLog =
-      process.env.INSTALL_LOG ?? artifacts.pathFor("logs/install.log");
+    const installLog = process.env.INSTALL_LOG ?? artifacts.pathFor("logs/install.log");
     fs.mkdirSync(path.dirname(installLog), { recursive: true });
     const installer = buildInstallerInvocation(installLog);
     await artifacts.writeJson("installer.json", {
@@ -175,9 +165,7 @@ liveTest(
       installLog,
     });
     expect(installer.script).toContain("NEMOCLAW_NON_INTERACTIVE=1");
-    expect(installer.script).toContain(
-      "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1",
-    );
+    expect(installer.script).toContain("NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1");
     expect(
       installer.mode === "local"
         ? installer.script.includes("bash install.sh --non-interactive") &&
@@ -197,19 +185,13 @@ liveTest(
       timeoutMs: INSTALL_TIMEOUT_MS,
     });
     expect(install.exitCode, exitDetail(install, installLog)).toBe(0);
-    expect(fs.existsSync(installLog), `${installLog} should be written`).toBe(
-      true,
-    );
+    expect(fs.existsSync(installLog), `${installLog} should be written`).toBe(true);
 
-    const installedCommands = await host.command(
-      "bash",
-      ["-lc", sourceInstalledPathProbe()],
-      {
-        artifactName: "phase-2-installed-cli-path-probe",
-        env: env(),
-        timeoutMs: 60_000,
-      },
-    );
+    const installedCommands = await host.command("bash", ["-lc", sourceInstalledPathProbe()], {
+      artifactName: "phase-2-installed-cli-path-probe",
+      env: env(),
+      timeoutMs: 60_000,
+    });
     expect(installedCommands.exitCode, resultText(installedCommands)).toBe(0);
     expect(installedCommands.stdout).toContain("nemoclaw");
     expect(installedCommands.stdout).toContain("openshell");
