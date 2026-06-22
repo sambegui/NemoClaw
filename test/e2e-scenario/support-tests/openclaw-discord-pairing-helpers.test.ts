@@ -269,10 +269,42 @@ describe("OpenClaw Discord pairing helper contracts", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain('"\\r\\n"');
     expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain("IDENTIFY_SENT_PLACEHOLDER");
-    expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain("parseProxyTarget");
-    expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain(
-      "unexpected HTTP proxy for Discord Gateway proof",
-    );
+  });
+
+  it.each([
+    {
+      name: "malformed proxy",
+      env: { HTTP_PROXY: "http://[", http_proxy: "" },
+      error: "HTTP proxy for Discord Gateway proof is malformed",
+    },
+    {
+      name: "non-HTTP proxy",
+      env: { HTTP_PROXY: "socks5://127.0.0.1:1080", http_proxy: "" },
+      error: "Discord Gateway proof only supports HTTP proxies",
+    },
+    {
+      name: "invalid proxy port",
+      env: { HTTP_PROXY: "http://127.0.0.1:70000", http_proxy: "" },
+      error: "HTTP proxy for Discord Gateway proof is malformed",
+    },
+    {
+      name: "unexpected valid proxy host",
+      env: { HTTP_PROXY: "http://127.0.0.1:3128", http_proxy: "" },
+      error: "unexpected HTTP proxy for Discord Gateway proof",
+    },
+  ])("fails closed on invalid Discord Gateway proxy input before network access: $name", ({
+    env,
+    error,
+  }) => {
+    const result = spawnSync(process.execPath, ["--input-type=module"], {
+      input: `${DISCORD_GATEWAY_PROOF_SOURCE}\n`,
+      encoding: "utf8",
+      env: { ...process.env, FAKE_DISCORD_GATEWAY_PORT: "12345", ...env },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toEqual(expect.stringContaining(error));
+    expect(result.stderr).not.toContain("ECONNREFUSED");
   });
 
   it("rejects malformed sandboxNode env keys before sandbox execution", async () => {

@@ -655,6 +655,14 @@ export async function approveAndAssertPairing(options: {
 // Ported from test/e2e/lib/discord-gateway-proof.sh run_fake_discord_gateway_node_client.
 // Keep the request framing as raw source so CRLF sequences remain JavaScript
 // escapes inside the sandbox node heredoc rather than literal line breaks.
+// Source-of-truth boundary: the Discord Gateway proof owns validation for its
+// localized sandbox HTTP proxy env because it opens a raw Node socket to the fake
+// gateway. Invalid state: malformed proxy env, non-HTTP proxies, invalid ports,
+// or proxy destinations other than the NemoClaw/OpenShell gateway proxy would
+// hide handshake failures behind low-level network errors or route the proof
+// through an unexpected host. Source-fix constraint: keep global sandbox proxy
+// generation unchanged; fail closed here before network access. Remove this
+// parser once the proof uses a shared fake-provider websocket client.
 export const DISCORD_GATEWAY_PROOF_SOURCE = String.raw`
 import crypto from "node:crypto";
 import net from "node:net";
