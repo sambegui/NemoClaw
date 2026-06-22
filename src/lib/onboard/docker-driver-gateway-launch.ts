@@ -213,6 +213,17 @@ function compatGatewayBindAddress(env: NodeJS.ProcessEnv): string {
   );
 }
 
+function buildGatewayProcessEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  gatewayEnv: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const env = { ...baseEnv, ...gatewayEnv };
+  if (!("OPENSHELL_DISABLE_GATEWAY_AUTH" in gatewayEnv)) {
+    delete env.OPENSHELL_DISABLE_GATEWAY_AUTH;
+  }
+  return env;
+}
+
 export function buildDockerDriverGatewayLaunch(
   options: BuildGatewayLaunchOptions,
 ): DockerDriverGatewayLaunch {
@@ -228,7 +239,7 @@ export function buildDockerDriverGatewayLaunch(
   const baseEnv = options.env ?? process.env;
   const compat = shouldUseContainerizedGateway(options);
   if (!compat.useContainer) {
-    const env = { ...baseEnv, ...gatewayEnv };
+    const env = buildGatewayProcessEnv(baseEnv, gatewayEnv);
     return {
       command: options.gatewayBin,
       args: [],
@@ -239,7 +250,7 @@ export function buildDockerDriverGatewayLaunch(
   }
 
   gatewayEnv.OPENSHELL_BIND_ADDRESS = compatGatewayBindAddress(baseEnv);
-  const env = { ...baseEnv, ...gatewayEnv };
+  const env = buildGatewayProcessEnv(baseEnv, gatewayEnv);
   const sandboxBin = options.sandboxBin || gatewayEnv.OPENSHELL_DOCKER_SUPERVISOR_BIN;
   if (!sandboxBin) {
     throw new Error(

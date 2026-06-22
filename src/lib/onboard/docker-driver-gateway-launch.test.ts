@@ -138,6 +138,30 @@ describe("docker-driver-gateway-launch", () => {
     });
   });
 
+  it("scrubs stale auth-disable env from compatibility gateway launches", () => {
+    withTempBinaries(({ dir, gatewayBin, sandboxBin }) => {
+      const stateDir = path.join(dir, "state");
+      fs.mkdirSync(stateDir);
+      const launch = buildDockerDriverGatewayLaunch({
+        gatewayBin,
+        sandboxBin,
+        stateDir,
+        platform: "linux",
+        env: {
+          NEMOCLAW_OPENSHELL_GATEWAY_CONTAINER_PATCH: "1",
+          OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
+        },
+        gatewayEnv: {
+          OPENSHELL_DRIVERS: "docker",
+        },
+      });
+
+      expect(launch.mode).toBe("container");
+      expect(launch.env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
+      expect(launch.args).not.toContain("OPENSHELL_DISABLE_GATEWAY_AUTH");
+    });
+  });
+
   it("logs the auth boundary when compatibility mode wildcard-binds the gateway", () => {
     const messages: string[] = [];
     prepareAndLogDockerDriverGatewayLaunch(
@@ -279,6 +303,23 @@ describe("docker-driver-gateway-launch", () => {
         mode: "host",
         processGatewayBin: gatewayBin,
       });
+    });
+  });
+
+  it("scrubs stale auth-disable env from direct host gateway launches", () => {
+    withTempBinaries(({ dir, gatewayBin }) => {
+      const launch = buildDockerDriverGatewayLaunch({
+        gatewayBin,
+        stateDir: dir,
+        platform: "linux",
+        env: { OPENSHELL_DISABLE_GATEWAY_AUTH: "true" },
+        hostGlibcVersion: "2.39",
+        requiredGlibcVersions: ["2.39"],
+        gatewayEnv: { OPENSHELL_DRIVERS: "docker" },
+      });
+
+      expect(launch.mode).toBe("host");
+      expect(launch.env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
     });
   });
 });
