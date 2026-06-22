@@ -19,7 +19,7 @@ flowchart TD
   compiler["ManifestCompiler"]
   plan["SandboxMessagingPlan"]
   setup["MessagingSetupApplier"]
-  dockerfile["onboard/dockerfile-patch.ts"]
+  dockerfile["src/lib/onboard/dockerfile-patch.ts"]
   build["applier/build/messaging-build-applier.mts"]
   openshell["OpenShell providers, policy, forwards, and config files"]
   state["MessagingHostStateApplier and sandbox registry"]
@@ -45,10 +45,11 @@ The workflow has these stages.
 2. `MessagingWorkflowPlanner` chooses the workflow shape for onboard, add, remove, start, stop, or rebuild.
 3. `ManifestCompiler` filters supported channels, resolves inputs, runs compiler-time hooks, and compiles a `SandboxMessagingPlan`.
 4. `MessagingSetupApplier` serializes the plan through `NEMOCLAW_MESSAGING_PLAN_B64` and applies provider, policy, agent config, and hook phases on the host side.
-5. `onboard/dockerfile-patch.ts` passes the encoded plan into image builds.
+5. `src/lib/onboard/dockerfile-patch.ts` passes the encoded plan into image builds.
 6. `applier/build/messaging-build-applier.mts` applies build-time package installs, render entries, post-agent-install files, and the reduced runtime plan artifact.
 7. `MessagingHostStateApplier` persists compact plan state under the sandbox registry entry.
-8. Rebuild hydrates persisted plans from current manifests so derived policy, render, host-forward, package, runtime, and hook fields stay current.
+8. Rebuild hydrates persisted plans from current manifests so compacted render, host-forward, package, runtime, and hook fields stay current.
+   Non-empty persisted `networkPolicy` entries are preserved and regenerated only when they are absent or empty.
 
 ## Class Diagram
 
@@ -78,6 +79,7 @@ classDiagram
     agent: MessagingAgentId
     workflow: MessagingCompilerWorkflow
     channels: SandboxMessagingChannelPlan[]
+    disabledChannels: MessagingChannelId[]
     credentialBindings: SandboxMessagingCredentialBindingPlan[]
     networkPolicy: SandboxMessagingNetworkPolicyPlan
     agentRender: SandboxMessagingAgentRenderPlan[]
@@ -487,4 +489,5 @@ Add the channel through the manifest-first path.
 - Hook output declarations must exist before code consumes the output.
 - Agent render and hook build-file targets must stay inside `/sandbox/.openclaw` or `/sandbox/.hermes`.
 - Disabled channels must be filtered before side effects run.
-- Rebuild should hydrate derived fields from current manifests instead of trusting stale persisted render, policy, package, host-forward, runtime, or hook data.
+- Rebuild should hydrate compacted or missing derived fields from current manifests instead of trusting stale persisted render, package, host-forward, runtime, or hook data.
+- Rebuild preserves non-empty persisted `networkPolicy` entries and regenerates policy only when entries are absent or empty.
