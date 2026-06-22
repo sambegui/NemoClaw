@@ -83,6 +83,19 @@ export async function cleanupPairingSandbox(
   );
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function policyEndpointBlock(text: string, host: string): string {
+  const lines = text.split(/\r?\n/);
+  const hostPattern = new RegExp(`^\\s*-\\s+host:\\s*["']?${escapeRegExp(host)}["']?\\s*$`);
+  const start = lines.findIndex((line) => hostPattern.test(line));
+  expect(start, `Slack policy includes endpoint block for ${host}`).toBeGreaterThanOrEqual(0);
+  const next = lines.findIndex((line, index) => index > start && /^\s*-\s+host:\s*/.test(line));
+  return lines.slice(start, next === -1 ? undefined : next).join("\n");
+}
+
 export async function assertSlackPresetPolicySemantics(options: {
   host: HostCliClient;
   sandboxName: string;
@@ -104,17 +117,19 @@ export async function assertSlackPresetPolicySemantics(options: {
   const requiredRestHosts = ["slack.com", "api.slack.com", "hooks.slack.com"];
   const requiredWebsocketHosts = ["wss-primary.slack.com", "wss-backup.slack.com"];
   for (const host of requiredRestHosts) {
-    expect(text, `Slack policy includes ${host}`).toContain(`host: ${host}`);
+    const block = policyEndpointBlock(text, host);
+    expect(
+      block,
+      `Slack REST endpoint ${host} preserves request-body credential rewrite`,
+    ).toContain("request_body_credential_rewrite: true");
   }
   for (const host of requiredWebsocketHosts) {
-    expect(text, `Slack websocket policy includes ${host}`).toContain(`host: ${host}`);
+    const block = policyEndpointBlock(text, host);
+    expect(
+      block,
+      `Slack websocket endpoint ${host} preserves websocket credential rewrite`,
+    ).toContain("websocket_credential_rewrite: true");
   }
-  expect(text, "Slack REST preset preserves request-body credential rewrite").toContain(
-    "request_body_credential_rewrite: true",
-  );
-  expect(text, "Slack websocket preset preserves websocket credential rewrite").toContain(
-    "websocket_credential_rewrite: true",
-  );
 }
 
 export async function startFakeDiscordGateway(
