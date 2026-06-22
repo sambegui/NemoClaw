@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const DOCKER_DRIVER_GATEWAY_CONFIG_NAME = "openshell-gateway.toml";
+export const DOCKER_DRIVER_GATEWAY_JWT_TTL_SECS = 3600;
 const GATEWAY_JWT_DIR_NAME = "jwt";
 
 export type DockerDriverGatewayJwtBundle = {
@@ -108,7 +109,10 @@ export function buildDockerDriverGatewayConfigToml(
       `public_key_path = ${tomlString(jwtBundle.publicKeyPath)}`,
       `kid_path = ${tomlString(jwtBundle.kidPath)}`,
       `gateway_id = ${tomlString(gatewayId)}`,
-      "ttl_secs = 0",
+      `ttl_secs = ${DOCKER_DRIVER_GATEWAY_JWT_TTL_SECS}`,
+      "",
+      "[openshell.gateway.auth]",
+      "allow_unauthenticated_users = false",
       "",
     );
   }

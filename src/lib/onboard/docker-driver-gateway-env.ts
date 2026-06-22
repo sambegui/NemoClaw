@@ -91,7 +91,6 @@ export function buildDockerDriverGatewayEnv({
     OPENSHELL_DRIVERS: "docker",
     ...getGatewayStartNetworkEnv(),
     OPENSHELL_DISABLE_TLS: "true",
-    OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
     OPENSHELL_DB_URL: `sqlite:${path.join(stateDir, "openshell.db")}`,
     OPENSHELL_GRPC_ENDPOINT: getDockerDriverGatewayEndpoint(),
     OPENSHELL_DOCKER_NETWORK_NAME: dockerNetworkName,

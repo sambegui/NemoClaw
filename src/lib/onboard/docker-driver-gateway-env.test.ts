@@ -16,14 +16,14 @@ import {
 
 describe("buildDockerDriverGatewayEnv", () => {
   it("sets Docker-driver gateway networking from NemoClaw configuration", () => {
-    expect(
-      buildDockerDriverGatewayEnv({
-        platform: "linux",
-        stateDir: "/tmp/nemoclaw-gateway",
-        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.37",
-        resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
-      }),
-    ).toMatchObject({
+    const env = buildDockerDriverGatewayEnv({
+      platform: "linux",
+      stateDir: "/tmp/nemoclaw-gateway",
+      getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.37",
+      resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+    });
+
+    expect(env).toMatchObject({
       OPENSHELL_DRIVERS: "docker",
       OPENSHELL_BIND_ADDRESS: "127.0.0.1",
       OPENSHELL_SERVER_PORT: "8080",
@@ -35,6 +35,7 @@ describe("buildDockerDriverGatewayEnv", () => {
       OPENSHELL_DOCKER_SUPERVISOR_BIN: "/usr/bin/openshell-sandbox",
       OPENSHELL_GATEWAY_CONFIG: "/tmp/nemoclaw-gateway/openshell-gateway.toml",
     });
+    expect(env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
   });
 
   it("uses the Docker driver on macOS without VM helper state", () => {
@@ -80,9 +81,12 @@ describe("buildDockerDriverGatewayEnv", () => {
       expect(toml).toContain(`public_key_path = "${publicKeyPath}"`);
       expect(toml).toContain(`kid_path = "${kidPath}"`);
       expect(toml).toContain('gateway_id = "nemoclaw-');
-      expect(toml).toContain("ttl_secs = 0");
+      expect(toml).toContain("ttl_secs = 3600");
+      expect(toml).toContain("[openshell.gateway.auth]");
+      expect(toml).toContain("allow_unauthenticated_users = false");
       expect(toml).toContain('compute_drivers = ["docker"]');
       expect(toml).toContain('supervisor_bin = "/usr/bin/openshell-sandbox"');
+      expect(env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
       expect(fs.statSync(stateDir).mode & 0o777).toBe(0o700);
       expect(fs.statSync(path.join(stateDir, "jwt")).mode & 0o777).toBe(0o700);
       expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
@@ -114,6 +118,39 @@ describe("buildDockerDriverGatewayEnv", () => {
       });
 
       expect(fs.readFileSync(signingKeyPath, "utf-8")).toBe(firstSigningKey);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("regenerates an incomplete gateway JWT bundle before writing config", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-env-config-"));
+    try {
+      const jwtDir = path.join(stateDir, "jwt");
+      fs.mkdirSync(jwtDir, { recursive: true, mode: 0o700 });
+      const signingKeyPath = path.join(jwtDir, "signing.pem");
+      const publicKeyPath = path.join(jwtDir, "public.pem");
+      const kidPath = path.join(jwtDir, "kid");
+      fs.writeFileSync(signingKeyPath, "stale partial key\n", { mode: 0o600 });
+
+      buildDockerDriverGatewayEnv({
+        platform: "linux",
+        stateDir,
+        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.67",
+        resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+      });
+
+      const toml = fs.readFileSync(path.join(stateDir, "openshell-gateway.toml"), "utf-8");
+      expect(fs.readFileSync(signingKeyPath, "utf-8")).not.toBe("stale partial key\n");
+      expect(fs.existsSync(publicKeyPath)).toBe(true);
+      expect(fs.existsSync(kidPath)).toBe(true);
+      expect(fs.statSync(jwtDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(signingKeyPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(publicKeyPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(kidPath).mode & 0o777).toBe(0o600);
+      expect(toml).toContain(`signing_key_path = "${signingKeyPath}"`);
+      expect(toml).toContain(`public_key_path = "${publicKeyPath}"`);
+      expect(toml).toContain(`kid_path = "${kidPath}"`);
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
