@@ -46,7 +46,7 @@ function assertTestOwnedSandboxName(): void {
 }
 
 function overlayfsAutofixNotInRuntimePath(): boolean {
-  return isLinuxDockerDriverGatewayEnabled(os.platform(), process.arch);
+  return !isLinuxDockerDriverGatewayEnabled(os.platform(), process.arch);
 }
 
 function overlayEnv(apiKey: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
