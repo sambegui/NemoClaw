@@ -17,11 +17,8 @@ const POLICIES_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "policy
 const REGISTRY_PATH = JSON.stringify(path.join(REPO_ROOT, "dist", "lib", "state", "registry.js"));
 
 function requirePresetContent(content: string | null): string {
-  expect(content).toBeTruthy();
-  if (!content) {
-    throw new Error("Expected preset content to be present");
-  }
-  return content;
+  expect(content).toEqual(expect.any(String));
+  return content as string;
 }
 
 function parseResultPayload(stdout: string): any {
