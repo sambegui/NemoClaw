@@ -360,27 +360,32 @@ export async function approveAndAssertPairing(options: {
   }
 }
 
-export async function runDiscordGatewayProof(options: {
-  sandbox: SandboxClient;
-  sandboxName: string;
-  port: string;
-  redactions: string[];
-}): Promise<ShellProbeResult> {
-  const source =
-    String.raw`
+// Ported from test/e2e/lib/discord-gateway-proof.sh run_fake_discord_gateway_node_client.
+// Keep the request framing as raw source so CRLF sequences remain JavaScript
+// escapes inside the sandbox node heredoc rather than literal line breaks.
+export const DISCORD_GATEWAY_PROOF_SOURCE = String.raw`
 import crypto from "node:crypto";
 import net from "node:net";
+
 const host = "host.openshell.internal";
 const port = Number(process.env.FAKE_DISCORD_GATEWAY_PORT);
 const identifyToken = "openshell:resolve:env:DISCORD_BOT_TOKEN";
 const results = [];
-function finish(message) { if (message) results.push(message); console.log(results.join("\n")); process.exit(0); }
+
+function finish(message) {
+  if (message) results.push(message);
+  console.log(results.join("\n"));
+  process.exit(0);
+}
+
 function encodeClientText(payload) {
   const body = Buffer.from(payload, "utf8");
   const mask = crypto.randomBytes(4);
   const masked = Buffer.alloc(body.length);
   for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4];
-  if (body.length < 126) return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  if (body.length < 126) {
+    return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  }
   if (body.length <= 0xffff) {
     const header = Buffer.alloc(4);
     header[0] = 0x81;
@@ -394,32 +399,125 @@ function encodeClientText(payload) {
   header.writeBigUInt64BE(BigInt(body.length), 2);
   return Buffer.concat([header, mask, masked]);
 }
-function encodeClientClose(code) { const body = Buffer.alloc(2); body.writeUInt16BE(code, 0); const mask = crypto.randomBytes(4); for (let i = 0; i < body.length; i += 1) body[i] ^= mask[i % 4]; return Buffer.concat([Buffer.from([0x88, 0x80 | 2]), mask, body]); }
-function decodeFrame(buffer) { if (buffer.length < 2) return null; const opcode = buffer[0] & 0x0f; let payloadLength = buffer[1] & 0x7f; let offset = 2; if (payloadLength === 126) { if (buffer.length < 4) return null; payloadLength = buffer.readUInt16BE(2); offset = 4; } if (buffer.length < offset + payloadLength) return null; return { opcode, payload: buffer.slice(offset, offset + payloadLength), totalLength: offset + payloadLength }; }
+
+function encodeClientClose(code) {
+  const body = Buffer.alloc(2);
+  body.writeUInt16BE(code, 0);
+  const mask = crypto.randomBytes(4);
+  for (let i = 0; i < body.length; i += 1) body[i] ^= mask[i % 4];
+  return Buffer.concat([Buffer.from([0x88, 0x80 | 2]), mask, body]);
+}
+
+function decodeFrame(buffer) {
+  if (buffer.length < 2) return null;
+  const opcode = buffer[0] & 0x0f;
+  let payloadLength = buffer[1] & 0x7f;
+  let offset = 2;
+  if (payloadLength === 126) {
+    if (buffer.length < 4) return null;
+    payloadLength = buffer.readUInt16BE(2);
+    offset = 4;
+  } else if (payloadLength === 127) {
+    if (buffer.length < 10) return null;
+    payloadLength = Number(buffer.readBigUInt64BE(2));
+    offset = 10;
+  }
+  if (buffer.length < offset + payloadLength) return null;
+  return {
+    opcode,
+    payload: buffer.slice(offset, offset + payloadLength),
+    totalLength: offset + payloadLength,
+  };
+}
+
 const socket = net.createConnection({ host, port });
-const timer = setTimeout(() => { socket.destroy(); finish("TIMEOUT"); }, 20000);
-let handshake = Buffer.alloc(0), framed = Buffer.alloc(0), upgraded = false;
-socket.on("connect", () => { const key = crypto.randomBytes(16).toString("base64"); socket.write([` +
-    "`GET /gateway?v=10&encoding=json HTTP/1.1`" +
-    `, ` +
-    "`Host: ${host}:${port}`" +
-    `, "Upgrade: websocket", "Connection: Upgrade", ` +
-    "`Sec-WebSocket-Key: ${key}`" +
-    `, "Sec-WebSocket-Version: 13", "\r\n"].join("\r\n")); });
-socket.on("data", (chunk) => {
-  if (!upgraded) { handshake = Buffer.concat([handshake, chunk]); const end = handshake.indexOf("\r\n\r\n"); if (end === -1) return; const statusLine = handshake.slice(0, end).toString("latin1").split("\r\n")[0] || ""; if (!statusLine.includes("101")) { clearTimeout(timer); finish(` +
-    "`HTTP_${statusLine}`" +
-    `); } upgraded = true; results.push("UPGRADE"); framed = Buffer.concat([framed, handshake.slice(end + 4)]); } else framed = Buffer.concat([framed, chunk]);
-  while (framed.length > 0) { const frame = decodeFrame(framed); if (!frame) break; framed = framed.slice(frame.totalLength); if (frame.opcode === 1) { const message = JSON.parse(frame.payload.toString("utf8")); if (message.op === 10) { results.push("HELLO"); socket.write(encodeClientText(JSON.stringify({ op: 2, d: { token: identifyToken, intents: 0, properties: { os: "linux", browser: "nemoclaw-e2e", device: "nemoclaw-e2e" } } }))); results.push("IDENTIFY_SENT_PLACEHOLDER"); } else if (message.op === 0 && message.t === "READY") { results.push("READY"); socket.write(encodeClientText(JSON.stringify({ op: 1, d: message.s ?? null }))); } else if (message.op === 11) { results.push("HEARTBEAT_ACK"); socket.write(encodeClientClose(1000)); clearTimeout(timer); finish(); } } }
+const timer = setTimeout(() => {
+  try { socket.destroy(); } catch {}
+  finish("TIMEOUT");
+}, 20000);
+let handshake = Buffer.alloc(0);
+let framed = Buffer.alloc(0);
+let upgraded = false;
+
+socket.on("connect", () => {
+  const key = crypto.randomBytes(16).toString("base64");
+  socket.write([
+    "GET /gateway?v=10&encoding=json HTTP/1.1",
+    "Host: " + host + ":" + port,
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: " + key,
+    "Sec-WebSocket-Version: 13",
+    "\r\n",
+  ].join("\r\n"));
 });
-socket.on("error", (error) => { clearTimeout(timer); finish(` +
-    "`ERROR:${error.message}`" +
-    `); });
+
+socket.on("data", (chunk) => {
+  if (!upgraded) {
+    handshake = Buffer.concat([handshake, chunk]);
+    const end = handshake.indexOf("\r\n\r\n");
+    if (end === -1) return;
+    const statusLine = handshake.slice(0, end).toString("latin1").split("\r\n")[0] || "";
+    if (!statusLine.includes("101")) {
+      clearTimeout(timer);
+      finish("HTTP_" + statusLine);
+    }
+    upgraded = true;
+    results.push("UPGRADE");
+    framed = Buffer.concat([framed, handshake.slice(end + 4)]);
+  } else {
+    framed = Buffer.concat([framed, chunk]);
+  }
+
+  while (framed.length > 0) {
+    const frame = decodeFrame(framed);
+    if (!frame) break;
+    framed = framed.slice(frame.totalLength);
+    if (frame.opcode === 1) {
+      const message = JSON.parse(frame.payload.toString("utf8"));
+      if (message.op === 10) {
+        results.push("HELLO");
+        socket.write(encodeClientText(JSON.stringify({
+          op: 2,
+          d: {
+            token: identifyToken,
+            intents: 0,
+            properties: { os: "linux", browser: "nemoclaw-e2e", device: "nemoclaw-e2e" },
+          },
+        })));
+        results.push("IDENTIFY_SENT_PLACEHOLDER");
+      } else if (message.op === 0 && message.t === "READY") {
+        results.push("READY");
+        socket.write(encodeClientText(JSON.stringify({ op: 1, d: message.s ?? null })));
+      } else if (message.op === 11) {
+        results.push("HEARTBEAT_ACK");
+        socket.write(encodeClientClose(1000));
+        clearTimeout(timer);
+        finish();
+      }
+    } else if (frame.opcode === 8) {
+      clearTimeout(timer);
+      finish("CLOSE_BEFORE_ACK");
+    }
+  }
+});
+
+socket.on("error", (error) => {
+  clearTimeout(timer);
+  finish("ERROR:" + error.message);
+});
 `;
+
+export async function runDiscordGatewayProof(options: {
+  sandbox: SandboxClient;
+  sandboxName: string;
+  port: string;
+  redactions: string[];
+}): Promise<ShellProbeResult> {
   return sandboxNode(
     options.sandbox,
     options.sandboxName,
-    source,
+    DISCORD_GATEWAY_PROOF_SOURCE,
     { FAKE_DISCORD_GATEWAY_PORT: options.port },
     {
       artifactName: "discord-gateway-proof",

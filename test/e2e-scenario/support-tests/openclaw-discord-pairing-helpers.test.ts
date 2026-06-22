@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildPairingApproveCommand,
   buildPairingPendingCommand,
+  DISCORD_GATEWAY_PROOF_SOURCE,
   LOAD_CONVERSATION_RUNTIME_SOURCE,
 } from "../live/openclaw-pairing-helpers.ts";
 import { sandboxNode } from "../live/phase6-messaging-helpers.ts";
@@ -170,6 +171,17 @@ describe("OpenClaw Discord pairing helper contracts", () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("keeps Discord Gateway proof source valid for sandbox node heredoc", () => {
+    const result = spawnSync(process.execPath, ["--input-type=module", "--check"], {
+      input: DISCORD_GATEWAY_PROOF_SOURCE,
+      encoding: "utf8",
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain('"\\r\\n"');
+    expect(DISCORD_GATEWAY_PROOF_SOURCE).toContain("IDENTIFY_SENT_PLACEHOLDER");
   });
 
   it("rejects malformed sandboxNode env keys before sandbox execution", async () => {
