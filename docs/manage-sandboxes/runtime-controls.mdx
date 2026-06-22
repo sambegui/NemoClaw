@@ -29,7 +29,7 @@ The table below maps each commonly changed item to the layer that owns it and th
 | Sub-agent (Hermes / OpenClaw / …) | Re-onboard required (the sub-agent and its workspace are baked at onboard) | `$$nemoclaw onboard --recreate-sandbox` |
 | Network policy preset (slack, discord, telegram, brave, …) | Runtime. Applies on the next request; rebuild only required if the preset adds bind-mounted secrets | `$$nemoclaw <name> policy-add <preset>` / `policy-remove <preset>` |
 | Network allow-list (custom hosts) | Runtime. Picks up at next request | `openshell policy set` or interactive approval prompt at the gateway |
-| Channel credentials (Slack, Discord, Telegram, Teams, and other supported channels) | Rebuild required (channel configuration is baked into the sandbox image; secrets stay in OpenShell providers or host-side credential storage) | `$$nemoclaw <name> channels add <channel>` then accept the rebuild prompt |
+| Channel tokens (Slack / Discord / Telegram bot credentials) | Rebuild required (tokens are baked into the sandbox image at onboard so they never leave the host clear-text) | `$$nemoclaw <name> channels add <channel>` then accept the rebuild prompt |
 | Channel enable/disable (turn a configured channel off without removing the token) | Rebuild required (`openclaw.json` is the source of truth at runtime, see #3453) | `$$nemoclaw <name> channels stop <channel>` then rebuild |
 | Dashboard forward port | Runtime. Port is re-resolved on next `connect` | `NEMOCLAW_DASHBOARD_PORT=<port> $$nemoclaw <name> connect` |
 | Dashboard bind address (loopback compared to all interfaces) | Runtime. Applies on next `connect` | `NEMOCLAW_DASHBOARD_BIND=0.0.0.0 $$nemoclaw <name> connect` (see #3259) |
@@ -53,7 +53,7 @@ If a row above conflicts with what you observe, the runtime source of truth insi
 | Agent runtime (Hermes compared to OpenClaw) | Re-onboard required (the agent and its state layout are baked at onboard) | `$$nemoclaw onboard --recreate-sandbox` or `nemoclaw onboard --agent openclaw --recreate-sandbox` |
 | Network policy preset (slack, discord, telegram, brave, …) | Runtime. Applies on the next request; rebuild only required if the preset adds bind-mounted secrets | `$$nemoclaw <name> policy-add <preset>` / `policy-remove <preset>` |
 | Network allow-list (custom hosts) | Runtime. Picks up at next request | `openshell policy set` or interactive approval prompt at the gateway |
-| Channel credentials (Slack, Discord, Telegram, Teams, and other supported channels) | Rebuild required (channel configuration is baked into the sandbox image; secrets stay in OpenShell providers or host-side credential storage) | `$$nemoclaw <name> channels add <channel>` then accept the rebuild prompt |
+| Channel tokens (Slack / Discord / Telegram bot credentials) | Rebuild required (tokens are baked into the sandbox image at onboard so they never leave the host clear-text) | `$$nemoclaw <name> channels add <channel>` then accept the rebuild prompt |
 | Channel enable/disable (turn a configured channel off without removing the token) | Rebuild required (`/sandbox/.hermes/.env` and Hermes config are baked at image build time) | `$$nemoclaw <name> channels stop <channel>` then rebuild |
 | API/dashboard forward port | Runtime. Port is re-resolved on next `connect` | `$$nemoclaw <name> connect` or `openshell forward start` |
 | Filesystem layout (Landlock zones, read-only mounts, container caps) | **Locked at creation**. No runtime change | Re-onboard with `$$nemoclaw onboard --recreate-sandbox` |

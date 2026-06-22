@@ -63,7 +63,6 @@ NemoClaw ships maintained policy presets for common services in `nemoclaw-bluepr
 | Public reference APIs | `public-reference` |
 | Python Package Index | `pypi` |
 | Slack messaging | `slack` |
-| Microsoft Teams messaging (experimental) | `teams` |
 | Telegram Bot API | `telegram` |
 | Weather and geocoding APIs | `weather` |
 | WeChat (personal) iLink Bot API (experimental) | `wechat` |
@@ -127,7 +126,7 @@ If delivery fails, open the TUI and send a test message to the bot:
 openshell term
 ```
 
-The matching preset for each supported messaging channel is the channel name (`telegram`, `discord`, `slack`, `wechat`, `whatsapp`, or `teams`).
+The matching preset for each supported messaging channel is the channel name (`telegram`, `discord`, `slack`, `wechat`, or `whatsapp`).
 
 ## Slack or Discord Messaging
 
@@ -160,26 +159,6 @@ If you enabled Slack or Discord during onboarding, apply only the matching prese
 $$nemoclaw my-assistant policy-add slack --yes
 $$nemoclaw my-assistant policy-add discord --yes
 ```
-
-## Microsoft Teams Messaging (Experimental)
-
-Microsoft Teams needs Bot Framework channel configuration, a public HTTPS webhook, and egress policy.
-Set the app credentials, add the channel, rebuild, and apply the `teams` preset:
-
-```bash
-export MSTEAMS_APP_ID=<your-teams-client-id>
-export MSTEAMS_APP_PASSWORD=<your-teams-client-secret>
-export MSTEAMS_TENANT_ID=<your-teams-tenant-id>
-export TEAMS_ALLOWED_USERS=<your-aad-object-id>
-NEMOCLAW_NON_INTERACTIVE=1 $$nemoclaw my-assistant channels add teams
-$$nemoclaw my-assistant rebuild
-$$nemoclaw my-assistant policy-add teams --yes
-```
-
-NemoClaw starts the local OpenShell port forward for the active Teams channel on the configured `MSTEAMS_PORT` value, which defaults to `3978`.
-No two active Teams sandboxes can share that local webhook port.
-The Teams app must point at a public HTTPS endpoint that forwards to `/api/messages` on that host port.
-For Hermes sandboxes, NemoClaw renders the Teams adapter env as `TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, `TEAMS_TENANT_ID`, `TEAMS_ALLOWED_USERS`, and `TEAMS_PORT`.
 
 ## WeChat or WhatsApp Messaging (Experimental)
 
@@ -403,5 +382,5 @@ Use `$$nemoclaw my-assistant policy-add` for maintained NemoClaw presets.
 
 - [Approve or Deny Agent Network Requests](approve-network-requests) for the interactive OpenShell TUI flow.
 - [Customize the Sandbox Network Policy](customize-network-policy) for static policy edits and raw OpenShell policy files.
-- [Messaging Channels](../manage-sandboxes/messaging-channels) for Telegram, Discord, Slack, WeChat, WhatsApp, and Microsoft Teams channel configuration.
+- [Messaging Channels](../manage-sandboxes/messaging-channels) for Telegram, Discord, Slack, WeChat, and WhatsApp channel configuration.
 - [Commands](../reference/commands) for the full `policy-add`, `policy-list`, `policy-remove`, and `channels` command reference.

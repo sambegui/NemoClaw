@@ -111,7 +111,7 @@ If non-interactive mode cannot cover a later prompt, stop before running the int
 
 Non-interactive onboarding can skip the interactive messaging-channel picker. After the sandbox is created, ask whether I want to set up messaging as a separate one-question selection.
 
-- First ask: "Do you want to set up a messaging channel now?" with choices: No, Telegram, Discord, Slack, Microsoft Teams (experimental), WhatsApp, WeChat (experimental).
+- First ask: "Do you want to set up a messaging channel now?" with choices: No, Telegram, Discord, Slack, WhatsApp, WeChat (experimental).
 - Configure one channel at a time. If I want another channel, ask again after the current channel finishes.
 - Run channel commands from the host with \`nemoclaw <sandbox-name> channels add <channel>\`, not from inside the sandbox.
 - Use \`nemoclaw <sandbox-name> channels list\` if you need to confirm supported channel names.
@@ -125,7 +125,6 @@ Channel credential requirements:
 | Telegram | \`TELEGRAM_BOT_TOKEN\`; optional \`TELEGRAM_ALLOWED_IDS\`, \`TELEGRAM_REQUIRE_MENTION\`, \`TELEGRAM_GROUP_POLICY\` (OpenClaw only) |
 | Discord | \`DISCORD_BOT_TOKEN\`; optional \`DISCORD_SERVER_ID\`, \`DISCORD_USER_ID\`, \`DISCORD_REQUIRE_MENTION\` |
 | Slack | \`SLACK_BOT_TOKEN\`, \`SLACK_APP_TOKEN\`; optional \`SLACK_ALLOWED_USERS\`, \`SLACK_ALLOWED_CHANNELS\` |
-| Microsoft Teams | \`MSTEAMS_APP_ID\`, \`MSTEAMS_APP_PASSWORD\`, \`MSTEAMS_TENANT_ID\`; optional \`TEAMS_ALLOWED_USERS\`, \`MSTEAMS_PORT\`; OpenClaw-only \`TEAMS_REQUIRE_MENTION\` |
 | WhatsApp | No host token; add the channel, rebuild, then complete QR pairing inside the sandbox as documented |
 | WeChat | Interactive QR scan only; do not use non-interactive mode for WeChat |
 
@@ -143,11 +142,6 @@ nemoclaw <sandbox-name> rebuild
 
 \`\`\`shell
 NEMOCLAW_NON_INTERACTIVE=1 SLACK_BOT_TOKEN=<local-secret> SLACK_APP_TOKEN=<local-secret> nemoclaw <sandbox-name> channels add slack
-nemoclaw <sandbox-name> rebuild
-\`\`\`
-
-\`\`\`shell
-NEMOCLAW_NON_INTERACTIVE=1 MSTEAMS_APP_ID=<client-id> MSTEAMS_APP_PASSWORD=<local-secret> MSTEAMS_TENANT_ID=<tenant-id> nemoclaw <sandbox-name> channels add teams
 nemoclaw <sandbox-name> rebuild
 \`\`\`
 

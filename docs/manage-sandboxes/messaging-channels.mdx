@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 title: "Messaging Channels"
 sidebar-title: "Set Up Messaging Channels"
-description: "Connect Telegram, Discord, Slack, WeChat, WhatsApp, or Microsoft Teams to your sandboxed OpenClaw or Hermes agent using OpenShell-managed channel messaging."
-description-agent: "Explains how Telegram, Discord, Slack, WeChat, WhatsApp, and Microsoft Teams reach sandboxed OpenClaw and Hermes agents through OpenShell-managed processes and NemoClaw channel commands. Use when setting up messaging channels, chat interfaces, or integrations without relying on nemoclaw tunnel start for bridges."
-keywords: ["nemoclaw messaging channels", "nemoclaw telegram", "nemoclaw discord", "nemoclaw slack", "nemoclaw wechat", "nemoclaw whatsapp", "nemoclaw teams", "openshell channel messaging"]
+description: "Connect Telegram, Discord, Slack, WeChat, or WhatsApp to your sandboxed OpenClaw or Hermes agent using OpenShell-managed channel messaging."
+description-agent: "Explains how Telegram, Discord, Slack, WeChat, and WhatsApp reach sandboxed OpenClaw and Hermes agents through OpenShell-managed processes and NemoClaw channel commands. Use when setting up messaging channels, chat interfaces, or integrations without relying on nemoclaw tunnel start for bridges."
+keywords: ["nemoclaw messaging channels", "nemoclaw telegram", "nemoclaw discord", "nemoclaw slack", "nemoclaw wechat", "nemoclaw whatsapp", "openshell channel messaging"]
 content:
   type: "how_to"
 skill:
@@ -13,17 +13,15 @@ skill:
 ---
 import { AgentOnly } from "../_components/AgentGuide";
 
-Telegram, Discord, Slack, WeChat, WhatsApp, and Microsoft Teams reach your OpenClaw or Hermes agent through OpenShell-managed processes and gateway constructs.
+Telegram, Discord, Slack, WeChat, and WhatsApp reach your OpenClaw or Hermes agent through OpenShell-managed processes and gateway constructs.
 For token-based channels, NemoClaw registers credentials with OpenShell providers.
 WeChat captures a token through a host-side QR scan during onboarding.
 WhatsApp pairs inside the sandbox through a QR scan and intentionally stores mutable session state there.
-Microsoft Teams uses a Bot Framework webhook at `/api/messages` and stores the app client secret in an OpenShell provider.
 NemoClaw bakes the selected channel configuration into the sandbox image and keeps runtime delivery under OpenShell control.
 
 <Warning title="Experimental Channels">
-WeChat, WhatsApp, and Microsoft Teams are experimental.
-WeChat and WhatsApp rely on QR-based pairing flows that are more fragile than token-based bots.
-Microsoft Teams depends on public webhook reachability and upstream Bot Framework behavior.
+WeChat and WhatsApp are experimental.
+Both rely on QR-based pairing flows that are more fragile than token-based bots, and the upstream client libraries can change behavior without notice.
 Interfaces, defaults, and supported features can change, and NVIDIA does not recommend these channels for production use.
 </Warning>
 
@@ -49,8 +47,7 @@ For details, refer to [Commands](../reference/commands).
 ## Prerequisites
 
 - A machine where you can run `$$nemoclaw onboard` (local or remote host that runs the gateway and sandbox).
-- A token or client secret for each credential-based messaging platform you want to enable, a personal WeChat account on your phone for the host-side QR scan during onboarding, or a phone you can use to scan the QR code for WhatsApp pairing.
-- For Microsoft Teams, a public HTTPS endpoint that forwards to the sandbox's Teams webhook port before installing the Teams app. The default local port is `3978`, and the webhook path is `/api/messages`.
+- A token for each token-based messaging platform you want to enable, a personal WeChat account on your phone for the host-side QR scan during onboarding, or a phone you can use to scan the QR code for WhatsApp pairing.
 - A network policy preset for each enabled channel, or equivalent custom egress rules.
 
 ## Channel Requirements
@@ -62,7 +59,6 @@ For details, refer to [Commands](../reference/commands).
 | Slack | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | `SLACK_ALLOWED_USERS` for DM and channel `@mention` user allowlisting, `SLACK_ALLOWED_CHANNELS` for channel ID allowlisting |
 | WeChat (experimental) | None. Captured through host-side QR scan during `$$nemoclaw onboard` | `WECHAT_ALLOWED_IDS` for DM allowlisting |
 | WhatsApp (experimental) | None. Pair through QR after rebuild | None |
-| Microsoft Teams (experimental) | `MSTEAMS_APP_ID`, `MSTEAMS_APP_PASSWORD`, `MSTEAMS_TENANT_ID` | `TEAMS_ALLOWED_USERS`, `MSTEAMS_PORT`, `TEAMS_REQUIRE_MENTION` |
 
 Telegram uses a bot token from [BotFather](https://t.me/BotFather).
 Open Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather), follow the prompts, and copy the token.
@@ -103,21 +99,6 @@ Slack Socket Mode allows one active connection per app-level token.
 If another sandbox on the same gateway already uses the same Slack app token, onboarding and `channels add slack` warn before continuing in interactive mode and abort in non-interactive mode.
 Use `--force` only when you intentionally want to move the Slack Socket Mode session to the new sandbox.
 
-Microsoft Teams (experimental) uses the Microsoft Bot Framework webhook flow.
-For OpenClaw, NemoClaw installs the upstream `@openclaw/msteams` plugin and renders `channels.msteams` plus `plugins.entries.msteams`.
-For Hermes, NemoClaw renders the built-in `platforms.teams` adapter and `.env` entries (`TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, `TEAMS_TENANT_ID`, `TEAMS_ALLOWED_USERS`, and `TEAMS_PORT`).
-Set `MSTEAMS_APP_ID`, `MSTEAMS_APP_PASSWORD`, and `MSTEAMS_TENANT_ID` from your Teams app registration.
-Hermes aliases `TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, and `TEAMS_TENANT_ID` are also accepted when scripting setup.
-NemoClaw stores only `MSTEAMS_APP_PASSWORD` in the `<sandbox>-teams-bridge` OpenShell provider; app ID, tenant ID, webhook port, mention mode, and allowlist values are non-secret build configuration.
-`TEAMS_ALLOWED_USERS` is a comma-separated list of Azure AD object IDs.
-Set it for Hermes and OpenClaw direct messages so only authorized users can use those paths.
-OpenClaw group chats and channels are rendered with `groupPolicy: "open"` and remain mention-gated by default.
-`MSTEAMS_PORT` defaults to `3978`; `TEAMS_PORT` is accepted as a compatibility alias and is the variable rendered into Hermes `.env`.
-`TEAMS_REQUIRE_MENTION` controls OpenClaw group and channel behavior only; direct messages are unaffected, and Hermes does not render this setting.
-When the Teams channel is active, NemoClaw starts the local OpenShell port forward for `MSTEAMS_PORT` after onboarding, rebuild, or process recovery.
-No two active Teams channels can use the same local webhook port; set a different `MSTEAMS_PORT` or stop/remove the other sandbox first.
-Your public HTTPS endpoint still needs to forward to `/api/messages` on that host port.
-
 WeChat (experimental) delivers messages over Tencent's iLink gateway through the upstream `@tencent-weixin/openclaw-weixin` plugin installed into WeChat-enabled OpenClaw sandbox images and the built-in Hermes iLink WeChat adapter.
 The supported mode in this release is **personal WeChat** (`bot_type=3`).
 WeChat Official Account and WeCom/Enterprise WeChat are not wired up.
@@ -154,7 +135,7 @@ Pair only one sandbox per WhatsApp account at a time.
 
 ## Enable Channels During Onboarding
 
-When the wizard reaches **Messaging channels**, it lists Telegram, Discord, Slack, WeChat, WhatsApp, and Microsoft Teams.
+When the wizard reaches **Messaging channels**, it lists Telegram, Discord, Slack, WeChat, and WhatsApp.
 Press a channel number to toggle it on or off, then press **Enter** when done.
 If you select no channels, pressing **Enter** skips messaging setup.
 If a token-based channel token is not already in the environment or credential store, the wizard prompts for it and saves it.
@@ -167,8 +148,6 @@ Keep the terminal in the foreground until you see `✓ WeChat login confirmed`.
 WhatsApp (experimental) uses QR pairing instead of a host-side token, so the wizard does not prompt.
 It prints pairing instructions and you complete the pairing inside the sandbox after rebuild.
 NemoClaw also selects the matching network policy preset during policy setup so the channel can reach its provider API.
-Microsoft Teams prompts for the client secret plus app ID, tenant ID, optional Azure AD object ID allowlist, webhook port, and OpenClaw mention mode.
-Make sure the public webhook endpoint is ready before installing the Teams app.
 
 For scripted setup, export the credentials and optional settings for the channels you want to enable before you run onboarding:
 
@@ -181,10 +160,6 @@ export SLACK_BOT_TOKEN=<your-slack-bot-token>
 export SLACK_APP_TOKEN=<your-slack-app-token>
 export SLACK_ALLOWED_USERS=<your-slack-member-id>
 export SLACK_ALLOWED_CHANNELS=<your-slack-channel-id>
-export MSTEAMS_APP_ID=<your-teams-client-id>
-export MSTEAMS_APP_PASSWORD=<your-teams-client-secret>
-export MSTEAMS_TENANT_ID=<your-teams-tenant-id>
-export TEAMS_ALLOWED_USERS=<your-aad-object-id>
 ```
 
 This release does not support non-interactive WeChat configuration because the iLink QR handshake requires a human to scan the QR on a paired phone.
@@ -215,11 +190,10 @@ $$nemoclaw my-assistant channels add discord
 $$nemoclaw my-assistant channels add slack
 $$nemoclaw my-assistant channels add wechat
 $$nemoclaw my-assistant channels add whatsapp
-$$nemoclaw my-assistant channels add teams
 ```
 
 `channels add` collects whatever each channel needs.
-It prompts for Telegram, Discord, and Slack tokens, prompts for Microsoft Teams Bot Framework credentials and config, runs an interactive host-side QR scan for WeChat, and collects nothing for WhatsApp because pairing happens in-sandbox after rebuild.
+It prompts for Telegram, Discord, and Slack tokens, runs an interactive host-side QR scan for WeChat, and collects nothing for WhatsApp because pairing happens in-sandbox after rebuild.
 It registers bridge providers with the OpenShell gateway when it captures tokens, records the channel in the sandbox registry, and asks whether to rebuild immediately.
 The command accepts mixed-case input such as `Telegram`, then stores and prints the canonical lowercase channel name.
 `channels add` requires the matching built-in network policy preset YAML to be present.
@@ -231,8 +205,8 @@ It flags `gateway-providers` as residual because the in-flight upsert can leave 
 Verify the gateway bridge before relying on the channel.
 Restore the preset YAML and re-run `$$nemoclaw <sandbox> channels add <channel>`.
 Choose the rebuild so the running sandbox image picks up the new channel.
-For Telegram, Discord, Slack, and Teams, `channels add` also checks the rebuilt runtime for the selected bridge and reports startup, credential, or missing-plugin warnings before returning.
-If you need optional channel settings such as `TELEGRAM_ALLOWED_IDS`, `TELEGRAM_REQUIRE_MENTION`, `TELEGRAM_GROUP_POLICY`, `DISCORD_SERVER_ID`, `DISCORD_USER_ID`, `DISCORD_REQUIRE_MENTION`, `SLACK_ALLOWED_USERS`, `SLACK_ALLOWED_CHANNELS`, `TEAMS_ALLOWED_USERS`, `MSTEAMS_PORT`, or `TEAMS_REQUIRE_MENTION`, export them before the rebuild starts.
+For Telegram, Discord, and Slack, `channels add` also checks the rebuilt runtime for the selected bridge and reports startup, credential, or missing-plugin warnings before returning.
+If you need optional channel settings such as `TELEGRAM_ALLOWED_IDS`, `TELEGRAM_REQUIRE_MENTION`, `TELEGRAM_GROUP_POLICY`, `DISCORD_SERVER_ID`, `DISCORD_USER_ID`, `DISCORD_REQUIRE_MENTION`, `SLACK_ALLOWED_USERS`, or `SLACK_ALLOWED_CHANNELS`, export them before the rebuild starts.
 You can omit `TELEGRAM_REQUIRE_MENTION` and `DISCORD_REQUIRE_MENTION` when you want the default mention-only mode.
 You can omit `TELEGRAM_GROUP_POLICY` when you want OpenClaw Telegram group access to stay open.
 Telegram Bot API `sendMessage` calls prove outbound delivery from the bot; to test inbound agent replies, send a message from the Telegram client as an allowed user.
@@ -246,7 +220,6 @@ $$nemoclaw my-assistant rebuild
 In non-interactive mode, set the required environment variables before running `channels add`.
 Optional mention-mode settings that declare defaults are still written when unset.
 Telegram mention mode defaults to `1`; Discord mention mode defaults to `1` when `DISCORD_SERVER_ID` is set.
-Teams webhook port defaults to `MSTEAMS_PORT=3978`, and OpenClaw Teams mention mode defaults to `TEAMS_REQUIRE_MENTION=1`.
 Missing credentials fail fast, and the command queues the change for a manual rebuild:
 
 ```bash
@@ -262,16 +235,6 @@ DISCORD_BOT_TOKEN=<your-discord-bot-token> \
   DISCORD_SERVER_ID=<your-discord-server-id> \
   DISCORD_REQUIRE_MENTION=1 \
   $$nemoclaw my-assistant channels add discord
-```
-
-For Microsoft Teams, include the Bot Framework app settings and make sure the public webhook endpoint is forwarding to `/api/messages`:
-
-```bash
-MSTEAMS_APP_ID=<your-teams-client-id> \
-  MSTEAMS_APP_PASSWORD=<your-teams-client-secret> \
-  MSTEAMS_TENANT_ID=<your-teams-tenant-id> \
-  TEAMS_ALLOWED_USERS=<your-aad-object-id> \
-  $$nemoclaw my-assistant channels add teams
 ```
 
 ### `channels add wechat`
@@ -306,7 +269,6 @@ To remove a channel and clear its stored credentials, run:
 ```bash
 $$nemoclaw my-assistant channels remove telegram
 $$nemoclaw my-assistant channels remove wechat
-$$nemoclaw my-assistant channels remove teams
 ```
 
 `channels remove wechat` clears the bot token, deletes the `<sandbox>-wechat-bridge` OpenShell provider, and drops `wechat` from the sandbox's enabled-channel set.
@@ -331,9 +293,6 @@ $$nemoclaw my-assistant channels start telegram
 
 $$nemoclaw my-assistant channels stop wechat
 $$nemoclaw my-assistant channels start wechat
-
-$$nemoclaw my-assistant channels stop teams
-$$nemoclaw my-assistant channels start teams
 ```
 
 <AgentOnly variant="openclaw">
@@ -345,14 +304,13 @@ For WeChat specifically, `channels stop wechat` followed by a rebuild keeps the 
 A subsequent `channels start wechat` plus rebuild revives the bridge against the same iLink account without a fresh QR scan.
 The bot token is held by the OpenShell provider across the stop/start cycle.
 
-Telegram, Discord, Slack, Teams, and WeChat each allow only one active consumer per channel credential.
+Telegram, Discord, Slack, and WeChat each allow only one active consumer per channel credential.
 Multiple sandboxes can use the same channel type at the same time when each sandbox uses a distinct bot/app token (or a distinct WeChat iLink bot account).
 For example, two Telegram sandboxes can DM the same `TELEGRAM_ALLOWED_IDS` account as long as they use different `TELEGRAM_BOT_TOKEN` values.
 For WeChat, each sandbox must own a distinct iLink `accountId` (bot identity).
 Running two sandboxes against the same WeChat account causes one of them to lose messages.
 If you enable a messaging channel and another sandbox already uses the same token, onboarding prompts you to confirm before continuing in interactive mode and exits non-zero in non-interactive mode.
 For Slack, NemoClaw checks both the bot token and the Socket Mode app token so duplicate Socket Mode sessions do not compete silently.
-For Teams, NemoClaw checks the app client secret provider hash.
 If NemoClaw only has legacy channel metadata and cannot compare credential hashes, it keeps the conservative warning.
 Re-run `channels add <channel>` with the intended token to refresh the stored non-secret hash.
 `$$nemoclaw status` reports cross-sandbox overlaps so you can resolve duplicates before messages start dropping.
@@ -366,13 +324,13 @@ Use `$$nemoclaw tunnel stop` or its deprecated alias `$$nemoclaw stop` when you 
 <AgentOnly variant="hermes">
 Use `$$nemoclaw tunnel stop` when you want to stop host auxiliary services and also ask NemoClaw to stop the Hermes gateway inside the selected sandbox.
 </AgentOnly>
-Stopping the in-sandbox gateway stops Telegram, Discord, Slack, WeChat, WhatsApp, and Teams polling or webhook handling for that sandbox until you restart the sandbox or gateway.
+Stopping the in-sandbox gateway stops Telegram, Discord, Slack, WeChat, and WhatsApp polling for that sandbox until you restart the sandbox or gateway.
 
 ## Confirm Delivery
 
 After the sandbox is running, send a message to the configured bot or app.
 If delivery fails, use `openshell term` on the host, check gateway logs, and verify network policy allows the channel API.
-Use the matching policy preset (`telegram`, `discord`, `slack`, `wechat`, `whatsapp`, or `teams`) or review [Common Integration Policy Examples](../network-policy/integration-policy-examples).
+Use the matching policy preset (`telegram`, `discord`, `slack`, `wechat`, or `whatsapp`) or review [Common Integration Policy Examples](../network-policy/integration-policy-examples).
 
 ## Tunnel Command
 

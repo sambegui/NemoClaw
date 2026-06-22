@@ -175,7 +175,6 @@ NemoClaw ships preset policy files in `nemoclaw-blueprint/policies/presets/` for
 | `outlook` | Microsoft 365, Outlook. | Gives agent access to email. |
 | `pypi` | Python Package Index (GET and HEAD only). | Allows installing arbitrary Python packages, which may contain malicious code. Publishing is blocked. |
 | `slack` | Slack API, Socket Mode, webhooks. | WebSocket uses `access: full`. Agent can post to any channel the bot token has access to. |
-| `teams` | Microsoft Teams Bot Framework and Graph API access. | Agent can send Teams messages through the configured app and can access Graph endpoints allowed by the preset. |
 | `telegram` | Telegram Bot API. | Agent can send messages to any chat the bot token has access to. |
 
 **Recommendation:** Apply presets only when the agent's task requires the integration. Review the preset's YAML file before applying to understand the endpoints, methods, and binary restrictions it adds.
