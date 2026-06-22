@@ -207,13 +207,14 @@ RUN --mount=type=bind,source=nemoclaw-blueprint/blueprint.yaml,target=/tmp/bluep
     fi; \
     EXPECTED_INTEGRITY=""; \
     if [ "$OPENCLAW_VERSION" = "2026.6.9" ]; then EXPECTED_INTEGRITY="$OPENCLAW_2026_6_9_INTEGRITY"; fi; \
-    if [ -n "$EXPECTED_INTEGRITY" ]; then \
-        REGISTRY_INTEGRITY=$(npm view "openclaw@${OPENCLAW_VERSION}" dist.integrity); \
-        if [ "$REGISTRY_INTEGRITY" != "$EXPECTED_INTEGRITY" ]; then \
-            echo "Error: OpenClaw ${OPENCLAW_VERSION} npm integrity mismatch"; \
-            echo "Expected: ${EXPECTED_INTEGRITY}"; \
-            echo "Actual:   ${REGISTRY_INTEGRITY}"; exit 1; \
-        fi; \
+    if [ -z "$EXPECTED_INTEGRITY" ]; then \
+        echo "Error: OpenClaw ${OPENCLAW_VERSION} has no committed npm integrity pin"; exit 1; \
+    fi; \
+    REGISTRY_INTEGRITY=$(npm view "openclaw@${OPENCLAW_VERSION}" dist.integrity); \
+    if [ "$REGISTRY_INTEGRITY" != "$EXPECTED_INTEGRITY" ]; then \
+        echo "Error: OpenClaw ${OPENCLAW_VERSION} npm integrity mismatch"; \
+        echo "Expected: ${EXPECTED_INTEGRITY}"; \
+        echo "Actual:   ${REGISTRY_INTEGRITY}"; exit 1; \
     fi; \
     npm install -g "openclaw@${OPENCLAW_VERSION}" \
     && pip3 install --no-cache-dir --break-system-packages "pyyaml==6.0.3"

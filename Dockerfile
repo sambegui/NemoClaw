@@ -124,13 +124,14 @@ RUN set -eu; \
     fi; \
     EXPECTED_INTEGRITY=""; \
     if [ "$OPENCLAW_VERSION" = "2026.6.9" ]; then EXPECTED_INTEGRITY="$OPENCLAW_2026_6_9_INTEGRITY"; fi; \
-    if [ -n "$EXPECTED_INTEGRITY" ]; then \
-        REGISTRY_INTEGRITY=$(npm view "openclaw@${OPENCLAW_VERSION}" dist.integrity); \
-        if [ "$REGISTRY_INTEGRITY" != "$EXPECTED_INTEGRITY" ]; then \
-            echo "ERROR: OpenClaw ${OPENCLAW_VERSION} npm integrity mismatch" >&2; \
-            echo "Expected: ${EXPECTED_INTEGRITY}" >&2; \
-            echo "Actual:   ${REGISTRY_INTEGRITY}" >&2; exit 1; \
-        fi; \
+    if [ -z "$EXPECTED_INTEGRITY" ]; then \
+        echo "ERROR: OpenClaw ${OPENCLAW_VERSION} has no committed npm integrity pin" >&2; exit 1; \
+    fi; \
+    REGISTRY_INTEGRITY=$(npm view "openclaw@${OPENCLAW_VERSION}" dist.integrity); \
+    if [ "$REGISTRY_INTEGRITY" != "$EXPECTED_INTEGRITY" ]; then \
+        echo "ERROR: OpenClaw ${OPENCLAW_VERSION} npm integrity mismatch" >&2; \
+        echo "Expected: ${EXPECTED_INTEGRITY}" >&2; \
+        echo "Actual:   ${REGISTRY_INTEGRITY}" >&2; exit 1; \
     fi; \
     CUR_VER=$(openclaw --version 2>/dev/null | awk '{print $2}' || echo "0.0.0"); \
     if [ "$(printf '%s\n%s' "$OPENCLAW_VERSION" "$CUR_VER" | sort -V | head -n1)" = "$OPENCLAW_VERSION" ]; then \
