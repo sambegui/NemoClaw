@@ -311,7 +311,7 @@ async function survivorAgentProbe(
     "cmdline=\"$(tr '\\000' ' ' <\"/proc/${pid}/cmdline\" 2>/dev/null || true)\"",
     'case "$cmdline" in *nemoclaw-e2e-agent*) ;; *) exit 1 ;; esac',
     'printf "%s %s %s\\n" "$pid" "${counter:-0}" "$cmdline"',
-  ].join("\n");
+  ].join("; ");
   return bash(
     host,
     `openshell sandbox exec --name ${shellQuote(SURVIVOR_SANDBOX)} -- sh -lc ${shellQuote(probe)}`,
@@ -478,7 +478,7 @@ async function startSurvivorAgentInExistingClaw(
 ): Promise<number> {
   const markerResult = await bash(
     host,
-    `openshell sandbox exec --name ${shellQuote(SURVIVOR_SANDBOX)} -- sh -lc ${shellQuote(`mkdir -p /sandbox/.openclaw/workspace && printf '%s\n' ${shellQuote(SURVIVOR_MARKER)} >${shellQuote(SURVIVOR_MARKER_PATH)}`)}`,
+    `openshell sandbox exec --name ${shellQuote(SURVIVOR_SANDBOX)} -- sh -lc ${shellQuote(`mkdir -p /sandbox/.openclaw/workspace && printf '%s\\n' ${shellQuote(SURVIVOR_MARKER)} >${shellQuote(SURVIVOR_MARKER_PATH)}`)}`,
     { artifactName: "write-survivor-marker", timeoutMs: 60_000 },
   );
   expectExitZero(markerResult, "write survivor marker before gateway upgrade");
