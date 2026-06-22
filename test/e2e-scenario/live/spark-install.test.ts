@@ -11,7 +11,6 @@ import { buildAvailabilityProbeEnv } from "../fixtures/availability-env.ts";
 import type { HostCliClient } from "../fixtures/clients/host.ts";
 import { resultText } from "../fixtures/clients/command.ts";
 import { expect, test } from "../fixtures/e2e-test.ts";
-import { requireHostedInferenceConfig } from "../fixtures/hosted-inference.ts";
 import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
 import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
 
@@ -44,8 +43,10 @@ function env(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     ...buildAvailabilityProbeEnv(),
     NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1",
     NEMOCLAW_NON_INTERACTIVE: "1",
+    NEMOCLAW_FRESH: "1",
     NEMOCLAW_RECREATE_SANDBOX: "1",
     NEMOCLAW_SANDBOX_NAME: SANDBOX_NAME,
+    NEMOCLAW_PROVIDER: "cloud",
     OPENSHELL_GATEWAY: "nemoclaw",
     ...extra,
   };
@@ -157,10 +158,8 @@ liveTest(
     expect(process.env.NEMOCLAW_NON_INTERACTIVE ?? "1").toBe("1");
     expect(process.env.NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE ?? "1").toBe("1");
 
-    const hosted = requireHostedInferenceConfig(secrets, process.env, {
-      model: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    });
-    const redactionValues = [hosted.apiKey];
+    const apiKey = secrets.required("NVIDIA_API_KEY");
+    const redactionValues = [apiKey];
     cleanup.add(`remove ${SANDBOX_NAME} after Spark install smoke`, () =>
       bestEffortCleanup(host),
     );
@@ -192,8 +191,7 @@ liveTest(
       artifactName: `phase-1-${installer.mode}-install`,
       cwd: REPO_ROOT,
       env: env({
-        ...hosted.env,
-        NVIDIA_INFERENCE_API_KEY: hosted.apiKey,
+        NVIDIA_API_KEY: apiKey,
       }),
       redactionValues,
       timeoutMs: INSTALL_TIMEOUT_MS,
