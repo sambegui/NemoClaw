@@ -193,7 +193,7 @@ beforeEach(() => {
   // Agent gate: support every channel.
   vi.spyOn(defs, "loadAgent").mockReturnValue({
     name: "openclaw",
-    messagingPlatforms: ["telegram", "discord", "slack", "wechat", "whatsapp"],
+    messagingPlatforms: ["telegram", "discord", "slack", "wechat", "whatsapp", "teams"],
   });
 
   // Policy seam. addSandboxChannel gates on loadPreset()/parsePresetPolicyKeys()

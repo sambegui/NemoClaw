@@ -763,7 +763,11 @@ async function persistManifestChannelDisabledPlan(
   const entry = registry.getSandbox(sandboxName);
   if (!entry?.messaging?.plan) return false;
   const agent = resolveAgentForSandbox(sandboxName);
-  const planner = new MessagingWorkflowPlanner(messagingManifestRegistry);
+  const planner = new MessagingWorkflowPlanner(
+    messagingManifestRegistry,
+    undefined,
+    createBuiltInRenderTemplateResolver(),
+  );
   const context = {
     sandboxName,
     agent: toMessagingAgentId(agent),
@@ -784,7 +788,11 @@ async function persistManifestChannelRemovePlan(
   const entry = registry.getSandbox(sandboxName);
   if (!entry) return false;
   const agent = resolveAgentForSandbox(sandboxName);
-  const planner = new MessagingWorkflowPlanner(messagingManifestRegistry);
+  const planner = new MessagingWorkflowPlanner(
+    messagingManifestRegistry,
+    undefined,
+    createBuiltInRenderTemplateResolver(),
+  );
   const plan = await planner.buildChannelRemovePlanFromSandboxEntry({
     sandboxName,
     agent: toMessagingAgentId(agent),

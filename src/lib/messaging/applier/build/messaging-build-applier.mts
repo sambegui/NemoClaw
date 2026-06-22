@@ -99,12 +99,17 @@ export type BuildCommandResult = {
   readonly runtimePlanPath: string;
   readonly doctorEnv: Record<string, string>;
   readonly installSpecs: readonly string[];
+  readonly hermesUvPackages: readonly string[];
   readonly openclawVersion: string;
 };
 
 type OpenClawPluginInstall = {
   readonly spec: string;
   readonly pin: boolean;
+};
+
+type HermesUvPackageInstall = {
+  readonly spec: string;
 };
 
 export class MessagingBuildApplierError extends Error {}
@@ -401,6 +406,11 @@ export function collectOpenClawMessagingPluginInstallSpecs(
   return collectOpenClawMessagingPluginInstalls(plan, env).map((install) => install.spec);
 }
 
+export function collectHermesMessagingUvPackages(plan: MessagingBuildPlan | null): string[] {
+  if (plan?.agent !== "hermes") return [];
+  return collectHermesMessagingUvPackageInstalls(plan).map((install) => install.spec);
+}
+
 function collectOpenClawMessagingPluginInstalls(
   plan: MessagingBuildPlan | null,
   env: Env,
@@ -424,6 +434,29 @@ function collectOpenClawMessagingPluginInstalls(
     if (seen.has(key)) continue;
     seen.add(key);
     installs.push(resolvedInstall);
+  }
+  return installs;
+}
+
+function collectHermesMessagingUvPackageInstalls(
+  plan: MessagingBuildPlan | null,
+): HermesUvPackageInstall[] {
+  const installs: HermesUvPackageInstall[] = [];
+  const seen = new Set<string>();
+  for (const step of enabledBuildStepsForPhase(plan, "agent-install")) {
+    if (step.kind !== "package-install") continue;
+    if (step.value === undefined) {
+      if (step.required) {
+        throw new MessagingBuildApplierError(
+          `Messaging package-install output ${step.outputId} is missing`,
+        );
+      }
+      continue;
+    }
+    const install = readHermesUvPipPackageInstall(step.value, step.outputId);
+    if (seen.has(install.spec)) continue;
+    seen.add(install.spec);
+    installs.push(install);
   }
   return installs;
 }
@@ -833,6 +866,35 @@ function readOpenClawPackageInstall(
     readonly spec: string;
     readonly pin?: boolean;
   };
+}
+
+function readHermesUvPipPackageInstall(
+  value: MessagingSerializableValue,
+  outputId: string,
+): HermesUvPackageInstall {
+  if (!isObject(value)) {
+    throw new MessagingBuildApplierError(
+      `Messaging package-install output ${outputId} must be an object`,
+    );
+  }
+  const install = value as JsonObject;
+  if (install.manager !== "hermes-uv-pip") {
+    throw new MessagingBuildApplierError(
+      `Messaging package-install output ${outputId} must use manager 'hermes-uv-pip'`,
+    );
+  }
+  if (typeof install.spec !== "string" || install.spec.trim().length === 0) {
+    throw new MessagingBuildApplierError(
+      `Messaging package-install output ${outputId} must include a Hermes Python package name`,
+    );
+  }
+  const spec = install.spec.trim();
+  if (!/^[A-Za-z0-9_.-]+$/.test(spec)) {
+    throw new MessagingBuildApplierError(
+      `Messaging package-install output ${outputId} has an unsafe Hermes Python package name`,
+    );
+  }
+  return { spec };
 }
 
 function resolveOpenClawPackageSpec(spec: string, env: Env): string {
@@ -1299,6 +1361,10 @@ export function installMessagingPackages(plan: MessagingBuildPlan | null, env: E
     installOpenClawMessagingPlugins(plan, env);
     return;
   }
+  if (plan.agent === "hermes") {
+    installHermesMessagingUvPackages(plan, env);
+    return;
+  }
 
   const packageSteps = enabledBuildStepsForPhase(plan, "agent-install").filter(
     (step) => step.kind === "package-install",
@@ -1308,6 +1374,25 @@ export function installMessagingPackages(plan: MessagingBuildPlan | null, env: E
       `Messaging package-install is not supported for ${plan.agent}`,
     );
   }
+}
+
+function installHermesMessagingUvPackages(plan: MessagingBuildPlan | null, env: Env): void {
+  const selectedPackages = collectHermesMessagingUvPackageInstalls(plan).map(
+    (install) => install.spec,
+  );
+  if (selectedPackages.length === 0) return;
+  runCommand(
+    [
+      "uv",
+      "pip",
+      "install",
+      "--python",
+      "/opt/hermes/.venv/bin/python",
+      "--no-cache",
+      ...selectedPackages,
+    ],
+    env,
+  );
 }
 
 export function describeMessagingBuildPhase(
@@ -1326,6 +1411,7 @@ export function describeMessagingBuildPhase(
     doctorEnv: plan?.agent === "openclaw" ? openClawDoctorEnvOverrides(plan, env) : {},
     installSpecs:
       plan?.agent === "openclaw" ? collectOpenClawMessagingPluginInstallSpecs(plan, env) : [],
+    hermesUvPackages: plan?.agent === "hermes" ? collectHermesMessagingUvPackages(plan) : [],
     openclawVersion: env.OPENCLAW_VERSION || "",
   };
 }

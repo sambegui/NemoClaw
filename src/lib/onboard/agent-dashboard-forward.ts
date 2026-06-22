@@ -17,11 +17,16 @@ export interface AgentDashboardForwardConfig {
   forward_ports?: number[] | null;
 }
 
+function isValidPort(port: number | null | undefined): port is number {
+  return typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 export function ensureAgentDashboardForward(options: {
   sandboxName: string;
   agent: AgentDashboardForwardConfig;
   ensureDashboardForward: EnsureDashboardForward;
   controlUiPort?: number;
+  preserveForwardPorts?: readonly (number | null | undefined)[];
   warn?: (message: string) => void;
 }): number {
   const {
@@ -29,13 +34,14 @@ export function ensureAgentDashboardForward(options: {
     agent,
     ensureDashboardForward,
     controlUiPort = DASHBOARD_PORT,
+    preserveForwardPorts = [],
     warn = (message: string) => console.warn(message),
   } = options;
   const agentDashboardPort = agent.forwardPort ?? controlUiPort;
   const declaredPorts = Array.isArray(agent.forward_ports) ? agent.forward_ports : [];
-  const preservePorts = [...new Set([agentDashboardPort, ...declaredPorts])].filter(
-    (port) => Number.isInteger(port) && port >= 1 && port <= 65535,
-  );
+  const preservePorts = [
+    ...new Set([agentDashboardPort, ...declaredPorts, ...preserveForwardPorts]),
+  ].filter(isValidPort);
   const actualAgentDashboardPort = ensureDashboardForward(
     sandboxName,
     `http://127.0.0.1:${agentDashboardPort}`,

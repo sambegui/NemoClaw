@@ -30,6 +30,7 @@ import { planAgentRender } from "./engines/agent-render-engine";
 import { planBuildSteps } from "./engines/build-step-engine";
 import { planCredentialBindings } from "./engines/credential-binding-engine";
 import { planHealthChecks } from "./engines/health-check-engine";
+import { planHostForward } from "./engines/host-forward-engine";
 import { planNetworkPolicy } from "./engines/policy-resolver";
 import { planRuntimeSetup } from "./engines/runtime-setup-engine";
 import { planStateUpdates } from "./engines/state-update-engine";
@@ -154,6 +155,12 @@ export class ManifestCompiler {
     });
     const requiredInputsAvailable = hasRequiredInputsAvailable(manifest, resolvedInputs.inputs);
     const active = requestedActive && !resolvedInputs.skipped && requiredInputsAvailable;
+    const hostForward = planHostForward(
+      manifest,
+      resolvedInputs.inputs,
+      active,
+      this.renderTemplateResolver,
+    );
 
     return {
       channelId: manifest.id,
@@ -164,6 +171,7 @@ export class ManifestCompiler {
       configured: configured && !resolvedInputs.skipped,
       disabled: disabled || resolvedInputs.skipped || (requestedActive && !requiredInputsAvailable),
       inputs: resolvedInputs.inputs,
+      ...(hostForward ? { hostForward } : {}),
       hooks: requested
         ? manifest.hooks
             .filter((hook) => isHookForAgent(hook, context.agent))

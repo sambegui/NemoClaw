@@ -59,6 +59,18 @@ function wechatConfigB64(overrides: Record<string, string> = {}): string {
   ).toString("base64");
 }
 
+function teamsConfigB64(overrides: Record<string, string | string[]> = {}): string {
+  return Buffer.from(
+    JSON.stringify({
+      appId: "test-teams-app-id",
+      tenantId: "test-teams-tenant-id",
+      allowedUsers: ["00000000-0000-0000-0000-000000000001"],
+      webhookPort: "3978",
+      ...overrides,
+    }),
+  ).toString("base64");
+}
+
 function runDryRun(envOverrides: Record<string, string> = {}) {
   const env = withLegacyMessagingPlanEnv(
     {
@@ -103,8 +115,10 @@ describe("messaging-build-applier.mts: agent-install", () => {
         "slack",
         "whatsapp",
         "wechat",
+        "teams",
       ]),
       NEMOCLAW_WECHAT_CONFIG_B64: wechatConfigB64(),
+      NEMOCLAW_TEAMS_CONFIG_B64: teamsConfigB64(),
     });
 
     expect(payload.installSpecs).toEqual([
@@ -112,9 +126,11 @@ describe("messaging-build-applier.mts: agent-install", () => {
       "npm:@tencent-weixin/openclaw-weixin@2.4.3",
       "npm:@openclaw/slack@2026.5.22",
       "npm:@openclaw/whatsapp@2026.5.22",
+      "npm:@openclaw/msteams@2026.5.22",
     ]);
     expect(payload.doctorEnv).toEqual({
       DISCORD_BOT_TOKEN: "openshell:resolve:env:DISCORD_BOT_TOKEN",
+      MSTEAMS_APP_PASSWORD: "openshell:resolve:env:MSTEAMS_APP_PASSWORD",
       SLACK_APP_TOKEN: "xapp-OPENSHELL-RESOLVE-ENV-SLACK_APP_TOKEN",
       SLACK_BOT_TOKEN: "xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN",
       TELEGRAM_BOT_TOKEN: "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
@@ -417,8 +433,10 @@ describe("messaging-build-applier.mts: agent-install", () => {
             "slack",
             "whatsapp",
             "wechat",
+            "teams",
           ]),
           NEMOCLAW_WECHAT_CONFIG_B64: wechatConfigB64(),
+          NEMOCLAW_TEAMS_CONFIG_B64: teamsConfigB64(),
         },
         "openclaw",
       );
@@ -446,7 +464,80 @@ describe("messaging-build-applier.mts: agent-install", () => {
         "plugins|install|npm:@tencent-weixin/openclaw-weixin@2.4.3|--pin|||",
         "plugins|install|npm:@openclaw/slack@2026.5.22|--pin|||",
         "plugins|install|npm:@openclaw/whatsapp@2026.5.22|--pin|||",
+        "plugins|install|npm:@openclaw/msteams@2026.5.22|--pin|||",
       ]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("installs Hermes Python packages supplied by the compiled Teams plan", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-teams-packages-"));
+    const tracePath = path.join(tmp, "uv.trace");
+    const fakeUv = path.join(tmp, "uv");
+    fs.writeFileSync(
+      fakeUv,
+      ["#!/bin/sh", 'printf \'%s\\n\' "$*" >> "$UV_TRACE"', "exit 0", ""].join("\n"),
+      { mode: 0o755 },
+    );
+
+    try {
+      const planEnv = withLegacyMessagingPlanEnv(
+        {
+          PATH: `${tmp}:${process.env.PATH || "/usr/bin:/bin"}`,
+          UV_TRACE: tracePath,
+          NEMOCLAW_MESSAGING_CHANNELS_B64: channelsB64(["teams"]),
+          NEMOCLAW_TEAMS_CONFIG_B64: teamsConfigB64(),
+        },
+        "hermes",
+      );
+
+      const dryRun = spawnSync(
+        "node",
+        [
+          "--experimental-strip-types",
+          SCRIPT_PATH,
+          "--agent",
+          "hermes",
+          "--phase",
+          "agent-install",
+          "--dry-run",
+        ],
+        {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          env: planEnv,
+          timeout: 10_000,
+        },
+      );
+      expect(dryRun.status, dryRun.stderr).toBe(0);
+      expect(JSON.parse(dryRun.stdout).hermesUvPackages).toEqual([
+        "microsoft-teams-apps",
+        "aiohttp",
+      ]);
+
+      const result = spawnSync(
+        "node",
+        [
+          "--experimental-strip-types",
+          SCRIPT_PATH,
+          "--agent",
+          "hermes",
+          "--phase",
+          "agent-install",
+        ],
+        {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          env: planEnv,
+          timeout: 10_000,
+        },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.readFileSync(tracePath, "utf-8").trim()).toBe(
+        "pip install --python /opt/hermes/.venv/bin/python --no-cache microsoft-teams-apps aiohttp",
+      );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
