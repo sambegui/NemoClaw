@@ -1344,17 +1344,77 @@ describe("Hermes sandbox provisioning", () => {
     }
   });
 
-  it("runs Hermes doctor before the final permission and hash lock", () => {
+  it("restores Hermes config locks after upstream doctor mutates config", () => {
     const dockerfile = fs.readFileSync(HERMES_DOCKERFILE, "utf-8");
-    const doctorIndex = dockerfile.indexOf(
-      "HERMES_HOME=/sandbox/.hermes /usr/local/bin/hermes doctor --fix",
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-doctor-lock-"));
+    const sandboxRoot = path.join(tmp, "sandbox");
+    const hermesDir = path.join(sandboxRoot, ".hermes");
+    const configPath = path.join(hermesDir, "config.yaml");
+    const envPath = path.join(hermesDir, ".env");
+    const fakeHermes = path.join(tmp, "hermes");
+    const doctorLog = path.join(tmp, "doctor.log");
+    const etcDir = path.join(tmp, "etc", "nemoclaw");
+    fs.mkdirSync(hermesDir, { recursive: true });
+    fs.writeFileSync(configPath, "model: test\n", { mode: 0o600 });
+    fs.writeFileSync(envPath, "TOKEN=test\n", { mode: 0o600 });
+    fs.writeFileSync(
+      fakeHermes,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `printf 'HERMES_HOME=%s args=%s\\n' "\${HERMES_HOME:-}" "$*" > ${JSON.stringify(doctorLog)}`,
+        `test "\${HERMES_HOME:-}" = ${JSON.stringify(hermesDir)}`,
+        'test "${1:-}" = "doctor"',
+        'test "${2:-}" = "--fix"',
+        `chmod 666 ${JSON.stringify(configPath)} ${JSON.stringify(envPath)}`,
+      ].join("\n"),
+      { mode: 0o700 },
     );
-    const lockIndex = dockerfile.indexOf("# Flatten stale published base images");
-    const hashIndex = dockerfile.indexOf("# Pin config hash at build time");
 
-    expect(doctorIndex).toBeGreaterThanOrEqual(0);
-    expect(lockIndex).toBeGreaterThan(doctorIndex);
-    expect(hashIndex).toBeGreaterThan(lockIndex);
+    const doctorCommand = dockerRunCommandBetween(
+      dockerfile,
+      "# Run Hermes' upstream repair",
+      "# Flatten stale published base images",
+    )
+      .replaceAll("/sandbox", sandboxRoot)
+      .replaceAll("/usr/local/bin/hermes", fakeHermes);
+    const lockCommand = dockerRunCommandBetween(
+      dockerfile,
+      "# Flatten stale published base images",
+      "# Pin config hash at build time",
+    ).replaceAll("/root/.cache/pip", path.join(tmp, "root-cache", "pip"));
+    const hashCommand = dockerRunCommandBetween(
+      dockerfile,
+      "# Pin config hash at build time",
+      "# Backward-compatible marker",
+    ).replaceAll("/etc/nemoclaw", etcDir);
+
+    try {
+      const doctor = spawnSync("bash", ["-c", doctorCommand], {
+        encoding: "utf-8",
+        cwd: tmp,
+        timeout: 5000,
+      });
+      expect(doctor.status).toBe(0);
+      expect(fs.readFileSync(doctorLog, "utf-8")).toContain("args=doctor --fix");
+      expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe("666");
+      expect((fs.statSync(envPath).mode & 0o777).toString(8)).toBe("666");
+
+      const lock = runDockerShell(lockCommand, sandboxRoot);
+      expect(lock.result.status).toBe(0);
+      expect(lock.result.stderr).toBe("");
+      expect((fs.statSync(configPath).mode & 0o777).toString(8)).toBe("640");
+      expect((fs.statSync(envPath).mode & 0o777).toString(8)).toBe("640");
+
+      const hash = runDockerShell(hashCommand, sandboxRoot);
+      expect(hash.result.status).toBe(0);
+      expect(hash.result.stderr).toBe("");
+      expect((fs.statSync(path.join(etcDir, "hermes.config-hash")).mode & 0o777).toString(8)).toBe(
+        "444",
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it("grants the Hermes gateway group write access to runtime state directories", () => {
