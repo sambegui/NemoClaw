@@ -9,6 +9,9 @@ import {
   parsePraMeta,
   PRA_PASS_RECOMMENDATIONS,
   selectLatestTrustedPraComment,
+  validateAdvisorRun,
+  type PraMeta,
+  type PraRun,
 } from "../../.agents/skills/nemoclaw-maintainer-day/scripts/pra-gate.ts";
 
 const HEAD = "8e012dc98c3c4bd53d64ac4f072d4a9f23729db0";
@@ -188,5 +191,87 @@ describe("evalPraComment — recommendations", () => {
     const comment = makeComment();
     const result = evalPraComment(comment, HEAD);
     expect(result.openRequired).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAdvisorRun
+// ---------------------------------------------------------------------------
+
+const RUN_START = "2026-01-01T00:00:00Z";
+const RUN_END = "2026-01-01T01:00:00Z";
+const COMMENT_TIME = "2026-01-01T00:30:00Z";
+
+function makeRun(overrides: Partial<PraRun> = {}): PraRun {
+  return {
+    name: "PR Review / Advisor",
+    head_sha: HEAD,
+    event: "pull_request",
+    run_attempt: 1,
+    run_started_at: RUN_START,
+    updated_at: RUN_END,
+    ...overrides,
+  };
+}
+
+function makeMeta(overrides: Partial<PraMeta> = {}): PraMeta {
+  return {
+    headSha: HEAD.toLowerCase(),
+    recommendation: "blocked",
+    runId: 1,
+    runAttempt: 1,
+    commentId: 42,
+    ...overrides,
+  };
+}
+
+describe("validateAdvisorRun", () => {
+  it("passes when all fields match and timestamp is within window", () => {
+    expect(validateAdvisorRun(makeRun(), makeMeta(), COMMENT_TIME)).toBe(true);
+  });
+
+  it("fails when run name is not PR Review / Advisor", () => {
+    expect(validateAdvisorRun(makeRun({ name: "Other Workflow" }), makeMeta(), COMMENT_TIME)).toBe(
+      false,
+    );
+  });
+
+  it("fails when event is not pull_request", () => {
+    expect(validateAdvisorRun(makeRun({ event: "push" }), makeMeta(), COMMENT_TIME)).toBe(false);
+  });
+
+  it("fails when head_sha mismatches", () => {
+    expect(
+      validateAdvisorRun(makeRun({ head_sha: "b".repeat(40) }), makeMeta(), COMMENT_TIME),
+    ).toBe(false);
+  });
+
+  it("fails when run_attempt mismatches", () => {
+    expect(validateAdvisorRun(makeRun({ run_attempt: 2 }), makeMeta(), COMMENT_TIME)).toBe(false);
+  });
+
+  it("fails when comment timestamp is before run start", () => {
+    expect(validateAdvisorRun(makeRun(), makeMeta(), "2025-12-31T23:59:59Z")).toBe(false);
+  });
+
+  it("fails when comment timestamp is after run end", () => {
+    expect(validateAdvisorRun(makeRun(), makeMeta(), "2026-01-01T02:00:00Z")).toBe(false);
+  });
+
+  it("fails when run_started_at and created_at are both absent", () => {
+    const run = makeRun({ run_started_at: undefined, created_at: undefined });
+    expect(validateAdvisorRun(run, makeMeta(), COMMENT_TIME)).toBe(false);
+  });
+
+  it("falls back to created_at when run_started_at is absent", () => {
+    const run = makeRun({ run_started_at: undefined, created_at: RUN_START });
+    expect(validateAdvisorRun(run, makeMeta(), COMMENT_TIME)).toBe(true);
+  });
+
+  it("rejects github-actions bot PRA metadata unless the run is PR Review Advisor for the same head and attempt", () => {
+    // Simulates a different workflow posting a marker comment with valid comment_id and head_sha
+    // but a non-Advisor workflow name — run validation must reject it.
+    const spoofedRun = makeRun({ name: "CI / Build", event: "push" });
+    expect(validateAdvisorRun(spoofedRun, makeMeta(), COMMENT_TIME)).toBe(false);
   });
 });

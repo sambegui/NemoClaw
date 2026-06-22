@@ -16,6 +16,17 @@ export interface PraComment {
   id: number;
   user?: { login?: string };
   body?: string;
+  updated_at?: string;
+}
+
+export interface PraRun {
+  name?: string;
+  head_sha?: string;
+  event?: string;
+  run_attempt?: number;
+  run_started_at?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PraMeta {
@@ -39,7 +50,9 @@ export interface PrAdvisorGateResult {
 
 // Explicit allowlist: only these recommendation values mean "OK to merge".
 // Anything else — including unknown values — fails the gate.
-export const PRA_PASS_RECOMMENDATIONS = new Set(["approved", "merge_as_is"]);
+// Source: SUMMARY_RECOMMENDATIONS in tools/pr-review-advisor/analyze.mts.
+// "approved" is not a valid advisor recommendation; only "merge_as_is" is.
+export const PRA_PASS_RECOMMENDATIONS = new Set(["merge_as_is"]);
 
 // Full metadata line: all five fields must be present for a trusted comment.
 const PRA_FULL_META_RE =
@@ -143,4 +156,36 @@ export function selectLatestTrustedPraComment(comments: PraComment[]): PraCommen
       (c.body ?? "").includes("nemoclaw-pr-review-advisor"),
   );
   return trusted.length > 0 ? trusted[trusted.length - 1] : null;
+}
+
+// ---------------------------------------------------------------------------
+// Run provenance
+// ---------------------------------------------------------------------------
+
+function isTimestampWithin(value: string, start: string, end: string): boolean {
+  const t = Date.parse(value);
+  const s = Date.parse(start);
+  const e = Date.parse(end);
+  if (![t, s, e].every(Number.isFinite)) return false;
+  return t >= s && t <= e;
+}
+
+/**
+ * Verify that a GitHub Actions run corresponds to the trusted PR Review / Advisor
+ * workflow for this PR head. Mirrors isTrustedAdvisorRun() in
+ * tools/pr-review-advisor/analyze.mts.
+ *
+ * Pure function — the caller is responsible for fetching the run data.
+ */
+export function validateAdvisorRun(run: PraRun, meta: PraMeta, commentUpdatedAt: string): boolean {
+  const startedAt = run.run_started_at ?? run.created_at;
+  const endedAt = run.updated_at;
+  if (!startedAt || !endedAt) return false;
+  return (
+    run.name === "PR Review / Advisor" &&
+    run.event === "pull_request" &&
+    (run.head_sha ?? "").toLowerCase() === meta.headSha &&
+    (run.run_attempt ?? -1) === meta.runAttempt &&
+    isTimestampWithin(commentUpdatedAt, startedAt, endedAt)
+  );
 }

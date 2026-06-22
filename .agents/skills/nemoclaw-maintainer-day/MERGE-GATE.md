@@ -9,7 +9,7 @@ For the full priority list see [PR-REVIEW-PRIORITIES.md](PR-REVIEW-PRIORITIES.md
 1. **CI green** — all required checks in `statusCheckRollup`.
 2. **No conflicts** — `mergeStateStatus` clean.
 3. **No major CodeRabbit** — ignore style nits; block on correctness/security bugs.
-4. **PR Review Advisor not blocked** — `check-gates.ts` now checks this automatically; `allPass` will be false if the latest advisor comment has `recommendation: blocked`. Correctness, security, acceptance, and test-depth findings block until addressed or explicitly judged false-positive.
+4. **PR Review Advisor: merge_as_is** — `check-gates.ts` checks this automatically. The gate passes only when the latest advisor comment has `recommendation: merge_as_is`. All other recommendation values — including `blocked`, `needs_rework`, `merge_after_fixes`, `superseded`, `info_only`, and any unknown value — fail the gate. The referenced Actions run is validated (name, event, head SHA, run attempt, timestamp) before the recommendation is trusted. Correctness, security, acceptance, and test-depth findings block until addressed or explicitly judged false-positive by a maintainer.
 5. **Risky code tested** — see [RISKY-AREAS.md](RISKY-AREAS.md). Confirm tests exist (added or pre-existing).
 
 ## Step 1: Run the Gate Checker

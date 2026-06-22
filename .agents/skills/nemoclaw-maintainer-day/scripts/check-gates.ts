@@ -21,8 +21,11 @@ import {
 } from "./shared.ts";
 import {
   parsePraCommentNdjson,
+  parsePraMeta,
   selectLatestTrustedPraComment,
   evalPraComment,
+  validateAdvisorRun,
+  type PraRun,
   type PrAdvisorGateResult,
 } from "./pra-gate.ts";
 
@@ -289,6 +292,30 @@ function checkPrAdvisor(repo: string, number: number, headSha: string): PrAdviso
 
   if (!latest) {
     return { pass: true, details: "No PR Review Advisor comment found" };
+  }
+
+  // Validate the referenced Actions run before trusting the recommendation.
+  // github-actions[bot] is a shared identity across all workflows in the repo.
+  // A different workflow posting a comment with the same marker format would
+  // pass comment_id/head_sha checks without this step.
+  const meta = parsePraMeta(latest.body ?? "");
+  if (meta) {
+    const runRaw = run("gh", ["api", `repos/${repo}/actions/runs/${meta.runId}`]);
+    if (!runRaw) {
+      return { pass: false, details: "Could not validate advisor run (API error — fail-closed)" };
+    }
+    let runData: PraRun;
+    try {
+      runData = JSON.parse(runRaw) as PraRun;
+    } catch {
+      return { pass: false, details: "Could not parse advisor run response — fail-closed" };
+    }
+    if (!validateAdvisorRun(runData, meta, latest.updated_at ?? "")) {
+      return {
+        pass: false,
+        details: "PR Review Advisor run provenance check failed — fail-closed",
+      };
+    }
   }
 
   return evalPraComment(latest, headSha);
