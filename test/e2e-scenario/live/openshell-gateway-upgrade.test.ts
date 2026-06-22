@@ -76,11 +76,10 @@ const INSTALL_TIMEOUT_MS = 35 * 60_000;
 const OPENSHELL_TIMEOUT_MS = 2 * 60_000;
 
 validateSandboxName(SURVIVOR_SANDBOX);
-if (!SURVIVOR_SANDBOX.startsWith("e2e-gateway-upgrade-survivor")) {
-  throw new Error(
-    `openshell-gateway-upgrade live test only accepts survivor sandbox names with prefix e2e-gateway-upgrade-survivor; got ${SURVIVOR_SANDBOX}`,
-  );
-}
+expect(
+  SURVIVOR_SANDBOX.startsWith("e2e-gateway-upgrade-survivor"),
+  `openshell-gateway-upgrade live test only accepts survivor sandbox names with prefix e2e-gateway-upgrade-survivor; got ${SURVIVOR_SANDBOX}`,
+).toBe(true);
 
 function writeExecutable(target: string, contents: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
@@ -189,11 +188,14 @@ NEMOCLAW_OLD_PAYLOAD_PIN_PY
 `;
 
   const text = fs.readFileSync(installer, "utf8");
-  if (text.includes(hook)) return;
-  if (!text.includes(needle)) {
-    throw new Error(`${installer}: old bootstrap payload hook not found`);
-  }
-  fs.writeFileSync(installer, text.replace(needle, needle + hook), "utf8");
+  const patchedText = text.includes(hook)
+    ? text
+    : text.includes(needle)
+      ? text.replace(needle, needle + hook)
+      : (() => {
+          throw new Error(`${installer}: old bootstrap payload hook not found`);
+        })();
+  fs.writeFileSync(installer, patchedText, "utf8");
 }
 
 function createOldDockerWrapper(artifacts: ArtifactSink): string {
@@ -279,7 +281,9 @@ async function waitForSurvivorReady(
   host: HostCliClient,
   labelPrefix: string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  let attempt = 0;
+  let ready = false;
+  while (attempt < 60 && !ready) {
     const result = await bash(
       host,
       `openshell sandbox list 2>/dev/null || true`,
@@ -288,11 +292,11 @@ async function waitForSurvivorReady(
         timeoutMs: 30_000,
       },
     );
-    if (new RegExp(`${SURVIVOR_SANDBOX}.*Ready`).test(resultText(result)))
-      return;
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    ready = new RegExp(`${SURVIVOR_SANDBOX}.*Ready`).test(resultText(result));
+    attempt += 1;
+    ready || (await new Promise((resolve) => setTimeout(resolve, 2_000)));
   }
-  throw new Error(`survivor sandbox ${SURVIVOR_SANDBOX} did not become Ready`);
+  expect(ready, `survivor sandbox ${SURVIVOR_SANDBOX} did not become Ready`).toBe(true);
 }
 
 async function survivorAgentProbe(
@@ -319,14 +323,17 @@ async function waitForSurvivorAgentReady(
   host: HostCliClient,
 ): Promise<ShellProbeResult> {
   let last: ShellProbeResult | undefined;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  let attempt = 0;
+  while (attempt < 60 && last?.exitCode !== 0) {
     last = await survivorAgentProbe(host, `survivor-agent-probe-${attempt}`);
-    if (last.exitCode === 0) return last;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    attempt += 1;
+    last.exitCode === 0 || (await new Promise((resolve) => setTimeout(resolve, 1_000)));
   }
-  throw new Error(
+  expect(
+    last?.exitCode,
     `survivor agent did not become healthy: ${last ? resultText(last) : "no probe"}`,
-  );
+  ).toBe(0);
+  return last!;
 }
 
 async function runInstallerPayload(
@@ -348,14 +355,12 @@ bash ${shellQuote(installer)} --non-interactive --yes-i-accept-third-party-softw
       timeoutMs: INSTALL_TIMEOUT_MS,
     },
   );
-  if (result.exitCode !== 0) {
-    const tail = await bash(
-      host,
-      `tail -160 ${shellQuote(logFile)} 2>/dev/null || true`,
-      { artifactName: `${label}-installer-tail`, timeoutMs: 30_000 },
-    );
-    throw new Error(`${label} NemoClaw installer failed:\n${resultText(tail)}`);
-  }
+  const tail = await bash(
+    host,
+    `tail -160 ${shellQuote(logFile)} 2>/dev/null || true`,
+    { artifactName: `${label}-installer-tail`, timeoutMs: 30_000 },
+  );
+  expect(result.exitCode, `${label} NemoClaw installer failed:\n${resultText(tail)}`).toBe(0);
   return result;
 }
 
@@ -697,22 +702,14 @@ exit 99
 }
 
 const runOpenShellGatewayUpgrade = test.skipIf(!shouldRunLiveE2EScenarios());
+const runLinuxOpenShellGatewayUpgrade = test.skipIf(
+  !shouldRunLiveE2EScenarios() || process.platform !== "linux",
+);
 
-runOpenShellGatewayUpgrade(
+runLinuxOpenShellGatewayUpgrade(
   "openshell-gateway-upgrade: upgrades old working OpenClaw claw and restores survivor state",
   { timeout: TEST_TIMEOUT_MS },
   async ({ artifacts, cleanup, host }) => {
-    if (process.platform !== "linux") {
-      await artifacts.writeJson("live-upgrade-scenario.json", {
-        id: "openshell-gateway-upgrade",
-        runner: "vitest",
-        skippedLiveLinux: true,
-        reason:
-          "legacy live Docker-driver gateway restart regression only runs on Linux",
-      });
-      return;
-    }
-
     await artifacts.writeJson("live-upgrade-scenario.json", {
       id: "openshell-gateway-upgrade",
       runner: "vitest",
@@ -873,11 +870,10 @@ exit 0
     );
     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     expect(result.status, output).toBe(0);
-    if (fs.existsSync(signLog) && fs.statSync(signLog).size > 0) {
-      expect(fs.readFileSync(signLog, "utf8")).not.toContain(
-        "--force --sign - --entitlements",
-      );
-    }
+    const signLogText = fs.existsSync(signLog)
+      ? fs.readFileSync(signLog, "utf8")
+      : "";
+    expect(signLogText).not.toContain("--force --sign - --entitlements");
     expect(result.stdout).not.toContain("Installing OpenShell from release");
   },
 );
