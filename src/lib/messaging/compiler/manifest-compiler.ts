@@ -62,7 +62,7 @@ export class ManifestCompiler {
     const credentialBindings = manifests.flatMap((manifest) =>
       planCredentialBindings(manifest, context, inputRegistry.get(manifest.id) ?? []),
     );
-    const networkPolicy = planNetworkPolicy(manifests, context);
+    const networkPolicy = planNetworkPolicy(manifests, context, inputRegistry);
     const agentRender = (
       await Promise.all(
         manifests.map((manifest) =>

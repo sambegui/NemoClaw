@@ -103,11 +103,18 @@ export interface MessagingPolicyApplyOptions {
     presetNames: string[],
     context: MessagingPolicyApplyContext,
   ) => boolean;
+  readonly applyPresetContent?: (
+    sandboxName: string,
+    presetName: string,
+    presetContent: string,
+    context: MessagingPolicyApplyContext,
+  ) => boolean;
 }
 
 export interface MessagingPolicyApplyResult {
   readonly appliedPresets: readonly string[];
   readonly appliedPolicyKeys: readonly string[];
+  readonly appliedTemplatePresets?: readonly string[];
 }
 
 export type MessagingSerializablePlan = SandboxMessagingPlan;

@@ -5,19 +5,34 @@ import type {
   ChannelManifest,
   ChannelPolicyPresetReference,
   ChannelPolicyPresetSpec,
+  SandboxMessagingInputReference,
   SandboxMessagingNetworkPolicyEntryPlan,
   SandboxMessagingNetworkPolicyPlan,
 } from "../../manifest";
 import type { ManifestCompilerContext } from "../types";
+import { renderPolicyTemplate } from "./policy-template-renderer";
 
 export function planNetworkPolicy(
   manifests: readonly ChannelManifest[],
   context: ManifestCompilerContext,
+  inputRegistry: ReadonlyMap<string, readonly SandboxMessagingInputReference[]> = new Map(),
 ): SandboxMessagingNetworkPolicyPlan {
   const entries = manifests.flatMap((manifest) => planManifestPolicyEntries(manifest, context));
+  const templates = manifests.flatMap((manifest) =>
+    (manifest.policyTemplates ?? []).flatMap((template) => {
+      const rendered = renderPolicyTemplate(
+        manifest.id,
+        template,
+        context.agent,
+        inputRegistry.get(manifest.id) ?? [],
+      );
+      return rendered ? [rendered] : [];
+    }),
+  );
   return {
     presets: unique(entries.map((entry) => entry.presetName)),
     entries,
+    ...(templates.length > 0 ? { templates } : {}),
   };
 }
 

@@ -38,6 +38,7 @@ describe("SANDBOX_PROVIDER_SUFFIXES", () => {
         "wechat-bridge",
         "slack-bridge",
         "slack-app",
+        "mattermost-bridge",
         "brave-search",
       ].sort(),
     );

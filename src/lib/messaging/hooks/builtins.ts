@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createDiscordHookRegistrations, type DiscordHookOptions } from "../channels/discord/hooks";
+import {
+  createMattermostHookRegistrations,
+  type MattermostReachabilityHookOptions,
+} from "../channels/mattermost/hooks";
 import type { OpenClawBridgeHealthHookOptions } from "../channels/openclaw-bridge-health";
 import { createSlackHookRegistrations, type SlackHookOptions } from "../channels/slack/hooks";
 import {
@@ -16,6 +20,7 @@ import type { MessagingHookRegistration } from "./types";
 export interface BuiltInMessagingHookOptions {
   readonly common?: CommonHookOptions;
   readonly discord?: DiscordHookOptions;
+  readonly mattermost?: MattermostReachabilityHookOptions;
   readonly openclawBridgeHealth?: OpenClawBridgeHealthHookOptions;
   readonly slack?: SlackHookOptions;
   readonly telegram?: TelegramHookOptions;
@@ -33,6 +38,7 @@ export function createBuiltInMessagingHookRegistrations(
     ...createSlackHookRegistrations(
       withOpenClawBridgeHealthOptions(options.slack, options.openclawBridgeHealth),
     ),
+    ...createMattermostHookRegistrations(options.mattermost),
     ...createTelegramHookRegistrations(
       withOpenClawBridgeHealthOptions(options.telegram, options.openclawBridgeHealth),
     ),

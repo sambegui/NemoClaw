@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+preset:
+  name: mattermost
+  description: "Mattermost self-hosted API and WebSocket access"
+  template:
+    sourceType: http-url
+
+network_policies:
+  mattermost:
+    name: mattermost
+    endpoints:
+      # Mattermost serves REST and WebSocket traffic from the same self-hosted
+      # host:port. Keep them on one inspected endpoint so policy matching does
+      # not collapse duplicate endpoint keys while credential rewrite still
+      # resolves the bot-token placeholder before egress.
+      - host: "{{url.host}}"
+        port: "{{url.port}}"
+        protocol: rest
+        enforcement: enforce
+        request_body_credential_rewrite: true
+        websocket_credential_rewrite: true
+        allowed_ips:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+        rules:
+          - allow: { method: GET, path: "{{url.basePath}}/api/v4/websocket" }
+          - allow: { method: WEBSOCKET_TEXT, path: "{{url.basePath}}/api/v4/websocket" }
+          - allow: { method: GET, path: "{{url.basePath}}/api/v4/**" }
+          - allow: { method: POST, path: "{{url.basePath}}/api/v4/**" }
+          - allow: { method: PUT, path: "{{url.basePath}}/api/v4/**" }
+          - allow: { method: PATCH, path: "{{url.basePath}}/api/v4/**" }
+          - allow: { method: DELETE, path: "{{url.basePath}}/api/v4/**" }
+    binaries:
+      - path: "{{agent.binaries}}"

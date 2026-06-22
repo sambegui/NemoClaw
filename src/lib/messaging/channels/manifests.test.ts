@@ -20,11 +20,13 @@ import {
   BUILT_IN_CHANNEL_MANIFESTS,
   createBuiltInChannelManifestRegistry,
   discordManifest,
+  mattermostManifest,
   slackManifest,
   telegramManifest,
   wechatManifest,
   whatsappManifest,
 } from "./index";
+import { MATTERMOST_REACHABILITY_HOOK_HANDLER_ID } from "./mattermost/hooks";
 import {
   SLACK_SOCKET_MODE_GATEWAY_CONFLICT_HOOK_HANDLER_ID,
   SLACK_SOCKET_MODE_GATEWAY_STATUS_HOOK_HANDLER_ID,
@@ -76,6 +78,10 @@ function policyPresetNames(manifest: ChannelManifest): string[] {
   return (manifest.policyPresets ?? []).map((preset) =>
     typeof preset === "string" ? preset : preset.name,
   );
+}
+
+function policyTemplateNames(manifest: ChannelManifest): string[] {
+  return (manifest.policyTemplates ?? []).map((template) => template.name);
 }
 
 function expectTokenPasteEnrollHook(manifest: ChannelManifest, outputIds: readonly string[]): void {
@@ -202,6 +208,7 @@ describe("built-in channel manifests", () => {
       "wechat",
       "slack",
       "whatsapp",
+      "mattermost",
     ]);
     expect(registry.listAvailable({ agent: "hermes" }).map((manifest) => manifest.id)).toEqual([
       "telegram",
@@ -238,6 +245,8 @@ describe("built-in channel manifests", () => {
       "src/lib/messaging/channels/slack/hooks/socket-mode-gateway-status.ts",
       "src/lib/messaging/channels/slack/hooks/validate-credentials.ts",
       "src/lib/messaging/channels/whatsapp/manifest.ts",
+      "src/lib/messaging/channels/mattermost/manifest.ts",
+      "src/lib/messaging/channels/mattermost/hooks/reachability.ts",
       "src/lib/messaging/hooks/common/config-prompt.ts",
       "src/lib/messaging/hooks/common/token-paste.ts",
     ];
@@ -297,6 +306,10 @@ describe("built-in channel manifests", () => {
     expect(findInput(wechatManifest, "botToken").prompt).toEqual({
       label: KNOWN_CHANNELS.wechat.label,
       help: KNOWN_CHANNELS.wechat.help,
+    });
+    expect(findInput(mattermostManifest, "botToken").prompt).toEqual({
+      label: KNOWN_CHANNELS.mattermost.label,
+      help: KNOWN_CHANNELS.mattermost.help,
     });
   });
 
@@ -648,5 +661,121 @@ describe("built-in channel manifests", () => {
     expectOpenClawNodePreload(whatsappManifest, "whatsapp-qr-compact");
     expect(JSON.stringify(whatsappManifest.runtime?.openclaw)).toContain("whatsapp-qr-compact");
     expectOpenClawRuntimeVisibility(whatsappManifest, ["whatsapp"], ["whatsapp"]);
+  });
+
+  it("declares Mattermost token, server URL, allowlist, and render intent", () => {
+    const botToken = findInput(mattermostManifest, "botToken");
+    const baseUrl = findInput(mattermostManifest, "baseUrl");
+    const allowedUsers = findInput(mattermostManifest, "allowedUsers");
+    const allowedChannels = findInput(mattermostManifest, "allowedChannels");
+    const requireMention = findInput(mattermostManifest, "requireMention");
+
+    expect(getChannelTokenKeys(KNOWN_CHANNELS.mattermost)).toEqual(["MATTERMOST_BOT_TOKEN"]);
+    expect(botToken.envKey).toBe("MATTERMOST_BOT_TOKEN");
+    expect(baseUrl).toMatchObject({
+      kind: "config",
+      envKey: "MATTERMOST_URL",
+      statePath: "mattermostConfig.baseUrl",
+    });
+    expect(new RegExp(baseUrl.formatPattern ?? "").test("https://chat.example.com")).toBe(true);
+    expect(new RegExp(baseUrl.formatPattern ?? "").test("http://chat.example.com")).toBe(true);
+    expect(new RegExp(baseUrl.formatPattern ?? "").test("http://192.0.2.10:8065")).toBe(true);
+    expect(new RegExp(baseUrl.formatPattern ?? "").test("ftp://chat.example.com")).toBe(false);
+    expect(allowedUsers).toMatchObject({
+      kind: "config",
+      envKey: "MATTERMOST_ALLOWED_USERS",
+      statePath: "allowedIds.mattermost",
+    });
+    expect(allowedChannels).toMatchObject({
+      kind: "config",
+      envKey: "MATTERMOST_ALLOWED_CHANNELS",
+      statePath: "mattermostConfig.allowedChannels",
+    });
+    expect(requireMention).toMatchObject({
+      kind: "config",
+      envKey: "MATTERMOST_REQUIRE_MENTION",
+      defaultValue: "1",
+      validValues: ["0", "1"],
+    });
+    expect(KNOWN_CHANNELS.mattermost.allowIdsMode).toBe("dm");
+    expect(KNOWN_CHANNELS.mattermost.channelIdEnvKey).toBe("MATTERMOST_ALLOWED_CHANNELS");
+    expect(KNOWN_CHANNELS.mattermost.requireMentionEnvKey).toBe("MATTERMOST_REQUIRE_MENTION");
+    expect(mattermostManifest.credentials).toEqual([
+      {
+        id: "mattermostBotToken",
+        sourceInput: "botToken",
+        providerName: "{sandboxName}-mattermost-bridge",
+        providerEnvKey: "MATTERMOST_BOT_TOKEN",
+        placeholder: "openshell:resolve:env:MATTERMOST_BOT_TOKEN",
+      },
+    ]);
+    expect(policyPresetNames(mattermostManifest)).toEqual([]);
+    expect(policyTemplateNames(mattermostManifest)).toEqual(["mattermost"]);
+    expect(mattermostManifest.policyTemplates).toEqual([
+      {
+        name: "mattermost",
+        templateFile: "mattermost.yaml",
+        sourceInput: "baseUrl",
+        sourceType: "http-url",
+        binariesByAgent: {
+          openclaw: ["/usr/local/bin/node", "/usr/bin/node"],
+        },
+      },
+    ]);
+    expect(renderJson(mattermostManifest)).toContain('"path":"channels.mattermost"');
+    expect(renderJson(mattermostManifest)).toContain("mattermostConfig.baseUrl");
+    expect(renderJson(mattermostManifest)).toContain("allowedIds.mattermost");
+    expect(renderJson(mattermostManifest)).toContain("mattermostConfig.openclawGroups");
+    expect(findRender(mattermostManifest, "mattermost-openclaw-channel")).toMatchObject({
+      fragment: {
+        value: {
+          network: {
+            dangerouslyAllowPrivateNetwork: true,
+          },
+        },
+      },
+    });
+    expect(renderJson(mattermostManifest)).not.toContain('"path":"mattermost"');
+    expect(renderJson(mattermostManifest)).not.toContain('"path":"platforms.mattermost"');
+    expect("agentPackages" in mattermostManifest).toBe(false);
+    expectTokenPasteEnrollHook(mattermostManifest, ["botToken"]);
+    expectConfigPromptEnrollHook(mattermostManifest, [
+      "baseUrl",
+      "allowedUsers",
+      "allowedChannels",
+      "requireMention",
+    ]);
+    expect(mattermostManifest.hooks).toContainEqual({
+      id: "mattermost-reachability",
+      phase: "reachability-check",
+      handler: MATTERMOST_REACHABILITY_HOOK_HANDLER_ID,
+      inputs: ["botToken", "baseUrl"],
+      onFailure: "skip-channel",
+    });
+    expectOpenClawRuntimeVisibility(mattermostManifest, ["mattermost"], ["mattermost"]);
+    expect(mattermostManifest.state).toEqual({
+      persist: {
+        mattermostConfig: ["baseUrl", "allowedChannels", "requireMention"],
+        allowedIds: ["allowedUsers"],
+      },
+      rebuildHydration: [
+        {
+          statePath: "mattermostConfig.baseUrl",
+          env: "MATTERMOST_URL",
+        },
+        {
+          statePath: "allowedIds.mattermost",
+          env: "MATTERMOST_ALLOWED_USERS",
+        },
+        {
+          statePath: "mattermostConfig.allowedChannels",
+          env: "MATTERMOST_ALLOWED_CHANNELS",
+        },
+        {
+          statePath: "mattermostConfig.requireMention",
+          env: "MATTERMOST_REQUIRE_MENTION",
+        },
+      ],
+    });
   });
 });

@@ -95,6 +95,10 @@ function mergeSandboxMessagingPlans(
     existing.networkPolicy.entries,
     incoming.networkPolicy.entries,
   );
+  const networkTemplates = mergeByChannelId(
+    existing.networkPolicy.templates ?? [],
+    incoming.networkPolicy.templates ?? [],
+  );
 
   return clonePlan({
     ...incoming,
@@ -104,6 +108,7 @@ function mergeSandboxMessagingPlans(
     networkPolicy: {
       presets: uniqueStrings(networkEntries.map((entry) => entry.presetName)),
       entries: networkEntries,
+      ...(networkTemplates.length > 0 ? { templates: networkTemplates } : {}),
     },
     agentRender: mergeByChannelId(existing.agentRender, incoming.agentRender),
     buildSteps: mergeByChannelId(existing.buildSteps, incoming.buildSteps),

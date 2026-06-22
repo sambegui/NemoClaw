@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { resolveDiscordTemplateReference } from "./discord/template-resolver";
+import { resolveMattermostTemplateReference } from "./mattermost/template-resolver";
 import { resolveSlackTemplateReference } from "./slack/template-resolver";
 import { resolveTelegramTemplateReference } from "./telegram/template-resolver";
 import type { BuiltInRenderTemplateResolver } from "./template-resolver-utils";
@@ -14,6 +15,7 @@ const BUILT_IN_TEMPLATE_REFERENCE_RESOLVERS: readonly BuiltInRenderTemplateResol
   resolveWechatTemplateReference,
   resolveSlackTemplateReference,
   resolveWhatsappTemplateReference,
+  resolveMattermostTemplateReference,
 ];
 
 export function createBuiltInRenderTemplateResolver(): BuiltInRenderTemplateResolver {

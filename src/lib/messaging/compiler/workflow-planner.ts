@@ -289,6 +289,10 @@ function mergeSandboxMessagingPlans(
     existing.networkPolicy.entries,
     incoming.networkPolicy.entries,
   );
+  const networkTemplates = mergePlanEntriesByChannel(
+    existing.networkPolicy.templates ?? [],
+    incoming.networkPolicy.templates ?? [],
+  );
 
   return clonePlan({
     ...incoming,
@@ -301,6 +305,7 @@ function mergeSandboxMessagingPlans(
     networkPolicy: {
       presets: uniqueSortedStrings(networkEntries.map((entry) => entry.presetName)),
       entries: networkEntries,
+      ...(networkTemplates.length > 0 ? { templates: networkTemplates } : {}),
     },
     agentRender: mergePlanEntriesByChannel(existing.agentRender, incoming.agentRender),
     buildSteps: mergePlanEntriesByChannel(existing.buildSteps, incoming.buildSteps),
@@ -376,6 +381,9 @@ function removePlanChannel(
   const networkEntries = plan.networkPolicy.entries.filter(
     (entry) => entry.channelId !== channelId,
   );
+  const networkTemplates = (plan.networkPolicy.templates ?? []).filter(
+    (entry) => entry.channelId !== channelId,
+  );
   const keepEntry = <T extends { readonly channelId: MessagingChannelId }>(entry: T) =>
     entry.channelId !== channelId && remainingChannelIds.has(entry.channelId);
 
@@ -390,6 +398,7 @@ function removePlanChannel(
     networkPolicy: {
       presets: uniqueSortedStrings(networkEntries.map((entry) => entry.presetName)),
       entries: networkEntries,
+      ...(networkTemplates.length > 0 ? { templates: networkTemplates } : {}),
     },
     agentRender: plan.agentRender.filter(keepEntry),
     buildSteps: plan.buildSteps.filter(keepEntry),

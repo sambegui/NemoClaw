@@ -42,6 +42,7 @@ describe("MessagingHookRegistry", () => {
       "slack.socketModeGatewayStatus",
       "slack.openclawBridgeHealth",
       "slack.validateCredentials",
+      "mattermost.reachability",
       "telegram.allowlistAliases",
       "telegram.openclawBridgeHealth",
       "telegram.gatewayConflictStatus",

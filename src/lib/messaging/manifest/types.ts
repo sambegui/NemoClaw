@@ -41,6 +41,8 @@ export interface ChannelManifest {
   readonly credentials: readonly ChannelCredentialSpec[];
   /** Policy presets needed when this channel is active. */
   readonly policyPresets?: readonly ChannelPolicyPresetReference[];
+  /** Policy templates rendered from channel config such as self-hosted URLs. */
+  readonly policyTemplates?: readonly ChannelPolicyTemplateSpec[];
   readonly render: readonly ChannelRenderSpec[];
   readonly runtime?: ChannelRuntimeByAgentSpec;
   readonly agentPackages?: readonly ChannelAgentPackageSpec[];
@@ -58,6 +60,15 @@ export interface ChannelPolicyPresetSpec {
   readonly agentPolicyKeys?: Partial<Record<MessagingAgentId, readonly string[]>>;
   readonly requiredAtCreate?: boolean;
   readonly validationWarningLines?: readonly string[];
+}
+
+/** Parameterized policy template rendered from non-secret channel input. */
+export interface ChannelPolicyTemplateSpec {
+  readonly name: string;
+  readonly templateFile: string;
+  readonly sourceInput: string;
+  readonly sourceType: "https-url" | "http-url";
+  readonly binariesByAgent?: Partial<Record<MessagingAgentId, readonly string[]>>;
 }
 
 /** How a channel obtains credential or session material. */
@@ -331,6 +342,7 @@ export interface SandboxMessagingCredentialBindingPlan {
 export interface SandboxMessagingNetworkPolicyPlan {
   readonly presets: readonly string[];
   readonly entries: readonly SandboxMessagingNetworkPolicyEntryPlan[];
+  readonly templates?: readonly SandboxMessagingNetworkPolicyTemplatePlan[];
 }
 
 /** One active channel's requested policy preset and resolved policy keys. */
@@ -339,6 +351,16 @@ export interface SandboxMessagingNetworkPolicyEntryPlan {
   readonly presetName: string;
   readonly policyKeys: readonly string[];
   readonly source: "agent-alias" | "manifest";
+}
+
+/** One active channel's rendered custom network policy template. */
+export interface SandboxMessagingNetworkPolicyTemplatePlan {
+  readonly channelId: MessagingChannelId;
+  readonly presetName: string;
+  readonly templateFile: string;
+  readonly sourceInput: string;
+  readonly policyKeys: readonly string[];
+  readonly content: string;
 }
 
 /** Compiled render output for supported target formats. */

@@ -30,6 +30,7 @@ describe("built-in messaging channel metadata", () => {
       "wechat",
       "slack",
       "whatsapp",
+      "mattermost",
     ]);
     expect(listAvailableMessagingChannelIds({ agent: "hermes" })).toEqual([
       "telegram",
@@ -47,6 +48,7 @@ describe("built-in messaging channel metadata", () => {
       wechat: ["WECHAT_BOT_TOKEN"],
       slack: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
       whatsapp: [],
+      mattermost: ["MATTERMOST_BOT_TOKEN"],
     });
     expect(getMessagingChannelForCredentialEnvKey("SLACK_APP_TOKEN")).toBe("slack");
     expect(getMessagingChannelForCredentialEnvKey("WHATSAPP_ALLOWED_IDS")).toBeNull();
@@ -55,6 +57,7 @@ describe("built-in messaging channel metadata", () => {
       discord: ["-discord-bridge"],
       wechat: ["-wechat-bridge"],
       slack: ["-slack-bridge", "-slack-app"],
+      mattermost: ["-mattermost-bridge"],
     });
     expect(listMessagingProviderNamesForChannel("demo", "slack")).toEqual([
       "demo-slack-bridge",
@@ -78,6 +81,10 @@ describe("built-in messaging channel metadata", () => {
       "SLACK_ALLOWED_USERS",
       "SLACK_ALLOWED_CHANNELS",
       "WHATSAPP_ALLOWED_IDS",
+      "MATTERMOST_URL",
+      "MATTERMOST_ALLOWED_USERS",
+      "MATTERMOST_ALLOWED_CHANNELS",
+      "MATTERMOST_REQUIRE_MENTION",
     ]);
     expect(getMessagingConfigEnvAliases()).toEqual({
       DISCORD_SERVER_ID: ["DISCORD_SERVER_IDS"],
@@ -93,6 +100,7 @@ describe("built-in messaging channel metadata", () => {
       slack: ["slack"],
       whatsapp: ["whatsapp"],
     });
+    expect(getMessagingPolicyKeyAliases().mattermost).toBeUndefined();
     expect(getMessagingPolicyKeysByChannel({ agent: "hermes" })).toMatchObject({
       telegram: ["telegram"],
       discord: ["discord"],
@@ -100,16 +108,19 @@ describe("built-in messaging channel metadata", () => {
       slack: ["slack"],
       whatsapp: ["whatsapp"],
     });
+    expect(getMessagingPolicyKeysByChannel({ agent: "hermes" }).mattermost).toBeUndefined();
     expect(listRequiredCreateTimeMessagingPolicyPresetNames()).toEqual(["slack"]);
     expect(getMessagingPolicyPresetValidationWarnings().discord).toContain(
       "https://discord.com/api/v10/gateway or validate the configured",
     );
+    expect(getMessagingPolicyPresetValidationWarnings().mattermost).toBeUndefined();
     expect(listOpenClawManagedChannelNames()).toEqual([
       "telegram",
       "discord",
       "openclaw-weixin",
       "slack",
       "whatsapp",
+      "mattermost",
     ]);
     expect(
       Object.fromEntries(
@@ -121,6 +132,7 @@ describe("built-in messaging channel metadata", () => {
       wechat: ["openclaw-weixin"],
       slack: ["slack"],
       whatsapp: ["whatsapp"],
+      mattermost: ["mattermost"],
     });
     expect(
       Object.fromEntries(

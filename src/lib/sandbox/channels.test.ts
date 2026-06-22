@@ -16,8 +16,15 @@ import {
 } from "./channels";
 
 describe("sandbox-channels KNOWN_CHANNELS", () => {
-  it("covers telegram, discord, wechat, slack, and whatsapp", () => {
-    expect(knownChannelNames()).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp"]);
+  it("covers telegram, discord, wechat, slack, whatsapp, and mattermost", () => {
+    expect(knownChannelNames()).toEqual([
+      "telegram",
+      "discord",
+      "wechat",
+      "slack",
+      "whatsapp",
+      "mattermost",
+    ]);
   });
 
   it("exposes the primary bot-token env var for token-based channels", () => {
@@ -25,6 +32,7 @@ describe("sandbox-channels KNOWN_CHANNELS", () => {
     expect(getChannelDef("discord")?.envKey).toBe("DISCORD_BOT_TOKEN");
     expect(getChannelDef("slack")?.envKey).toBe("SLACK_BOT_TOKEN");
     expect(getChannelDef("wechat")?.envKey).toBe("WECHAT_BOT_TOKEN");
+    expect(getChannelDef("mattermost")?.envKey).toBe("MATTERMOST_BOT_TOKEN");
   });
 
   it("classifies channels by login method", () => {
@@ -40,6 +48,7 @@ describe("sandbox-channels KNOWN_CHANNELS", () => {
     expect(getChannelDef("telegram")?.loginMethod).toBeUndefined();
     expect(getChannelDef("discord")?.loginMethod).toBeUndefined();
     expect(getChannelDef("slack")?.loginMethod).toBeUndefined();
+    expect(getChannelDef("mattermost")?.loginMethod).toBeUndefined();
   });
 
   it("declares wechat as DM-only with the WECHAT_ALLOWED_IDS env key", () => {
@@ -55,6 +64,17 @@ describe("sandbox-channels KNOWN_CHANNELS", () => {
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.whatsapp)).toBe(true);
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.wechat)).toBe(false);
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.slack)).toBe(false);
+  });
+
+  it("asks for Mattermost base URL, user IDs, channel IDs, and mention mode", () => {
+    const mattermost = getChannelDef("mattermost");
+    expect(mattermost?.envKey).toBe("MATTERMOST_BOT_TOKEN");
+    expect(mattermost?.userIdEnvKey).toBe("MATTERMOST_ALLOWED_USERS");
+    expect(mattermost?.userIdLabel).toBe("Mattermost User IDs (comma-separated allowlist)");
+    expect(mattermost?.allowIdsMode).toBe("dm");
+    expect(mattermost?.channelIdEnvKey).toBe("MATTERMOST_ALLOWED_CHANNELS");
+    expect(mattermost?.channelIdLabel).toBe("Mattermost Channel IDs (comma-separated allowlist)");
+    expect(mattermost?.requireMentionEnvKey).toBe("MATTERMOST_REQUIRE_MENTION");
   });
 
   it("declares no provider-credential metadata for WhatsApp", () => {
@@ -107,10 +127,11 @@ describe("sandbox-channels KNOWN_CHANNELS", () => {
     expect(getChannelDef("  Telegram  ")).toBe(KNOWN_CHANNELS.telegram);
     expect(getChannelDef("DISCORD")).toBe(KNOWN_CHANNELS.discord);
     expect(getChannelDef("  WhatsApp  ")).toBe(KNOWN_CHANNELS.whatsapp);
+    expect(getChannelDef("MATTERMOST")).toBe(KNOWN_CHANNELS.mattermost);
   });
 
   it("returns undefined for unknown channel names", () => {
-    expect(getChannelDef("mattermost")).toBeUndefined();
+    expect(getChannelDef("matrix")).toBeUndefined();
     expect(getChannelDef("")).toBeUndefined();
   });
 });
@@ -119,6 +140,7 @@ describe("sandbox-channels getChannelTokenKeys", () => {
   it("returns just the primary token key for single-token channels", () => {
     expect(getChannelTokenKeys(KNOWN_CHANNELS.telegram)).toEqual(["TELEGRAM_BOT_TOKEN"]);
     expect(getChannelTokenKeys(KNOWN_CHANNELS.discord)).toEqual(["DISCORD_BOT_TOKEN"]);
+    expect(getChannelTokenKeys(KNOWN_CHANNELS.mattermost)).toEqual(["MATTERMOST_BOT_TOKEN"]);
   });
 
   it("returns primary then app token for slack", () => {
@@ -146,6 +168,7 @@ describe("sandbox-channels token-shape helpers", () => {
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.wechat)).toBe(false);
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.telegram)).toBe(false);
     expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.slack)).toBe(false);
+    expect(channelUsesInSandboxQrPairing(KNOWN_CHANNELS.mattermost)).toBe(false);
   });
 
   it("channelHasStaticToken narrows to ChannelDef with a defined envKey", () => {
@@ -163,7 +186,14 @@ describe("sandbox-channels token-shape helpers", () => {
 describe("sandbox-channels listChannels", () => {
   it("materialises an array with the name merged into each entry", () => {
     const list = listChannels();
-    expect(list.map((c) => c.name)).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp"]);
+    expect(list.map((c) => c.name)).toEqual([
+      "telegram",
+      "discord",
+      "wechat",
+      "slack",
+      "whatsapp",
+      "mattermost",
+    ]);
     const telegram = list.find((c) => c.name === "telegram");
     expect(telegram?.envKey).toBe("TELEGRAM_BOT_TOKEN");
     expect(telegram?.allowIdsMode).toBe("dm");

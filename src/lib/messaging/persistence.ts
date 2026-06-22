@@ -157,7 +157,7 @@ export function hydrateDerivedSandboxMessagingPlanFields(
   return {
     ...planWithCredentials,
     networkPolicy:
-      plan.networkPolicy.entries.length > 0
+      plan.networkPolicy.entries.length > 0 || (plan.networkPolicy.templates?.length ?? 0) > 0
         ? plan.networkPolicy
         : planNetworkPolicy(manifests, compilerContext(planWithCredentials)),
     agentRender:

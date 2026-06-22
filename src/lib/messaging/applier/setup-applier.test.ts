@@ -28,6 +28,7 @@ const TEST_CREDENTIALS: Readonly<Record<string, string>> = {
   WECHAT_BOT_TOKEN: "test-wechat-token",
   SLACK_BOT_TOKEN: "xoxb-test-slack-token",
   SLACK_APP_TOKEN: "xapp-test-slack-token",
+  MATTERMOST_BOT_TOKEN: "test-mattermost-token",
 };
 
 async function withEnv<T>(
@@ -36,6 +37,7 @@ async function withEnv<T>(
 ): Promise<T> {
   const scopedValues = {
     NEMOCLAW_SKIP_TELEGRAM_REACHABILITY: "1",
+    NEMOCLAW_SKIP_MATTERMOST_AUTH_VALIDATION: "1",
     ...values,
   };
   const previous = Object.fromEntries(
@@ -801,6 +803,48 @@ describe("MessagingSetupApplier", () => {
     expect(result).toEqual({
       appliedPresets: ["telegram"],
       appliedPolicyKeys: ["telegram_bot"],
+    });
+  });
+
+  it("applies generated policy template content directly from the serializable plan", async () => {
+    const plan = await buildOnboardPlan(
+      {
+        MATTERMOST_BOT_TOKEN: "test-mattermost-token",
+        MATTERMOST_URL: "https://chat.example.com/team",
+      },
+      ["mattermost"],
+    );
+    const presetCalls: string[][] = [];
+    const contentCalls: string[][] = [];
+
+    const result = MessagingSetupApplier.applyPolicyAtOpenShell(plan, {
+      applyPresets: (sandboxName, presetNames) => {
+        presetCalls.push([sandboxName, ...presetNames]);
+        return true;
+      },
+      applyPresetContent: (sandboxName, presetName, content, context) => {
+        contentCalls.push([sandboxName, presetName, content]);
+        expect(context.policyKeys).toEqual(["mattermost"]);
+        return true;
+      },
+    });
+
+    expect(presetCalls).toEqual([]);
+    expect(contentCalls).toHaveLength(1);
+    expect(contentCalls[0][0]).toBe("demo");
+    expect(contentCalls[0][1]).toBe("mattermost");
+    expect(contentCalls[0][2]).toContain("chat.example.com");
+    expect(contentCalls[0][2]).toContain("protocol: rest");
+    expect(contentCalls[0][2]).toContain("request_body_credential_rewrite: true");
+    expect(contentCalls[0][2]).toContain("websocket_credential_rewrite: true");
+    expect(contentCalls[0][2]).toContain("path: /team/api/v4/**");
+    expect(contentCalls[0][2]).toContain("method: WEBSOCKET_TEXT");
+    expect(contentCalls[0][2]).not.toContain("access: full");
+    expect(contentCalls[0][2]).not.toContain("tls: skip");
+    expect(result).toEqual({
+      appliedPresets: [],
+      appliedPolicyKeys: ["mattermost"],
+      appliedTemplatePresets: ["mattermost"],
     });
   });
 

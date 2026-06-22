@@ -33,6 +33,7 @@ const onboardProviders = require("../../onboard/providers");
 
 import { filterSetupPolicyPresetsForAgent } from "../../onboard/agent-policy-presets";
 import { getStoredMessagingChannelConfig } from "../../onboard/messaging-config";
+import { applyGeneratedMessagingPolicyTemplates } from "../../onboard/messaging-policy-templates";
 import * as policies from "../../policy";
 
 const onboardSession =
@@ -908,19 +909,21 @@ export async function addSandboxChannel(
     process.exit(1);
   }
 
-  const presetContent = policies.loadPreset(canonical);
-  const presetPolicyKeys =
-    presetContent === null ? [] : policies.parsePresetPolicyKeys(presetContent);
-  if (presetContent === null || presetPolicyKeys.length === 0) {
-    if (presetContent !== null && presetPolicyKeys.length === 0) {
+  for (const presetName of manifestPolicyPresetNames(manifest)) {
+    const presetContent = policies.loadPreset(presetName);
+    const presetPolicyKeys =
+      presetContent === null ? [] : policies.parsePresetPolicyKeys(presetContent);
+    if (presetContent === null || presetPolicyKeys.length === 0) {
+      if (presetContent !== null && presetPolicyKeys.length === 0) {
+        console.error(
+          `  Preset YAML for channel '${canonical}' has no parseable entries under 'network_policies:'.`,
+        );
+      }
       console.error(
-        `  Preset YAML for channel '${canonical}' has no parseable entries under 'network_policies:'.`,
+        `    Restore the preset YAML and re-run: ${CLI_NAME} ${sandboxName} channels add ${canonical}`,
       );
+      process.exit(1);
     }
-    console.error(
-      `    Restore the preset YAML and re-run: ${CLI_NAME} ${sandboxName} channels add ${canonical}`,
-    );
-    process.exit(1);
   }
 
   if (dryRun) {
@@ -944,7 +947,7 @@ export async function addSandboxChannel(
   // host-side credential to acquire; register the bridge now and let the
   // operator complete pairing after rebuild.
   if (manifest.auth.mode === "in-sandbox-qr") {
-    if (!applyChannelPresetIfAvailable(sandboxName, canonical)) {
+    if (!applyChannelPolicyIfAvailable(sandboxName, canonical, plan)) {
       process.exit(1);
     }
     await applyChannelAddToGatewayAndRegistry(sandboxName, canonical, {});
@@ -993,7 +996,7 @@ export async function addSandboxChannel(
   await applyChannelAddToGatewayAndRegistry(sandboxName, canonical, acquired);
   console.log(`  ${G}✓${R} Registered ${canonical} bridge with the OpenShell gateway.`);
 
-  if (!applyChannelPresetIfAvailable(sandboxName, canonical)) {
+  if (!applyChannelPolicyIfAvailable(sandboxName, canonical, plan)) {
     await rollbackChannelAdd(sandboxName, channelDef, canonical, {
       wasAlreadyEnabled,
       priorCreds,
@@ -1073,6 +1076,12 @@ async function rollbackChannelAdd(
   return result;
 }
 
+function manifestPolicyPresetNames(manifest: ChannelManifest): string[] {
+  return (manifest.policyPresets ?? []).map((preset) =>
+    typeof preset === "string" ? preset : preset.name,
+  );
+}
+
 export function applyChannelPresetIfAvailable(sandboxName: string, channelName: string): boolean {
   try {
     const applied = policies.applyPreset(sandboxName, channelName);
@@ -1096,6 +1105,28 @@ export function applyChannelPresetIfAvailable(sandboxName: string, channelName: 
     );
     return false;
   }
+}
+
+export function applyChannelPolicyIfAvailable(
+  sandboxName: string,
+  channelName: string,
+  plan: SandboxMessagingPlan,
+): boolean {
+  try {
+    const appliedGenerated = applyGeneratedMessagingPolicyTemplates(sandboxName, plan, {
+      channelId: channelName,
+    });
+    if (appliedGenerated.length > 0) {
+      refreshSandboxPolicyContextFile(sandboxName);
+      return true;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`  ${YW}⚠${R} Failed to apply generated '${channelName}' policy: ${msg}`);
+    return false;
+  }
+
+  return applyChannelPresetIfAvailable(sandboxName, channelName);
 }
 
 function getSandboxChannelStatePaths(agent: AgentDefinition, channelName: string): string[] {
@@ -1206,11 +1237,6 @@ function syncSessionPolicyPresetsWithRegistry(
 // not abort the remove flow — the bridge teardown has already succeeded;
 // the operator can run `policy-remove <channel>` manually if cleanup falters.
 export function removeChannelPresetIfPresent(sandboxName: string, channelName: string): void {
-  const builtinPresets = new Set(policies.listPresets().map((p) => p.name));
-  if (!builtinPresets.has(channelName)) {
-    syncSessionPolicyPresetsWithRegistry(sandboxName, channelName, "remove");
-    return;
-  }
   if (!policies.getAppliedPresets(sandboxName).includes(channelName)) {
     syncSessionPolicyPresetsWithRegistry(sandboxName, channelName, "remove");
     return;

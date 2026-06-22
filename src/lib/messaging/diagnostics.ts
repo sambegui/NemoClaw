@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createBuiltInChannelManifestRegistry } from "./channels";
-import type { ChannelManifest, ChannelPolicyPresetReference, MessagingAgentId } from "./manifest";
+import type {
+  ChannelManifest,
+  ChannelPolicyPresetReference,
+  ChannelPolicyTemplateSpec,
+  MessagingAgentId,
+} from "./manifest";
 
 export interface MessagingChannelDiagnosticSpec {
   readonly channelId: string;
@@ -32,7 +37,7 @@ export function collectMessagingChannelDiagnostics(
     const deepProbe = manifest.auth.mode === "in-sandbox-qr" ? "in-sandbox-qr" : undefined;
     return {
       channelId: manifest.id,
-      policyPresets: policyPresetNames(manifest.policyPresets),
+      policyPresets: policyNames(manifest.policyPresets, manifest.policyTemplates),
       preferredDefault: deepProbe !== undefined,
       ...(deepProbe ? { deepProbe, doctorWhenNoHealthSignals: qrDeepProbeDoctorHint() } : {}),
     };
@@ -47,6 +52,12 @@ function qrDeepProbeDoctorHint(): MessagingChannelDiagnosticSpec["doctorWhenNoHe
   };
 }
 
-function policyPresetNames(presets: readonly ChannelPolicyPresetReference[] | undefined): string[] {
-  return (presets ?? []).map((preset) => (typeof preset === "string" ? preset : preset.name));
+function policyNames(
+  presets: readonly ChannelPolicyPresetReference[] | undefined,
+  templates: readonly ChannelPolicyTemplateSpec[] | undefined,
+): string[] {
+  return [
+    ...(presets ?? []).map((preset) => (typeof preset === "string" ? preset : preset.name)),
+    ...(templates ?? []).map((template) => template.name),
+  ];
 }

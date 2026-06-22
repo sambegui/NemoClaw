@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import YAML from "yaml";
 
 import {
   createBuiltInChannelManifestRegistry,
@@ -15,13 +16,15 @@ import {
 } from "../manifest";
 import { ManifestCompiler } from "./manifest-compiler";
 
-const ALL_CHANNELS = ["telegram", "discord", "wechat", "slack", "whatsapp"] as const;
+const ALL_CHANNELS = ["telegram", "discord", "wechat", "slack", "whatsapp", "mattermost"] as const;
+const HERMES_CHANNELS = ["telegram", "discord", "wechat", "slack", "whatsapp"] as const;
 const TEST_CREDENTIALS: Readonly<Record<string, string>> = {
   TELEGRAM_BOT_TOKEN: "123456:test-telegram-token",
   DISCORD_BOT_TOKEN: "test-discord-token",
   WECHAT_BOT_TOKEN: "test-wechat-token",
   SLACK_BOT_TOKEN: "xoxb-test-slack-token",
   SLACK_APP_TOKEN: "xapp-test-slack-token",
+  MATTERMOST_BOT_TOKEN: "test-mattermost-token",
 };
 const TEST_WECHAT_LOGIN = {
   token: "test-wechat-token",
@@ -46,6 +49,18 @@ function compiler(): ManifestCompiler {
           log: () => {},
           validateCredentials: () => ({ ok: true }),
         },
+      },
+      mattermost: {
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: "mattermost-bot-user" };
+          },
+          async text() {
+            return "";
+          },
+        }),
       },
       telegram: {
         fetch: async () => ({
@@ -122,20 +137,29 @@ async function withEnv<T>(
 
 describe("ManifestCompiler", () => {
   it("compiles built-in manifests into a deterministic OpenClaw plan", async () => {
-    const plan = await compiler().compile({
-      sandboxName: "demo",
-      agent: "openclaw",
-      workflow: "onboard",
-      isInteractive: true,
-      configuredChannels: ["slack", "telegram", "wechat", "discord", "whatsapp"],
-      credentialAvailability: {
-        TELEGRAM_BOT_TOKEN: true,
-        DISCORD_BOT_TOKEN: true,
-        WECHAT_BOT_TOKEN: true,
-        SLACK_BOT_TOKEN: true,
-        SLACK_APP_TOKEN: true,
+    const plan = await withEnv(
+      {
+        MATTERMOST_URL: "https://mattermost.com",
+        MATTERMOST_ALLOWED_USERS: "user-a,user-b",
+        MATTERMOST_ALLOWED_CHANNELS: "town-square",
       },
-    });
+      () =>
+        compiler().compile({
+          sandboxName: "demo",
+          agent: "openclaw",
+          workflow: "onboard",
+          isInteractive: true,
+          configuredChannels: ["slack", "telegram", "wechat", "discord", "whatsapp", "mattermost"],
+          credentialAvailability: {
+            TELEGRAM_BOT_TOKEN: true,
+            DISCORD_BOT_TOKEN: true,
+            WECHAT_BOT_TOKEN: true,
+            SLACK_BOT_TOKEN: true,
+            SLACK_APP_TOKEN: true,
+            MATTERMOST_BOT_TOKEN: true,
+          },
+        }),
+    );
 
     expect(plan.channels.map((channel) => channel.channelId)).toEqual(ALL_CHANNELS);
     expect(plan.channels.every((channel) => channel.active)).toBe(true);
@@ -145,6 +169,7 @@ describe("ManifestCompiler", () => {
       "demo-wechat-bridge",
       "demo-slack-bridge",
       "demo-slack-app",
+      "demo-mattermost-bridge",
     ]);
     expect(plan.credentialBindings.map((binding) => binding.placeholder)).toEqual([
       "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
@@ -152,6 +177,7 @@ describe("ManifestCompiler", () => {
       "openshell:resolve:env:WECHAT_BOT_TOKEN",
       "xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN",
       "xapp-OPENSHELL-RESOLVE-ENV-SLACK_APP_TOKEN",
+      "openshell:resolve:env:MATTERMOST_BOT_TOKEN",
     ]);
     expect(plan.networkPolicy.entries).toEqual([
       {
@@ -185,6 +211,38 @@ describe("ManifestCompiler", () => {
         source: "manifest",
       },
     ]);
+    expect(plan.networkPolicy.templates).toHaveLength(1);
+    expect(plan.networkPolicy.templates?.[0]).toMatchObject({
+      channelId: "mattermost",
+      presetName: "mattermost",
+      templateFile: "mattermost.yaml",
+      sourceInput: "baseUrl",
+      policyKeys: ["mattermost"],
+    });
+    expect(
+      YAML.parse(plan.networkPolicy.templates?.[0]?.content ?? "").network_policies.mattermost
+        .endpoints[0],
+    ).toMatchObject({
+      host: "mattermost.com",
+      port: 443,
+      protocol: "rest",
+      enforcement: "enforce",
+      request_body_credential_rewrite: true,
+      websocket_credential_rewrite: true,
+      allowed_ips: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+    });
+    expect(
+      YAML.parse(plan.networkPolicy.templates?.[0]?.content ?? "").network_policies.mattermost
+        .endpoints[0].rules,
+    ).toEqual([
+      { allow: { method: "GET", path: "/api/v4/websocket" } },
+      { allow: { method: "WEBSOCKET_TEXT", path: "/api/v4/websocket" } },
+      { allow: { method: "GET", path: "/api/v4/**" } },
+      { allow: { method: "POST", path: "/api/v4/**" } },
+      { allow: { method: "PUT", path: "/api/v4/**" } },
+      { allow: { method: "PATCH", path: "/api/v4/**" } },
+      { allow: { method: "DELETE", path: "/api/v4/**" } },
+    ]);
     expect(plan.agentRender.map((render) => `${render.channelId}:${render.renderId}`)).toEqual([
       "telegram:telegram-openclaw-channel",
       "telegram:telegram-openclaw-groups",
@@ -196,10 +254,45 @@ describe("ManifestCompiler", () => {
       "slack:slack-openclaw-plugin",
       "whatsapp:whatsapp-openclaw-channel",
       "whatsapp:whatsapp-openclaw-plugin",
+      "mattermost:mattermost-openclaw-channel",
+      "mattermost:mattermost-openclaw-plugin",
     ]);
     expect(plan.agentRender.every((render) => render.handler === "common.staticOutputs")).toBe(
       true,
     );
+    const mattermostRender = plan.agentRender.find(
+      (render) =>
+        render.channelId === "mattermost" && render.renderId === "mattermost-openclaw-channel",
+    );
+    if (mattermostRender?.kind !== "json-fragment") {
+      throw new Error("missing Mattermost OpenClaw json-fragment render");
+    }
+    expect(mattermostRender).toMatchObject({
+      kind: "json-fragment",
+      path: "channels.mattermost",
+      value: {
+        network: {
+          dangerouslyAllowPrivateNetwork: true,
+        },
+        allowFrom: ["user-a", "user-b"],
+        groupAllowFrom: ["user-a", "user-b"],
+        groups: {
+          "town-square": {
+            requireMention: true,
+          },
+        },
+      },
+    });
+    expect(mattermostRender?.value).toMatchObject({
+      allowFrom: ["user-a", "user-b"],
+      groupAllowFrom: ["user-a", "user-b"],
+    });
+    expect(mattermostRender?.value).toHaveProperty("groups");
+    expect((mattermostRender?.value as { groups?: unknown } | undefined)?.groups).toEqual({
+      "town-square": {
+        requireMention: true,
+      },
+    });
     expect(JSON.stringify(plan.agentRender)).toContain("openshell:resolve:env:TELEGRAM_BOT_TOKEN");
     expect(plan.buildSteps.map(({ value: _value, ...step }) => step)).toEqual([
       {
@@ -272,6 +365,7 @@ describe("ManifestCompiler", () => {
         }),
       ]),
     );
+    expect(plan.buildSteps.some((step) => step.channelId === "mattermost")).toBe(false);
     expect(plan.buildSteps.every((step) => step.value !== undefined)).toBe(true);
     expect(plan.stateUpdates).toContainEqual({
       channelId: "wechat",
@@ -323,7 +417,7 @@ describe("ManifestCompiler", () => {
           agent: "hermes",
           workflow: "rebuild",
           isInteractive: false,
-          configuredChannels: ALL_CHANNELS,
+          configuredChannels: HERMES_CHANNELS,
           credentialAvailability: {
             TELEGRAM_BOT_TOKEN: true,
             DISCORD_BOT_TOKEN: true,
@@ -340,6 +434,9 @@ describe("ManifestCompiler", () => {
       policyKeys: ["wechat_bridge"],
       source: "manifest",
     });
+    expect(
+      plan.networkPolicy.templates?.find((entry) => entry.channelId === "mattermost"),
+    ).toBeUndefined();
     expect(plan.agentRender.map((render) => `${render.channelId}:${render.target}`)).toEqual([
       "telegram:~/.hermes/.env",
       "telegram:~/.hermes/config.yaml",

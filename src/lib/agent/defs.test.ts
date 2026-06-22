@@ -53,6 +53,7 @@ describe("agent definitions", () => {
       "slack",
       "wechat",
       "whatsapp",
+      "mattermost",
     ]);
     expect(openclaw.inferenceProviderOptions).toEqual([]);
     // #5027: openclaw.json must be declared as a durable state file so

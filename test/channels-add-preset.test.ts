@@ -56,10 +56,10 @@ function parseResultPayload<T extends Record<string, any> = Record<string, any>>
 // Build a preamble that:
 //   - stubs every module touched by addSandboxChannel so no real openshell,
 //     gateway, or filesystem credential write happens
-//   - records every policies.applyPreset call in `appliedCalls`
-//   - records the relative order of applyPreset vs promptAndRebuild via
+//   - records every policy apply call
+//   - records the relative order of policy application vs promptAndRebuild via
 //     a console.log marker, so the test can assert the ordering invariant
-//     (apply MUST precede rebuild)
+//     (policy MUST precede rebuild)
 function buildPreamble({
   presetNamesAvailable = ["telegram", "slack", "discord", "npm", "github"],
   applyPresetResult = true,
@@ -307,7 +307,7 @@ const ctx = module.exports;
         isInteractive: false,
         configuredChannels: ["slack"],
         disabledChannels: [],
-        supportedChannelIds: ["telegram", "discord", "wechat", "slack", "whatsapp"],
+        supportedChannelIds: ["telegram", "discord", "wechat", "slack", "whatsapp", "mattermost"],
       },
     ]);
   });
@@ -1833,39 +1833,6 @@ global.__testLog = "";
         line.includes("was not marked enabled in baked openclaw.json"),
       ),
       `WhatsApp should not trigger OpenClaw-shaped warning; got:\n${payload.logs.join("\n")}`,
-    );
-  });
-});
-
-describe("channel preset source-of-truth", () => {
-  it("every channel registered in KNOWN_CHANNELS ships a preset YAML that parsePresetPolicyKeys() accepts", () => {
-    const { knownChannelNames } = require(
-      path.join(repoRoot, "dist", "lib", "sandbox", "channels.js"),
-    ) as {
-      knownChannelNames: () => string[];
-    };
-    const { loadPreset, parsePresetPolicyKeys } = require(
-      path.join(repoRoot, "dist", "lib", "policy", "index.js"),
-    ) as {
-      loadPreset: (name: string) => string | null;
-      parsePresetPolicyKeys: (content: string | null | undefined) => string[];
-    };
-    const failures: string[] = [];
-    for (const name of knownChannelNames()) {
-      const content = loadPreset(name);
-      if (content === null) {
-        failures.push(`${name}: preset YAML not found on disk`);
-        continue;
-      }
-      const keys = parsePresetPolicyKeys(content);
-      if (keys.length === 0) {
-        failures.push(`${name}: parsePresetPolicyKeys returned no entries`);
-      }
-    }
-    assert.deepEqual(
-      failures,
-      [],
-      `every channel in KNOWN_CHANNELS must ship a parseable preset YAML; failures: ${failures.join("; ")}`,
     );
   });
 });

@@ -22,10 +22,14 @@ describe("messaging channel config", () => {
       "SLACK_ALLOWED_USERS",
       "SLACK_ALLOWED_CHANNELS",
       "WHATSAPP_ALLOWED_IDS",
+      "MATTERMOST_ALLOWED_USERS",
+      "MATTERMOST_ALLOWED_CHANNELS",
+      "MATTERMOST_REQUIRE_MENTION",
       "TELEGRAM_GROUP_POLICY",
       "WECHAT_ACCOUNT_ID",
       "WECHAT_BASE_URL",
       "WECHAT_USER_ID",
+      "MATTERMOST_URL",
     ]);
   });
 
@@ -40,6 +44,9 @@ describe("messaging channel config", () => {
         DISCORD_REQUIRE_MENTION: "0",
         SLACK_ALLOWED_USERS: "  U01ABC2DEF3, U04GHI5JKL6  ",
         SLACK_ALLOWED_CHANNELS: "  C012AB3CD, C987ZY6XW  ",
+        MATTERMOST_URL: "  https://mattermost.com  ",
+        MATTERMOST_ALLOWED_CHANNELS: "  town-square, ops  ",
+        MATTERMOST_REQUIRE_MENTION: "1",
         NVIDIA_INFERENCE_API_KEY: "not-channel-config",
       }),
     ).toEqual({
@@ -49,6 +56,9 @@ describe("messaging channel config", () => {
       DISCORD_REQUIRE_MENTION: "0",
       SLACK_ALLOWED_USERS: "U01ABC2DEF3, U04GHI5JKL6",
       SLACK_ALLOWED_CHANNELS: "C012AB3CD, C987ZY6XW",
+      MATTERMOST_URL: "https://mattermost.com",
+      MATTERMOST_ALLOWED_CHANNELS: "town-square, ops",
+      MATTERMOST_REQUIRE_MENTION: "1",
     });
   });
 
