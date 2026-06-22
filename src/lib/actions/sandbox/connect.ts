@@ -15,7 +15,6 @@ import {
   OPENSHELL_PROBE_TIMEOUT_MS,
 } from "../../adapters/openshell/timeouts";
 import * as agentRuntime from "../../agent/runtime";
-import { runAgentSmokeCommands } from "../../agent/terminal-smoke";
 import { CLI_NAME } from "../../cli/branding";
 import { D, G, R, YW } from "../../cli/terminal-style";
 import { getNamedGatewayLifecycleState } from "../../gateway-runtime-action";
@@ -29,7 +28,7 @@ import { ensureOllamaAuthProxy, probeOllamaAuthProxyHealth } from "../../inferen
 import { LOCAL_INFERENCE_TIMEOUT_SECS } from "../../onboard/env";
 import { resolveSandboxGatewayName } from "../../onboard/gateway-binding";
 import { isWsl } from "../../platform";
-import { ROOT, redact } from "../../runner";
+import { ROOT } from "../../runner";
 import * as sandboxVersion from "../../sandbox/version";
 import {
   isTerminalSandboxPhase,
@@ -52,6 +51,7 @@ import {
 } from "./connect-autopair-budget";
 import { preflightVllmModelEnvOrExit } from "./connect-vllm-preflight";
 import { isDockerRuntimeDown, printDockerRuntimeDownGuidance } from "./gateway-failure-classifier";
+import { runTerminalAgentConnectProbe } from "./terminal-connect-probe";
 import { ensureLiveSandboxOrExit, printGatewayLifecycleHint } from "./gateway-state";
 import { getSandboxTargetGatewayName } from "./gateway-target";
 import { printGatewayWedgeDiagnostics } from "./gateway-wedge-diagnostics";
@@ -211,32 +211,17 @@ function exitOnSecretBoundaryRefusal(
   process.exit(1);
 }
 
-function runTerminalAgentConnectProbe(
-  sandboxName: string,
-  agent: Parameters<typeof runAgentSmokeCommands>[1],
-  agentName: string,
-): void {
-  ensureSandboxInferenceRoute(sandboxName, { quiet: true });
-  const smokeResult = runAgentSmokeCommands(sandboxName, agent, captureOpenshell);
-  if (!smokeResult.ok) {
-    console.error(
-      `  Probe failed: ${agentName} terminal smoke command failed: ${smokeResult.command}`,
-    );
-    if (smokeResult.output) {
-      console.error(`    ${String(redact(smokeResult.output)).slice(0, 500)}`);
-    }
-    process.exit(1);
-  }
-  const command = agentRuntime.getTerminalCommand(agent);
-  const commandText = command ? ` (${command})` : "";
-  console.log(`  Probe complete: ${agentName} terminal smoke checks passed${commandText}.`);
-}
-
 function runSandboxConnectProbe(sandboxName: string): void {
   const agent = agentRuntime.getSessionAgent(sandboxName);
   const agentName = agentRuntime.getAgentDisplayName(agent);
   if (agent && !agentRuntime.hasGatewayRuntime(agent)) {
-    runTerminalAgentConnectProbe(sandboxName, agent, agentName);
+    runTerminalAgentConnectProbe({
+      agent,
+      agentName,
+      capture: captureOpenshell,
+      ensureInferenceRoute: ensureSandboxInferenceRoute,
+      sandboxName,
+    });
     return;
   }
 
