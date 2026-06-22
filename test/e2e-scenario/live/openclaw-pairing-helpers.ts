@@ -319,11 +319,11 @@ set -a
 set +a
 discord_pairing_user="$1"
 discord_dm_channel="$2"
-: "\${OPENCLAW_HOME:?OPENCLAW_HOME missing}"
-: "\${OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
-: "\${OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
-: "\${OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
-exec env HOME=/sandbox OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="\${HTTP_PROXY:-}" HTTPS_PROXY="\${HTTPS_PROXY:-}" http_proxy="\${http_proxy:-}" https_proxy="\${https_proxy:-}" NO_PROXY="\${NO_PROXY:-}" no_proxy="\${no_proxy:-}" NODE_OPTIONS="\${NODE_OPTIONS:-}" DISCORD_PAIRING_USER="$discord_pairing_user" DISCORD_DM_CHANNEL="$discord_dm_channel" node --input-type=module <<'NODE'
+: "${"$"}{OPENCLAW_HOME:?OPENCLAW_HOME missing}"
+: "${"$"}{OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
+: "${"$"}{OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
+: "${"$"}{OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
+exec env HOME=/sandbox OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="${"$"}{HTTP_PROXY:-}" HTTPS_PROXY="${"$"}{HTTPS_PROXY:-}" http_proxy="${"$"}{http_proxy:-}" https_proxy="${"$"}{https_proxy:-}" NO_PROXY="${"$"}{NO_PROXY:-}" no_proxy="${"$"}{no_proxy:-}" NODE_OPTIONS="${"$"}{NODE_OPTIONS:-}" DISCORD_PAIRING_USER="$discord_pairing_user" DISCORD_DM_CHANNEL="$discord_dm_channel" node --input-type=module <<'NODE'
 __LOAD_CONVERSATION_RUNTIME_SOURCE__
 const { issuePairingChallenge, upsertChannelPairingRequest } = await loadConversationRuntime();
 const senderId = process.env.DISCORD_PAIRING_USER;
@@ -349,11 +349,11 @@ set -a
 set +a
 fake_slack_api_port="$1"
 slack_pairing_user="$2"
-: "\${OPENCLAW_HOME:?OPENCLAW_HOME missing}"
-: "\${OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
-: "\${OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
-: "\${OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
-exec env HOME=/sandbox OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="\${HTTP_PROXY:-}" HTTPS_PROXY="\${HTTPS_PROXY:-}" http_proxy="\${http_proxy:-}" https_proxy="\${https_proxy:-}" NO_PROXY="\${NO_PROXY:-}" no_proxy="\${no_proxy:-}" NODE_OPTIONS="\${NODE_OPTIONS:-}" FAKE_SLACK_API_HOST="host.openshell.internal" FAKE_SLACK_API_PORT="$fake_slack_api_port" SLACK_PAIRING_USER="$slack_pairing_user" node --input-type=module <<'NODE'
+: "${"$"}{OPENCLAW_HOME:?OPENCLAW_HOME missing}"
+: "${"$"}{OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
+: "${"$"}{OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
+: "${"$"}{OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
+exec env HOME=/sandbox OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="${"$"}{HTTP_PROXY:-}" HTTPS_PROXY="${"$"}{HTTPS_PROXY:-}" http_proxy="${"$"}{http_proxy:-}" https_proxy="${"$"}{https_proxy:-}" NO_PROXY="${"$"}{NO_PROXY:-}" no_proxy="${"$"}{no_proxy:-}" NODE_OPTIONS="${"$"}{NODE_OPTIONS:-}" FAKE_SLACK_API_HOST="host.openshell.internal" FAKE_SLACK_API_PORT="$fake_slack_api_port" SLACK_PAIRING_USER="$slack_pairing_user" node --input-type=module <<'NODE'
 __LOAD_CONVERSATION_RUNTIME_SOURCE__
 import crypto from "node:crypto";
 import http from "node:http";
