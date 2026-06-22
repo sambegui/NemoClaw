@@ -234,11 +234,6 @@ def generate_platform_table(platforms: list[dict]) -> str:
     Deferred entries are tracked in the metadata but excluded from
     user-facing tables — they have no validated setup path yet.
     """
-    STATUS_LABELS = {
-        "tested": "Tested",
-        "caveated": "Tested with limitations",
-        "experimental": "Experimental",
-    }
     header = "| OS | Container runtime | Status | Notes |"
     separator = "|----|-------------------|--------|-------|"
     rows = []
@@ -246,10 +241,9 @@ def generate_platform_table(platforms: list[dict]) -> str:
         if p["status"] == "deferred":
             continue
         runtimes = ", ".join(p["runtimes"])
-        status = STATUS_LABELS.get(p["status"], p["status"].capitalize())
         rows.append(
             f"| {_escape_cell(p['name'])} | {_escape_cell(runtimes)} | "
-            f"{_escape_cell(status)} | {_escape_cell(p['notes'])} |"
+            f"{_escape_cell(_label(p['status']))} | {_escape_cell(p['notes'])} |"
         )
     return "\n".join([header, separator, *rows])
 
@@ -265,9 +259,8 @@ def generate_provider_table(providers: list[dict]) -> str:
     for p in providers:
         if p["status"] == "deferred":
             continue
-        status = p["status"].capitalize()
         rows.append(
-            f"| {_escape_cell(p['name'])} | {_escape_cell(status)} | "
+            f"| {_escape_cell(p['name'])} | {_escape_cell(_label(p['status']))} | "
             f"{_escape_cell(p['endpoint_type'])} | {_escape_cell(p['notes'])} |"
         )
     return "\n".join([header, separator, *rows])
