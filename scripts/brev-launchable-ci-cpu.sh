@@ -110,6 +110,47 @@ wait_for_apt_lock() {
   done
 }
 
+openshell_cli_asset_for_arch() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64 | amd64) printf '%s\n' "openshell-x86_64-unknown-linux-musl.tar.gz" ;;
+    aarch64 | arm64) printf '%s\n' "openshell-aarch64-unknown-linux-musl.tar.gz" ;;
+    *) fail "Unsupported architecture: $arch" ;;
+  esac
+}
+
+verify_openshell_cli_asset() {
+  local tmpdir="$1" asset="$2" checksum_file="openshell-checksums-sha256.txt"
+  local -a sha_cmd
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha_cmd=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    sha_cmd=(shasum -a 256)
+  else
+    fail "No SHA-256 tool available (sha256sum/shasum)"
+  fi
+
+  retry 3 10 "download openshell checksum" \
+    curl -fsSL -o "$tmpdir/$checksum_file" \
+    "https://github.com/NVIDIA/OpenShell/releases/download/${OPENSHELL_VERSION}/${checksum_file}"
+  (cd "$tmpdir" && grep -F "$asset" "$checksum_file" | "${sha_cmd[@]}" -c -) \
+    || fail "OpenShell CLI checksum verification failed for $asset"
+}
+
+install_openshell_cli_release() {
+  local asset tmpdir
+  asset="$(openshell_cli_asset_for_arch)"
+  tmpdir="$(mktemp -d)"
+  retry 3 10 "download openshell" \
+    curl -fsSL -o "$tmpdir/$asset" \
+    "https://github.com/NVIDIA/OpenShell/releases/download/${OPENSHELL_VERSION}/${asset}"
+  verify_openshell_cli_asset "$tmpdir" "$asset"
+  tar xzf "$tmpdir/$asset" -C "$tmpdir"
+  sudo install -m 755 "$tmpdir/openshell" /usr/local/bin/openshell
+  rm -rf "$tmpdir"
+}
+
 # ══════════════════════════════════════════════════════════════════════
 # 1. System packages
 # ══════════════════════════════════════════════════════════════════════
@@ -196,36 +237,12 @@ if command -v openshell >/dev/null 2>&1; then
     info "OpenShell CLI already installed at pinned version: $_installed_ver"
   else
     info "OpenShell CLI $_installed_ver does not match pinned ${_pinned_ver} — reinstalling..."
-    ARCH="$(uname -m)"
-    case "$ARCH" in
-      x86_64 | amd64) ASSET="openshell-x86_64-unknown-linux-musl.tar.gz" ;;
-      aarch64 | arm64) ASSET="openshell-aarch64-unknown-linux-musl.tar.gz" ;;
-      *) fail "Unsupported architecture: $ARCH" ;;
-    esac
-    tmpdir="$(mktemp -d)"
-    retry 3 10 "download openshell" \
-      curl -fsSL -o "$tmpdir/$ASSET" \
-      "https://github.com/NVIDIA/OpenShell/releases/download/${OPENSHELL_VERSION}/${ASSET}"
-    tar xzf "$tmpdir/$ASSET" -C "$tmpdir"
-    sudo install -m 755 "$tmpdir/openshell" /usr/local/bin/openshell
-    rm -rf "$tmpdir"
+    install_openshell_cli_release
     info "OpenShell CLI upgraded: $(openshell --version 2>&1 || echo unknown)"
   fi
 else
   info "Installing OpenShell CLI ${OPENSHELL_VERSION}..."
-  ARCH="$(uname -m)"
-  case "$ARCH" in
-    x86_64 | amd64) ASSET="openshell-x86_64-unknown-linux-musl.tar.gz" ;;
-    aarch64 | arm64) ASSET="openshell-aarch64-unknown-linux-musl.tar.gz" ;;
-    *) fail "Unsupported architecture: $ARCH" ;;
-  esac
-  tmpdir="$(mktemp -d)"
-  retry 3 10 "download openshell" \
-    curl -fsSL -o "$tmpdir/$ASSET" \
-    "https://github.com/NVIDIA/OpenShell/releases/download/${OPENSHELL_VERSION}/${ASSET}"
-  tar xzf "$tmpdir/$ASSET" -C "$tmpdir"
-  sudo install -m 755 "$tmpdir/openshell" /usr/local/bin/openshell
-  rm -rf "$tmpdir"
+  install_openshell_cli_release
   info "OpenShell CLI installed: $(openshell --version 2>&1 || echo unknown)"
 fi
 
