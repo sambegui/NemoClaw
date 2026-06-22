@@ -208,6 +208,26 @@ describe("buildDockerGatewayDebEnvFile", () => {
     expect(next).toBe("OPENSHELL_DRIVERS=docker\n");
   });
 
+  it("removes stale auth-disable env so OpenShell 0.0.67 TOML auth stays authoritative", () => {
+    const next = buildDockerGatewayDebEnvFile(
+      [
+        "KEEP_ME=1",
+        "OPENSHELL_DISABLE_GATEWAY_AUTH=true",
+        "OPENSHELL_GATEWAY_CONFIG=/tmp/old-gateway.toml",
+      ].join("\n"),
+      {
+        OPENSHELL_DRIVERS: "docker",
+        OPENSHELL_GATEWAY_CONFIG: "/tmp/new-gateway.toml",
+      },
+    );
+
+    expect(next).toContain("KEEP_ME=1\n");
+    expect(next).toContain("OPENSHELL_DRIVERS=docker\n");
+    expect(next).toContain("OPENSHELL_GATEWAY_CONFIG=/tmp/new-gateway.toml\n");
+    expect(next).not.toContain("OPENSHELL_DISABLE_GATEWAY_AUTH");
+    expect(next).not.toContain("OPENSHELL_GATEWAY_CONFIG=/tmp/old-gateway.toml");
+  });
+
   it("rejects multiline managed values", () => {
     expect(() =>
       buildDockerGatewayDebEnvFile("", {

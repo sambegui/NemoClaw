@@ -50,6 +50,11 @@ export function ensureDockerDriverGatewayJwtBundle(stateDir: string): DockerDriv
   }
 
   if (present > 0) {
+    // Invalid state boundary: this directory is NemoClaw-owned local gateway
+    // state, and a manual edit or interrupted prior write can leave only part
+    // of the OpenShell v0.0.67 gateway_jwt bundle. OpenShell requires all three
+    // files to agree, so the safe source of truth is a freshly generated local
+    // bundle. Remove this recovery only if bundle creation becomes atomic.
     fs.rmSync(jwtDir, { recursive: true, force: true });
   }
   fs.mkdirSync(jwtDir, { recursive: true, mode: 0o700 });
@@ -103,6 +108,10 @@ export function buildDockerDriverGatewayConfigToml(
   ];
 
   if (jwtBundle) {
+    // OpenShell v0.0.67 loads these tables from OPENSHELL_GATEWAY_CONFIG, with
+    // OPENSHELL_* env vars taking precedence. buildDockerDriverGatewayEnv must
+    // therefore omit OPENSHELL_DISABLE_GATEWAY_AUTH so this auth table stays
+    // effective for package-managed Docker-driver gateways.
     sections.push(
       "[openshell.gateway.gateway_jwt]",
       `signing_key_path = ${tomlString(jwtBundle.signingKeyPath)}`,
