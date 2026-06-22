@@ -204,6 +204,13 @@ ENV HERMES_ENVIRONMENT_HINT="You are running inside an NVIDIA OpenShell sandbox,
 # 444 root:root + chattr +i.
 # hadolint ignore=DL3002
 USER root
+
+# Run Hermes' upstream repair before NemoClaw applies the final permission and
+# hash contract. doctor may create or normalize files under HERMES_HOME; the
+# lock step below must be the last writer to those modes and trust anchors.
+# hadolint ignore=DL3059
+RUN HERMES_HOME=/sandbox/.hermes /usr/local/bin/hermes doctor --fix
+
 # Flatten stale published base images that still contain the old .hermes-data
 # symlink bridge. OpenShell starts the sandbox as the sandbox user, so runtime
 # migration cannot rely on root privileges inside the pod.
@@ -381,12 +388,6 @@ RUN if [ "$NEMOCLAW_DARWIN_VM_COMPAT" = "1" ]; then \
         find /sandbox/.hermes -type d -exec chmod a+rwx {} +; \
         chmod a+rw /sandbox/.bashrc /sandbox/.profile; \
     fi
-
-# Run hermes doctor --fix as the final setup step to validate and repair the
-# Hermes installation before the image is locked down. This ensures all
-# initialization is complete and any missing or misconfigured state is corrected.
-# hadolint ignore=DL3059
-RUN HERMES_HOME=/sandbox/.hermes /usr/local/bin/hermes doctor --fix
 
 # start.sh handles privilege separation: runs as root initially, then drops
 # to 'gateway' user via gosu for the agent process. See start.sh.

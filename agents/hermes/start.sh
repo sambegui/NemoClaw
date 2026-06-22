@@ -280,6 +280,20 @@ hermes_dashboard_tui_enabled() {
 
 # verify_config_integrity is provided by sandbox-init.sh (parameterized).
 
+verify_hermes_config_integrity() {
+  if [ "$(id -u)" -eq 0 ]; then
+    # Docker may start UID 0 without the supplementary groups declared in
+    # /etc/group, and hardened runtimes can drop CAP_DAC_OVERRIDE before this
+    # entrypoint runs. Verify the root-owned hash through the sandbox identity
+    # that owns the mutable Hermes home.
+    export -f verify_config_integrity
+    "${STEP_DOWN_PREFIX_SANDBOX[@]}" bash -c 'verify_config_integrity "$1" "$2"' bash \
+      "${HERMES_DIR}" "${HERMES_HASH_FILE}"
+    return $?
+  fi
+  verify_config_integrity "${HERMES_DIR}" "${HERMES_HASH_FILE}"
+}
+
 # configure_messaging_channels is provided by sandbox-init.sh (shared).
 
 print_dashboard_urls() {
@@ -682,8 +696,8 @@ prepare_hermes_dashboard_home() {
 # checks, and kanban specifier/dispatcher resolve the routed model. The
 # dashboard runs under HERMES_DASHBOARD_HOME for privilege separation and
 # otherwise only sees a Hermes-default config with an empty model. Idempotent:
-# refreshes the keys on every launch. Best-effort — a seed failure must not
-# block the dashboard.
+# refreshes the keys on every launch. Missing gateway config is a benign no-op
+# in the seeder; security refusals and write failures abort startup.
 seed_hermes_dashboard_config() {
   local owner="${1:-}"
   local dst="${HERMES_DASHBOARD_HOME}/config.yaml"
@@ -694,8 +708,8 @@ seed_hermes_dashboard_config() {
     "${HERMES_DIR}/config.yaml" "$dst" \
     "${HERMES_DIR}/.env" "$env_dst" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "[dashboard] WARN: config seed exited ${rc}; Models page or Chat may show setup incomplete" >&2
-    return 0
+    echo "[dashboard] ERROR: config seed exited ${rc}; refusing dashboard startup" >&2
+    return "$rc"
   fi
 
   # The seeder runs as root on the privilege-separated path; hand the file back
@@ -1208,7 +1222,7 @@ fi
 # ── Root path (full privilege separation via setpriv) ──────────
 
 export HERMES_HOME="${HERMES_DIR}"
-verify_config_integrity "${HERMES_DIR}" "${HERMES_HASH_FILE}"
+verify_hermes_config_integrity
 apply_shields_up_runtime_env
 validate_hermes_env_secret_boundary
 validate_hermes_runtime_env_secret_boundary

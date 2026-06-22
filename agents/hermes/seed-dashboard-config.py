@@ -38,8 +38,10 @@ to match the rest of the gateway startup contract.
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
+from typing import Callable, TextIO
 
 # Keys mirrored from the gateway config into the dashboard config. Intentionally
 # excludes platforms/plugins/messaging: the dashboard binds its own ports and
@@ -61,6 +63,50 @@ def _load_yaml(path: str) -> dict:
     with open(path, encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     return data if isinstance(data, dict) else {}
+
+
+def _atomic_write_no_follow(dst: str, label: str, writer: Callable[[TextIO], None]) -> bool:
+    tmp = f"{dst}.nemoclaw.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    for flag_name in ("O_CLOEXEC", "O_NOFOLLOW"):
+        flags |= getattr(os, flag_name, 0)
+
+    fd = -1
+    created = False
+    try:
+        fd = os.open(tmp, flags, 0o600)
+        created = True
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            fd = -1
+            writer(handle)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, dst)
+        created = False
+        return True
+    except FileExistsError:
+        print(
+            f"[SECURITY] Refusing to seed {label} because temp path {tmp} already exists",
+            file=sys.stderr,
+        )
+        return False
+    except OSError as exc:
+        prefix = "[SECURITY]" if exc.errno in (errno.ELOOP, errno.EEXIST) else "[dashboard]"
+        print(f"{prefix} failed to seed {label} into {dst} ({exc})", file=sys.stderr)
+        return False
+    except Exception as exc:
+        print(f"[dashboard] failed to seed {label} into {dst} ({exc})", file=sys.stderr)
+        return False
+    finally:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if created:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def _provider_key(raw: object, fallback: str = "nemoclaw-inference") -> str:
@@ -235,25 +281,14 @@ def _mirror_env(src: str, dst: str) -> bool:
         print(f"[SECURITY] Refusing to seed dashboard env because {dst} is a symlink", file=sys.stderr)
         return False
 
-    tmp = f"{dst}.nemoclaw.tmp"
-    try:
-        with open(src, encoding="utf-8") as src_handle, open(
-            tmp,
-            "w",
-            encoding="utf-8",
-        ) as dst_handle:
+    def write_env(dst_handle: TextIO) -> None:
+        with open(src, encoding="utf-8") as src_handle:
             for line in src_handle:
                 key = line.split("=", 1)[0].strip()
                 if key not in _DASHBOARD_ENV_SKIP_KEYS:
                     dst_handle.write(line)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, dst)
-    except Exception as exc:
-        print(f"[dashboard] failed to seed env into {dst} ({exc})", file=sys.stderr)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+
+    if not _atomic_write_no_follow(dst, "dashboard env", write_env):
         return False
 
     print(f"[dashboard] seeded env into {dst}", file=sys.stderr)
@@ -320,18 +355,10 @@ def main(argv: list[str]) -> int:
 
     import yaml
 
-    tmp = f"{dst}.nemoclaw.tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as handle:
-            yaml.safe_dump(dashboard, handle, sort_keys=False)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, dst)
-    except Exception as exc:
-        print(f"[dashboard] failed to seed model routing into {dst} ({exc})", file=sys.stderr)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    def write_dashboard(handle: TextIO) -> None:
+        yaml.safe_dump(dashboard, handle, sort_keys=False)
+
+    if not _atomic_write_no_follow(dst, "dashboard config", write_dashboard):
         return 1
 
     print(f"[dashboard] seeded model routing into {dst}", file=sys.stderr)

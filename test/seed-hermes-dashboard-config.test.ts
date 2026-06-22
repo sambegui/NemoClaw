@@ -1,4 +1,3 @@
-// @ts-nocheck
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -82,7 +81,11 @@ function writeYaml(name: string, value: unknown): string {
 }
 
 function readYaml(p: string): Record<string, unknown> {
-  return YAML.parse(fs.readFileSync(p, "utf-8"));
+  const parsed = YAML.parse(fs.readFileSync(p, "utf-8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Expected ${p} to contain a YAML object`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 describe.skipIf(!PY_YAML_AVAILABLE)("seed-dashboard-config.py", () => {
@@ -283,6 +286,19 @@ describe.skipIf(!PY_YAML_AVAILABLE)("seed-dashboard-config.py", () => {
     expect(readYaml(realTarget)).toEqual({ secret: "do-not-touch" });
   });
 
+  it("refuses a pre-existing temp symlink when writing the dashboard config", () => {
+    const src = writeYaml("gw.yaml", GATEWAY_CONFIG);
+    const dst = path.join(tmpDir, "dash.yaml");
+    const realTarget = writeYaml("real-target.yaml", { secret: "do-not-touch" });
+    fs.symlinkSync(realTarget, `${dst}.nemoclaw.tmp`);
+
+    const res = runSeed(src, dst);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("[SECURITY]");
+    expect(fs.existsSync(dst)).toBe(false);
+    expect(readYaml(realTarget)).toEqual({ secret: "do-not-touch" });
+  });
+
   it("refuses to follow a symlink at the dashboard env path", () => {
     const src = writeYaml("gw.yaml", GATEWAY_CONFIG);
     const dst = path.join(tmpDir, "dash.yaml");
@@ -292,6 +308,22 @@ describe.skipIf(!PY_YAML_AVAILABLE)("seed-dashboard-config.py", () => {
     fs.writeFileSync(envSrc, "API_SERVER_KEY=server-key\n");
     fs.writeFileSync(realTarget, "SECRET=do-not-touch\n");
     fs.symlinkSync(realTarget, envDst);
+
+    const res = runSeed(src, dst, envSrc, envDst);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("[SECURITY]");
+    expect(fs.readFileSync(realTarget, "utf-8")).toBe("SECRET=do-not-touch\n");
+  });
+
+  it("refuses a pre-existing temp symlink when writing the dashboard env", () => {
+    const src = writeYaml("gw.yaml", GATEWAY_CONFIG);
+    const dst = path.join(tmpDir, "dash.yaml");
+    const envSrc = path.join(tmpDir, "gw.env");
+    const envDst = path.join(tmpDir, "dash.env");
+    const realTarget = path.join(tmpDir, "real-target.env");
+    fs.writeFileSync(envSrc, "API_SERVER_KEY=server-key\n");
+    fs.writeFileSync(realTarget, "SECRET=do-not-touch\n");
+    fs.symlinkSync(realTarget, `${envDst}.nemoclaw.tmp`);
 
     const res = runSeed(src, dst, envSrc, envDst);
     expect(res.status).toBe(1);

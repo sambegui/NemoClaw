@@ -52,6 +52,41 @@ function extractRuntimeShellEnvBlock(src: string): string {
   return src.slice(start, end).trimEnd();
 }
 
+function runHermesConfigIntegrityVerifierAsRoot() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-integrity-"));
+  const scriptPath = path.join(tmpDir, "run.sh");
+  const src = fs.readFileSync(START_SCRIPT, "utf-8");
+  const hermesHome = path.join(tmpDir, ".hermes");
+  const hashFile = path.join(tmpDir, "hermes.config-hash");
+  fs.mkdirSync(hermesHome, { recursive: true });
+  fs.writeFileSync(hashFile, "hash\n");
+  fs.writeFileSync(
+    scriptPath,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      'id() { if [ "${1:-}" = "-u" ]; then printf "0\\n"; else command id "$@"; fi; }',
+      'verify_config_integrity() { printf "verify:%s:%s:stepped=%s\\n" "$1" "$2" "${NEMOCLAW_TEST_STEPPED_DOWN:-0}"; }',
+      extractShellFunctionFromSource(src, "verify_hermes_config_integrity"),
+      `HERMES_DIR=${shellQuote(hermesHome)}`,
+      `HERMES_HASH_FILE=${shellQuote(hashFile)}`,
+      "STEP_DOWN_PREFIX_SANDBOX=(env NEMOCLAW_TEST_STEPPED_DOWN=1)",
+      "verify_hermes_config_integrity",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+
+  try {
+    return spawnSync("bash", [scriptPath], {
+      encoding: "utf-8",
+      timeout: 5000,
+      env: process.env,
+    });
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 function extractDashboardPortBootstrap(src: string): string {
   const start = src.indexOf('NEMOCLAW_CMD=("$@")');
   const end = src.indexOf('\nHERMES="$(command -v hermes)"', start);
@@ -316,6 +351,7 @@ function runTirithExplicitCommandDispatch(mode: "non-root" | "root") {
         : 'id() { if [ "${1:-}" = "-u" ]; then printf "1000\\n"; else command id "$@"; fi; }',
       "verify_config_integrity_if_locked() { :; }",
       "verify_config_integrity() { :; }",
+      "verify_hermes_config_integrity() { :; }",
       "apply_shields_up_runtime_env() { :; }",
       "validate_hermes_env_secret_boundary() { :; }",
       "validate_hermes_runtime_env_secret_boundary() { :; }",
@@ -695,6 +731,15 @@ describe("agents/hermes/start.sh port validation", () => {
     expect(dashboardInternalOnApiPublic.stderr).toContain(
       "DASHBOARD_INTERNAL_PORT must not equal PUBLIC_PORT",
     );
+  });
+});
+
+describe("agents/hermes/start.sh config integrity", () => {
+  it("verifies the strict Hermes hash through the sandbox identity in root mode", () => {
+    const result = runHermesConfigIntegrityVerifierAsRoot();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toMatch(/:stepped=1$/);
   });
 });
 

@@ -1344,6 +1344,19 @@ describe("Hermes sandbox provisioning", () => {
     }
   });
 
+  it("runs Hermes doctor before the final permission and hash lock", () => {
+    const dockerfile = fs.readFileSync(HERMES_DOCKERFILE, "utf-8");
+    const doctorIndex = dockerfile.indexOf(
+      "HERMES_HOME=/sandbox/.hermes /usr/local/bin/hermes doctor --fix",
+    );
+    const lockIndex = dockerfile.indexOf("# Flatten stale published base images");
+    const hashIndex = dockerfile.indexOf("# Pin config hash at build time");
+
+    expect(doctorIndex).toBeGreaterThanOrEqual(0);
+    expect(lockIndex).toBeGreaterThan(doctorIndex);
+    expect(hashIndex).toBeGreaterThan(lockIndex);
+  });
+
   it("grants the Hermes gateway group write access to runtime state directories", () => {
     const runs = [
       runHermesLayoutBlock(

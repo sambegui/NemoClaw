@@ -14,12 +14,13 @@
 #      HERMES_NPM_INTEGRITY ARGs (and the calver comment) in
 #      agents/hermes/Dockerfile.base.
 #   5. Rewrites expected_version in agents/hermes/manifest.yaml.
-#   6. Scans installer-managed locations (~/.nemoclaw, ~/.hermes, and
-#      $NEMOCLAW_SOURCE_ROOT) for saved copies of the Hermes Dockerfiles and
-#      manifests — `nemohermes onboard --resume` / `rebuild` build from the
-#      installed clone (default ~/.nemoclaw/source), not this checkout, so a
-#      stale copy there would silently rebuild the old Hermes. Copies already
-#      pinned to the target release are left alone; stale ones are re-pinned.
+#   6. With --update-installed-copies, scans installer-managed locations
+#      (~/.nemoclaw, ~/.hermes, and $NEMOCLAW_SOURCE_ROOT) for saved copies of
+#      the Hermes Dockerfiles and manifests. `nemohermes onboard --resume` /
+#      `rebuild` build from the installed clone (default ~/.nemoclaw/source),
+#      not this checkout, so a stale copy there would silently rebuild the old
+#      Hermes. Copies already pinned to the target release are left alone; stale
+#      ones are re-pinned.
 #
 # With --build it then force-rebuilds the base image with --no-cache so the
 # new tarball is actually downloaded instead of served from Docker layer
@@ -36,13 +37,15 @@
 #   scripts/update-hermes-agent.sh --check          # exit 0 if up-to-date, 1 if stale
 #   scripts/update-hermes-agent.sh --build          # also build the base image (no cache)
 #   scripts/update-hermes-agent.sh --rebuild        # --build + sandbox rebuild + verify
+#   scripts/update-hermes-agent.sh --update-installed-copies
+#                                                   # also re-pin installed copies under ~/.nemoclaw / ~/.hermes
 #
 # Environment:
 #   GITHUB_TOKEN           — optional, raises the GitHub API rate limit
 #   HERMES_BASE_REF        — base image ref to build/use
 #                            (default ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest)
-#   NEMOCLAW_SOURCE_ROOT   — extra installed-source root to scan for saved
-#                            Dockerfile/manifest copies
+#   NEMOCLAW_SOURCE_ROOT   — extra installed-source root to scan when
+#                            --update-installed-copies is set
 
 set -euo pipefail
 
@@ -56,6 +59,7 @@ BASE_REF="${HERMES_BASE_REF:-ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest}
 CHECK_ONLY=0
 DO_BUILD=0
 DO_REBUILD=0
+UPDATE_INSTALLED_COPIES=0
 REQUESTED_TAG=""
 
 usage() {
@@ -70,7 +74,9 @@ while [[ $# -gt 0 ]]; do
     --rebuild)
       DO_BUILD=1
       DO_REBUILD=1
+      UPDATE_INSTALLED_COPIES=1
       ;;
+    --update-installed-copies) UPDATE_INSTALLED_COPIES=1 ;;
     --tag)
       [[ $# -ge 2 ]] || usage
       REQUESTED_TAG="$2"
@@ -201,16 +207,20 @@ if [[ "$CHECK_ONLY" == 1 ]]; then
     echo "DRIFT: manifest expected_version (${CURRENT_MANIFEST_VERSION}) does not match Dockerfile.base (${CURRENT_TAG#v})."
     status=1
   fi
-  while IFS= read -r installed_df; do
-    [[ -n "$installed_df" ]] || continue
-    installed_tag="$(pinned_tag_of "$installed_df")"
-    if [[ "$installed_tag" == "$TAG" ]]; then
-      echo "OK: installed copy ${installed_df} pins Hermes ${TAG}."
-    else
-      echo "STALE: installed copy ${installed_df} pins Hermes ${installed_tag} — onboard/rebuild would use it instead of the updated checkout."
-      status=1
-    fi
-  done < <(discover_installed_dockerfiles)
+  if [[ "$UPDATE_INSTALLED_COPIES" == 1 ]]; then
+    while IFS= read -r installed_df; do
+      [[ -n "$installed_df" ]] || continue
+      installed_tag="$(pinned_tag_of "$installed_df")"
+      if [[ "$installed_tag" == "$TAG" ]]; then
+        echo "OK: installed copy ${installed_df} pins Hermes ${TAG}."
+      else
+        echo "STALE: installed copy ${installed_df} pins Hermes ${installed_tag} — onboard/rebuild would use it instead of the updated checkout."
+        status=1
+      fi
+    done < <(discover_installed_dockerfiles)
+  else
+    echo "Installed-copy scan skipped; pass --update-installed-copies to check saved installer clones."
+  fi
   [[ "$status" == 0 ]] || echo "To update, run: scripts/update-hermes-agent.sh"
   exit "$status"
 fi
@@ -292,31 +302,35 @@ echo "  ${MANIFEST#"${REPO_ROOT}"/}: expected_version=\"${CALVER}\""
 # silently use the previous release. Copies already pinned to the target
 # release are left untouched.
 # ---------------------------------------------------------------------------
-while IFS= read -r installed_df; do
-  [[ -n "$installed_df" ]] || continue
-  installed_tag="$(pinned_tag_of "$installed_df")"
-  if [[ "$installed_tag" == "$TAG" ]]; then
-    echo "  installed copy ${installed_df}: already pins ${TAG}, left as-is"
-    continue
-  fi
-  apply_dockerfile_pins "$installed_df" || {
-    echo "ERROR: failed to update pins in installed copy ${installed_df}" >&2
-    exit 1
-  }
-  echo "  installed copy ${installed_df}: HERMES_VERSION ${installed_tag} -> ${TAG}"
-  if ! grep -q '^ARG HERMES_SEMVER=' "$installed_df"; then
-    echo "  NOTE: ${installed_df} predates the HERMES_SEMVER/HERMES_NPM_INTEGRITY pins;" \
-      "only the version and tarball sha256 were updated. Consider re-running the installer."
-  fi
-  installed_manifest="$(dirname "$installed_df")/manifest.yaml"
-  if [[ -f "$installed_manifest" ]] && grep -q '^expected_version: "' "$installed_manifest"; then
-    apply_manifest_pin "$installed_manifest" || {
-      echo "ERROR: failed to update expected_version in installed copy ${installed_manifest}" >&2
+if [[ "$UPDATE_INSTALLED_COPIES" == 1 ]]; then
+  while IFS= read -r installed_df; do
+    [[ -n "$installed_df" ]] || continue
+    installed_tag="$(pinned_tag_of "$installed_df")"
+    if [[ "$installed_tag" == "$TAG" ]]; then
+      echo "  installed copy ${installed_df}: already pins ${TAG}, left as-is"
+      continue
+    fi
+    apply_dockerfile_pins "$installed_df" || {
+      echo "ERROR: failed to update pins in installed copy ${installed_df}" >&2
       exit 1
     }
-    echo "  installed copy ${installed_manifest}: expected_version=\"${CALVER}\""
-  fi
-done < <(discover_installed_dockerfiles)
+    echo "  installed copy ${installed_df}: HERMES_VERSION ${installed_tag} -> ${TAG}"
+    if ! grep -q '^ARG HERMES_SEMVER=' "$installed_df"; then
+      echo "  NOTE: ${installed_df} predates the HERMES_SEMVER/HERMES_NPM_INTEGRITY pins;" \
+        "only the version and tarball sha256 were updated. Consider re-running the installer."
+    fi
+    installed_manifest="$(dirname "$installed_df")/manifest.yaml"
+    if [[ -f "$installed_manifest" ]] && grep -q '^expected_version: "' "$installed_manifest"; then
+      apply_manifest_pin "$installed_manifest" || {
+        echo "ERROR: failed to update expected_version in installed copy ${installed_manifest}" >&2
+        exit 1
+      }
+      echo "  installed copy ${installed_manifest}: expected_version=\"${CALVER}\""
+    fi
+  done < <(discover_installed_dockerfiles)
+else
+  echo "  installed copies: skipped (pass --update-installed-copies to scan and re-pin saved installer clones)"
+fi
 
 # ---------------------------------------------------------------------------
 # Optional: build base image without cache, rebuild sandbox, verify
@@ -369,4 +383,5 @@ elif [[ "$DO_BUILD" == 0 ]]; then
   echo "Next steps (not run automatically):"
   echo "  scripts/update-hermes-agent.sh --tag ${TAG} --build     # build base image without cache"
   echo "  scripts/update-hermes-agent.sh --tag ${TAG} --rebuild   # build + sandbox rebuild + verify"
+  echo "  scripts/update-hermes-agent.sh --tag ${TAG} --update-installed-copies"
 fi
