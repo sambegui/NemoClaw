@@ -159,14 +159,14 @@ describe("built-in messaging channel metadata", () => {
         packageId: "hermesTeamsAppsPackage",
         agents: ["hermes"],
         manager: "hermes-uv-pip",
-        spec: "microsoft-teams-apps",
+        spec: "microsoft-teams-apps==2.0.13.4",
       },
       {
         channelId: "teams",
         packageId: "hermesAiohttpPackage",
         agents: ["hermes"],
         manager: "hermes-uv-pip",
-        spec: "aiohttp",
+        spec: "aiohttp==3.14.1",
       },
     ]);
   });

@@ -55,14 +55,13 @@ export const teamsManifest = {
     {
       id: "allowedUsers",
       kind: "config",
-      required: false,
+      required: true,
       envKey: "TEAMS_ALLOWED_USERS",
       envAliases: ["MSTEAMS_ALLOWED_USERS"],
       statePath: "allowedIds.teams",
       prompt: {
         label: "Microsoft Teams AAD Object IDs (comma-separated allowlist)",
         help: "Recommended: run `teams status --verbose` and enter the Azure AD object IDs allowed to use the bot.",
-        emptyValueMessage: "bot will rely on agent-side pairing or upstream defaults",
       },
     },
     {
@@ -194,14 +193,14 @@ export const teamsManifest = {
       id: "hermesTeamsAppsPackage",
       agent: "hermes",
       manager: "hermes-uv-pip",
-      spec: "microsoft-teams-apps",
+      spec: "microsoft-teams-apps==2.0.13.4",
       required: true,
     },
     {
       id: "hermesAiohttpPackage",
       agent: "hermes",
       manager: "hermes-uv-pip",
-      spec: "aiohttp",
+      spec: "aiohttp==3.14.1",
       required: true,
     },
   ],
@@ -283,6 +282,7 @@ export const teamsManifest = {
         {
           id: "allowedUsers",
           kind: "config",
+          required: true,
         },
         {
           id: "webhookPort",

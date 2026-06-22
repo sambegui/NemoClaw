@@ -32,10 +32,9 @@ export interface MessagingHostForwardRollbackOptions {
 export function resolveMessagingHostForward(
   plan: SandboxMessagingPlan | null | undefined,
 ): SandboxMessagingHostForwardPlan | null {
-  const normalizedPlan = plan ? (parseSandboxMessagingPlan(plan) ?? plan) : null;
-  const hydratedPlan = normalizedPlan
-    ? hydrateDerivedSandboxMessagingPlanFields(normalizedPlan)
-    : null;
+  const normalizedPlan = plan ? parseSandboxMessagingPlan(plan) : null;
+  if (!normalizedPlan) return null;
+  const hydratedPlan = hydrateDerivedSandboxMessagingPlanFields(normalizedPlan);
   return getActiveMessagingHostForward(hydratedPlan);
 }
 

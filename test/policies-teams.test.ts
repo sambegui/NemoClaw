@@ -28,6 +28,18 @@ function parseResultPayload(stdout: string): any {
   return JSON.parse(stdout.slice(markerIndex + marker.length));
 }
 
+function allowedMethods(
+  policy: { endpoints: Array<{ host?: string; rules?: Array<{ allow?: { method?: string } }> }> },
+  host: string,
+): string[] {
+  const endpoint = policy.endpoints.find((entry) => entry.host === host);
+  expect(endpoint).toBeTruthy();
+  return (endpoint?.rules ?? [])
+    .map((rule) => rule.allow?.method)
+    .filter((method): method is string => typeof method === "string")
+    .sort();
+}
+
 describe("Teams policy preset", () => {
   it("extracts Microsoft Teams Bot Framework and Graph hosts", () => {
     const content = requirePresetContent(policies.loadPreset("teams"));
@@ -38,6 +50,12 @@ describe("Teams policy preset", () => {
     expect(hosts).toContain("smba.trafficmanager.net");
     expect(hosts).toContain("graph.microsoft.com");
     expect(hosts).toContain("*.sharepoint.com");
+    const teamsPolicy = YAML.parse(content).network_policies.teams;
+    expect(allowedMethods(teamsPolicy, "graph.microsoft.com")).toEqual(["GET", "POST"]);
+    expect(allowedMethods(teamsPolicy, "teams.microsoft.com")).toEqual(["GET"]);
+    expect(allowedMethods(teamsPolicy, "teams.cdn.office.net")).toEqual(["GET"]);
+    expect(allowedMethods(teamsPolicy, "statics.teams.cdn.office.net")).toEqual(["GET"]);
+    expect(allowedMethods(teamsPolicy, "*.sharepoint.com")).toEqual(["GET"]);
   });
 
   it("returns Teams validation guidance", () => {
@@ -122,6 +140,9 @@ exit 1
           "*.sharepoint.com",
         ]),
       );
+      expect(allowedMethods(teamsPolicy, "graph.microsoft.com")).toEqual(["GET", "POST"]);
+      expect(allowedMethods(teamsPolicy, "teams.microsoft.com")).toEqual(["GET"]);
+      expect(allowedMethods(teamsPolicy, "*.sharepoint.com")).toEqual(["GET"]);
       expect(payload.registry.policies).toEqual(["teams"]);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

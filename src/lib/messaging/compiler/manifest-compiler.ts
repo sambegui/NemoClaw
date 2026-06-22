@@ -64,9 +64,15 @@ export class ManifestCompiler {
       planCredentialBindings(manifest, context, inputRegistry.get(manifest.id) ?? []),
     );
     const networkPolicy = planNetworkPolicy(manifests, context);
+    const channelRegistry = new Map(
+      channels.map((channel) => [channel.channelId, channel] as const),
+    );
+    const activeManifests = manifests.filter(
+      (manifest) => channelRegistry.get(manifest.id)?.active === true,
+    );
     const agentRender = (
       await Promise.all(
-        manifests.map((manifest) =>
+        activeManifests.map((manifest) =>
           planAgentRender(
             manifest,
             context,
@@ -77,12 +83,9 @@ export class ManifestCompiler {
         ),
       )
     ).flat();
-    const channelRegistry = new Map(
-      channels.map((channel) => [channel.channelId, channel] as const),
-    );
     const buildSteps = (
       await Promise.all(
-        manifests.map((manifest) =>
+        activeManifests.map((manifest) =>
           planBuildSteps(
             manifest,
             context.agent,
@@ -95,7 +98,7 @@ export class ManifestCompiler {
     ).flat();
     const runtimeSetup = planRuntimeSetup(manifests, context.agent, channels);
     const stateUpdates = manifests.flatMap((manifest) => planStateUpdates(manifest));
-    const healthChecks = manifests.flatMap((manifest) => planHealthChecks(manifest));
+    const healthChecks = activeManifests.flatMap((manifest) => planHealthChecks(manifest));
 
     return {
       schemaVersion: 1,

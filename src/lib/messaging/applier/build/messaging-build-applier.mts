@@ -112,6 +112,12 @@ type HermesUvPackageInstall = {
   readonly spec: string;
 };
 
+function isPinnedHermesUvPackageSpec(spec: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9][A-Za-z0-9_.-]*(?:,[A-Za-z0-9][A-Za-z0-9_.-]*)*\])?==[A-Za-z0-9][A-Za-z0-9_.!+~-]*$/.test(
+    spec,
+  );
+}
+
 export class MessagingBuildApplierError extends Error {}
 
 export const DEFAULT_MESSAGING_RUNTIME_PLAN_PATH =
@@ -885,13 +891,13 @@ function readHermesUvPipPackageInstall(
   }
   if (typeof install.spec !== "string" || install.spec.trim().length === 0) {
     throw new MessagingBuildApplierError(
-      `Messaging package-install output ${outputId} must include a Hermes Python package name`,
+      `Messaging package-install output ${outputId} must include a Hermes Python package spec`,
     );
   }
   const spec = install.spec.trim();
-  if (!/^[A-Za-z0-9_.-]+$/.test(spec)) {
+  if (!isPinnedHermesUvPackageSpec(spec)) {
     throw new MessagingBuildApplierError(
-      `Messaging package-install output ${outputId} has an unsafe Hermes Python package name`,
+      `Messaging package-install output ${outputId} must use a safe exact-pinned Hermes Python package spec`,
     );
   }
   return { spec };
@@ -1389,6 +1395,7 @@ function installHermesMessagingUvPackages(plan: MessagingBuildPlan | null, env: 
       "--python",
       "/opt/hermes/.venv/bin/python",
       "--no-cache",
+      "--",
       ...selectedPackages,
     ],
     env,

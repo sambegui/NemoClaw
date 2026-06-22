@@ -680,6 +680,7 @@ describe("built-in channel manifests", () => {
     expect(tenantId.envAliases).toEqual(["TEAMS_TENANT_ID"]);
     expect(allowedUsers.envKey).toBe("TEAMS_ALLOWED_USERS");
     expect(allowedUsers.envAliases).toEqual(["MSTEAMS_ALLOWED_USERS"]);
+    expect(allowedUsers.required).toBe(true);
     expect(webhookPort.envKey).toBe("MSTEAMS_PORT");
     expect(webhookPort.envAliases).toEqual(["TEAMS_PORT"]);
     expect(webhookPort).toMatchObject({ kind: "config", defaultValue: "3978" });
@@ -746,6 +747,7 @@ describe("built-in channel manifests", () => {
         {
           id: "allowedUsers",
           kind: "config",
+          required: true,
         },
         {
           id: "webhookPort",
@@ -770,14 +772,14 @@ describe("built-in channel manifests", () => {
       id: "hermesTeamsAppsPackage",
       agent: "hermes",
       manager: "hermes-uv-pip",
-      spec: "microsoft-teams-apps",
+      spec: "microsoft-teams-apps==2.0.13.4",
       required: true,
     });
     expect(teamsManifest.agentPackages).toContainEqual({
       id: "hermesAiohttpPackage",
       agent: "hermes",
       manager: "hermes-uv-pip",
-      spec: "aiohttp",
+      spec: "aiohttp==3.14.1",
       required: true,
     });
     expect(teamsManifest.state).toEqual({

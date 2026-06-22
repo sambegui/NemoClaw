@@ -672,6 +672,7 @@ describe("MessagingWorkflowPlanner", () => {
       {
         MSTEAMS_APP_ID: "test-teams-app-id",
         MSTEAMS_TENANT_ID: "test-teams-tenant-id",
+        TEAMS_ALLOWED_USERS: "00000000-0000-0000-0000-000000000001",
         MSTEAMS_PORT: "3977",
       },
       async () => {

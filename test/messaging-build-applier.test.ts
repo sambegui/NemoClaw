@@ -512,8 +512,8 @@ describe("messaging-build-applier.mts: agent-install", () => {
       );
       expect(dryRun.status, dryRun.stderr).toBe(0);
       expect(JSON.parse(dryRun.stdout).hermesUvPackages).toEqual([
-        "microsoft-teams-apps",
-        "aiohttp",
+        "microsoft-teams-apps==2.0.13.4",
+        "aiohttp==3.14.1",
       ]);
 
       const result = spawnSync(
@@ -536,7 +536,7 @@ describe("messaging-build-applier.mts: agent-install", () => {
 
       expect(result.status, result.stderr).toBe(0);
       expect(fs.readFileSync(tracePath, "utf-8").trim()).toBe(
-        "pip install --python /opt/hermes/.venv/bin/python --no-cache microsoft-teams-apps aiohttp",
+        "pip install --python /opt/hermes/.venv/bin/python --no-cache -- microsoft-teams-apps==2.0.13.4 aiohttp==3.14.1",
       );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

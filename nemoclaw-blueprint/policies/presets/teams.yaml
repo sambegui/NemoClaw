@@ -55,9 +55,6 @@ network_policies:
         rules:
           - allow: { method: GET, path: "/**" }
           - allow: { method: POST, path: "/**" }
-          - allow: { method: PATCH, path: "/**" }
-          - allow: { method: PUT, path: "/**" }
-          - allow: { method: DELETE, path: "/**" }
       # Read-only Teams/Office media surfaces referenced by Teams messages.
       - host: teams.microsoft.com
         port: 443

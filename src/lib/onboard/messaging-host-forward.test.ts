@@ -93,6 +93,15 @@ describe("ensureMessagingHostForwardIfConfigured", () => {
     });
   });
 
+  it("fails closed when persisted messaging plans are malformed", () => {
+    expect(
+      resolveMessagingHostForward({
+        ...makePlan(),
+        channels: [null],
+      } as unknown as SandboxMessagingPlan),
+    ).toBeNull();
+  });
+
   it("starts the active messaging host forward", () => {
     const ensureForward = vi.fn(() => true);
     const note = vi.fn();
