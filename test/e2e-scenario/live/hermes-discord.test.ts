@@ -636,9 +636,10 @@ req.end();
         });
         break;
       case "":
-        expect([200, 401], `Unexpected Discord users/@me response: ${discordApi.stdout}`).toContain(
-          discordApiResult.statusCode,
-        );
+        expect(
+          [200, 401].includes(discordApiResult.statusCode ?? 0),
+          `Unexpected Discord users/@me response (got ${discordApiResult.statusCode}): ${discordApi.stdout}`,
+        ).toBe(true);
         break;
       default:
         throw new Error(`Discord API call failed: ${discordApiResult.error}`);
