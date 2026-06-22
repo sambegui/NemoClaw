@@ -50,4 +50,4 @@ fi
   if [[ -n "${public_alias}" ]]; then
     printf 'NVIDIA_API_KEY=%s\n' "${public_alias}"
   fi
-} >> "${GITHUB_ENV}"
+} >>"${GITHUB_ENV}"
