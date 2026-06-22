@@ -10,6 +10,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS,
+  HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET,
+} from "../tools/e2e-scenarios/hosted-inference-legacy-alias.mts";
+
+import {
   loadE2eWorkflowContract,
   readYaml,
   reusableNightlyJobs,
@@ -919,14 +924,41 @@ describe("E2E reusable workflow contract", () => {
       type: "boolean",
       default: false,
     });
+    expect(workflowCall?.inputs?.nvidia_api_key_alias).toMatchObject({
+      required: false,
+      type: "boolean",
+      default: false,
+    });
     expect(workflowCall?.inputs?.nvidia_secret_as_compatible_api_key).toBeUndefined();
     expect(exportStep?.if).toBe("${{ inputs.nvidia_api_key }}");
     expect(exportStep?.uses).toBe("./workflow-actions/.github/actions/export-e2e-hosted-inference");
     expect(exportStep?.with?.["nvidia-inference-api-key"]).toBe(RAW_HOSTED_INFERENCE_SECRET);
+    expect(exportStep?.with?.["export-nvidia-api-key"]).toBe("${{ inputs.nvidia_api_key_alias }}");
 
     expect(hostedJobs.length).toBeGreaterThan(20);
     for (const [name, job] of hostedJobs) {
       expect(job.with?.nvidia_secret_as_compatible_api_key, name).toBeUndefined();
+      expect(job.with?.nvidia_api_key_alias ?? false, name).toBe(
+        HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name),
+      );
+    }
+  });
+
+  it("exposes the reusable shell NVIDIA_API_KEY alias only to documented legacy consumers", () => {
+    const aliasJobs = reusableNightlyJobs(nightlyWorkflow)
+      .filter(([, job]) => job.with?.nvidia_api_key_alias === true)
+      .map(([name]) => name)
+      .sort();
+
+    expect(aliasJobs).toEqual([...HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS].sort());
+    for (const [name, job] of reusableNightlyJobs(nightlyWorkflow)) {
+      const script = String(job.with?.script ?? "");
+      if (script.startsWith("test/e2e/") && existsSync(script)) {
+        const readsLegacyAlias = readFileSync(script, "utf8").includes("NVIDIA_API_KEY");
+        expect(HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name), name).toBe(
+          readsLegacyAlias && job.with?.nvidia_api_key === true,
+        );
+      }
     }
   });
 

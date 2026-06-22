@@ -56,6 +56,14 @@ const HOSTED_INFERENCE_SECRET_EXPR =
   "${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}";
 const HOSTED_NVIDIA_API_KEY_EXPR =
   "${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}";
+const HOSTED_INFERENCE_DEFAULT_ENV = {
+  NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1",
+  NEMOCLAW_PROVIDER: "custom",
+  NEMOCLAW_ENDPOINT_URL: "https://inference-api.nvidia.com/v1",
+  NEMOCLAW_MODEL: "nvidia/nvidia/nemotron-3-super-v3",
+  NEMOCLAW_COMPAT_MODEL: "nvidia/nvidia/nemotron-3-super-v3",
+  NEMOCLAW_PREFERRED_API: "openai-completions",
+} as const;
 const FREE_STANDING_SELECTOR_SPECIAL_CASES = new Set([
   "hermes-e2e-vitest",
   "hermes-root-entrypoint-smoke-vitest",
@@ -404,6 +412,23 @@ function requireHostedInferenceCredentialEnv(
   }
   if (env.COMPATIBLE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
     errors.push(`${owner} must receive COMPATIBLE_API_KEY from hosted inference secrets`);
+  }
+  for (const [name, expected] of Object.entries(HOSTED_INFERENCE_DEFAULT_ENV)) {
+    if (env[name] !== expected) {
+      errors.push(`${owner} must opt in to hosted inference with ${name}`);
+    }
+  }
+}
+
+function requireNoHostedInferenceDefaultEnv(
+  errors: string[],
+  owner: string,
+  env: WorkflowRecord,
+): void {
+  for (const name of Object.keys(HOSTED_INFERENCE_DEFAULT_ENV)) {
+    if (Object.hasOwn(env, name)) {
+      errors.push(`${owner} env must not include hosted inference default ${name}`);
+    }
   }
 }
 
@@ -4750,16 +4775,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
 
   const workflowEnv = asRecord(workflow.env);
   requireNoHostedInferenceCredentialEnv(errors, "workflow", workflowEnv);
-  for (const [name, expected] of Object.entries({
-    NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1",
-    NEMOCLAW_PROVIDER: "custom",
-    NEMOCLAW_ENDPOINT_URL: "https://inference-api.nvidia.com/v1",
-    NEMOCLAW_MODEL: "nvidia/nvidia/nemotron-3-super-v3",
-    NEMOCLAW_COMPAT_MODEL: "nvidia/nvidia/nemotron-3-super-v3",
-    NEMOCLAW_PREFERRED_API: "openai-completions",
-  })) {
-    if (workflowEnv[name] !== expected) errors.push(`workflow env must centralize ${name}`);
-  }
+  requireNoHostedInferenceDefaultEnv(errors, "workflow", workflowEnv);
 
   const jobs = asRecord(workflow.jobs);
   const { errors: inventoryErrors, inventory: freeStandingInventory } =

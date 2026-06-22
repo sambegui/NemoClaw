@@ -7,10 +7,10 @@ set -euo pipefail
 canonical="${INPUT_NVIDIA_INFERENCE_API_KEY:-}"
 public_alias="${INPUT_NVIDIA_API_KEY:-}"
 
-# Keep the bash test/e2e contract canonical: NVIDIA_INFERENCE_API_KEY is
-# the hosted CI source secret and COMPATIBLE_API_KEY is the custom
-# endpoint credential. Preserve NVIDIA_API_KEY as a compatibility alias
-# for Vitest migrations that still assert the older env name.
+# Keep the hosted E2E contract canonical: NVIDIA_INFERENCE_API_KEY is the
+# hosted CI source secret and COMPATIBLE_API_KEY is the custom endpoint
+# credential. NVIDIA_API_KEY is emitted only when the caller explicitly opts in
+# for documented legacy consumers that still assert the older env name.
 for value in "${canonical}" "${public_alias}"; do
   if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
     echo "::error::Hosted inference credentials must be single-line values." >&2
@@ -47,7 +47,7 @@ fi
     printf 'NVIDIA_INFERENCE_API_KEY=%s\n' "${canonical}"
     printf 'COMPATIBLE_API_KEY=%s\n' "${canonical}"
   fi
-  if [[ -n "${public_alias}" ]]; then
+  if [[ "${INPUT_EXPORT_NVIDIA_API_KEY:-false}" == "true" && -n "${public_alias}" ]]; then
     printf 'NVIDIA_API_KEY=%s\n' "${public_alias}"
   fi
 } >>"${GITHUB_ENV}"

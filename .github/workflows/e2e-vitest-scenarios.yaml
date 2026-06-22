@@ -25,16 +25,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Shared non-secret hosted inference defaults. Credential variables remain
-  # scoped to only the live Vitest run steps that require hosted inference.
-  NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
-  NEMOCLAW_PROVIDER: custom
-  NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
-  NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
-  NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
-  NEMOCLAW_PREFERRED_API: openai-completions
-
 concurrency:
   group: e2e-vitest-scenarios-${{ github.ref }}-${{ inputs.scenarios || 'supported' }}-${{ inputs.jobs || 'all-jobs' }}
   cancel-in-progress: false
@@ -259,6 +249,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           SCENARIO_ID: ${{ matrix.id }}
         run: |
           set -euo pipefail
@@ -486,6 +482,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -587,6 +589,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -742,6 +750,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -849,6 +863,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -956,6 +976,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1011,6 +1037,12 @@ jobs:
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1117,6 +1149,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1214,6 +1252,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1307,6 +1351,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1392,6 +1442,7 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
           NEMOCLAW_PROVIDER: custom
           NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
           NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
@@ -1484,6 +1535,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1583,6 +1640,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1648,6 +1711,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1713,6 +1782,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1803,6 +1878,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -1888,6 +1969,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -1983,6 +2070,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -2067,6 +2160,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -2151,6 +2250,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2249,6 +2354,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2350,6 +2461,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2605,6 +2722,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2670,6 +2793,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2737,6 +2866,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -2928,6 +3063,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -3160,6 +3301,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           TELEGRAM_BOT_TOKEN_REAL: ${{ secrets.TELEGRAM_BOT_TOKEN_REAL }}
           DISCORD_BOT_TOKEN_REAL: ${{ secrets.DISCORD_BOT_TOKEN_REAL }}
           SLACK_BOT_TOKEN_REAL: ${{ secrets.SLACK_BOT_TOKEN_REAL }}
@@ -3243,6 +3390,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3331,6 +3484,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3421,6 +3580,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3512,6 +3677,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3576,6 +3747,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live             test/e2e-scenario/live/diagnostics.test.ts             --silent=false --reporter=default
@@ -3699,6 +3876,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -3775,6 +3958,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           # OpenShell installs to /usr/local/bin on GitHub-hosted runners
@@ -3879,6 +4068,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
@@ -4129,6 +4324,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -4239,6 +4440,12 @@ jobs:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           TELEGRAM_BOT_TOKEN: "test-fake-telegram-token-add-remove-e2e"
           TELEGRAM_ALLOWED_IDS: "123456789"
           TELEGRAM_REQUIRE_MENTION: "0"
@@ -4354,6 +4561,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
@@ -4457,6 +4670,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           TELEGRAM_BOT_TOKEN: test-fake-telegram-token-stop-start-${{ matrix.agent }}
           DISCORD_BOT_TOKEN: test-fake-discord-token-stop-start-${{ matrix.agent }}
           SLACK_BOT_TOKEN: xoxb-fake-slack-token-stop-start-${{ matrix.agent }}
@@ -4559,6 +4778,12 @@ jobs:
         # fake Slack Socket Mode/REST token rewrite and connect-shell approval.
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           SLACK_BOT_TOKEN: xoxb-fake-slack-pairing-e2e
           SLACK_APP_TOKEN: xapp-fake-slack-pairing-e2e
         run: |
@@ -4773,6 +4998,12 @@ jobs:
         # fake Discord Gateway token rewrite and connect-shell pairing approval.
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
           DISCORD_BOT_TOKEN: test-fake-discord-pairing-e2e
         run: |
           set -euo pipefail
@@ -4903,6 +5134,12 @@ jobs:
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
+          NEMOCLAW_PROVIDER: custom
+          NEMOCLAW_ENDPOINT_URL: https://inference-api.nvidia.com/v1
+          NEMOCLAW_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_COMPAT_MODEL: nvidia/nvidia/nemotron-3-super-v3
+          NEMOCLAW_PREFERRED_API: openai-completions
         run: |
           set -euo pipefail
           npx vitest run --project e2e-scenarios-live \
