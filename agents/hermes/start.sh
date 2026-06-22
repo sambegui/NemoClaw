@@ -287,6 +287,7 @@ verify_hermes_config_integrity() {
     # entrypoint runs. Verify the root-owned hash through the sandbox identity
     # that owns the mutable Hermes home.
     export -f verify_config_integrity
+    # shellcheck disable=SC2016  # inner bash expands $1/$2 after setpriv/gosu
     "${STEP_DOWN_PREFIX_SANDBOX[@]}" bash -c 'verify_config_integrity "$1" "$2"' bash \
       "${HERMES_DIR}" "${HERMES_HASH_FILE}"
     return $?

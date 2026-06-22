@@ -13,7 +13,9 @@ describe("scripts/update-hermes-agent.sh", () => {
 
     expect(src).toContain("--update-installed-copies");
     expect(src).toContain("UPDATE_INSTALLED_COPIES=0");
-    expect(src).toContain("--rebuild)\n      DO_BUILD=1\n      DO_REBUILD=1\n      UPDATE_INSTALLED_COPIES=1");
+    expect(src).toContain(
+      "--rebuild)\n      DO_BUILD=1\n      DO_REBUILD=1\n      UPDATE_INSTALLED_COPIES=1",
+    );
     expect(src).toMatch(
       /if \[\[ "\$UPDATE_INSTALLED_COPIES" == 1 \]\]; then[\s\S]*discover_installed_dockerfiles[\s\S]*else[\s\S]*Installed-copy scan skipped/,
     );
