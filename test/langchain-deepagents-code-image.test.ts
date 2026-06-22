@@ -197,12 +197,16 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(landlockCheck).toContain("touch /tmp/deepagents-landlock-test");
     expect(landlockCheck).toContain("/usr is Landlock read-only for Deep Agents Code");
     expect(landlockCheck).toContain("/etc is Landlock read-only for Deep Agents Code");
-    expect(pythonEgressCheck).toContain("python3 - <<'PY'");
+    expect(pythonEgressCheck).toContain("python3 - ${url@Q} <<'PY'");
+    expect(pythonEgressCheck).toContain('expect_reached "GitHub" "https://api.github.com/"');
+    expect(pythonEgressCheck).toContain('expect_reached "PyPI" "https://pypi.org/"');
     expect(pythonEgressCheck).toContain("https://api.tavily.com/");
     expect(pythonEgressCheck).toContain("https://api.smith.langchain.com/");
     expect(pythonEgressCheck).toContain("https://modelcontextprotocol.io/");
     expect(pythonEgressCheck).toContain("https://example.com/");
-    expect(pythonEgressCheck).toContain("arbitrary Python cannot reach unapproved hosts");
+    expect(pythonEgressCheck).toContain(
+      "arbitrary Python cannot reach ${label} without explicit policy",
+    );
   });
 
   it("hash-locks Deep Agents Code base image PyPI installs", () => {
