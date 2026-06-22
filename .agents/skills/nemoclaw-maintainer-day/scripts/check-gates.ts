@@ -4,7 +4,7 @@
 /**
  * Deterministic merge-gate checker for a single NemoClaw PR.
  *
- * Checks all 4 required gates and outputs structured JSON.
+ * Checks all 5 required gates and outputs structured JSON.
  * Claude uses the output to decide: approve, route to salvage, or report blockers.
  *
  * Usage: node --experimental-strip-types --no-warnings .agents/skills/nemoclaw-maintainer-day/scripts/check-gates.ts <pr-number> [--repo OWNER/REPO]
@@ -36,6 +36,11 @@ interface CodeRabbitThread {
   resolved: boolean;
 }
 
+interface PrAdvisorGateResult extends GateResult {
+  recommendation?: string;
+  openRequired?: number;
+}
+
 interface GateOutput {
   pr: number;
   url: string;
@@ -50,6 +55,7 @@ interface GateOutput {
     conflicts: GateResult & { mergeStateStatus?: string };
     coderabbit: GateResult & { unresolvedThreads?: CodeRabbitThread[] };
     riskyCodeTested: GateResult & { riskyFiles?: string[]; hasTests?: boolean };
+    prAdvisor: PrAdvisorGateResult;
   };
 }
 
@@ -260,7 +266,66 @@ function checkCodeRabbit(
 }
 
 // ---------------------------------------------------------------------------
-// Gate 4: Risky code has tests
+// Gate 4: PR Review Advisor not blocked
+// ---------------------------------------------------------------------------
+
+// The PRA bot embeds machine-readable metadata in an HTML comment:
+// <!-- nemoclaw-pr-review-advisor -->
+// <!-- head_sha: ...; recommendation: blocked; ... -->
+const PRA_META_RE = /recommendation:\s*([a-z_]+)/i;
+const PRA_REQUIRED_RE = /\*\*Open items:\*\*[^|]*?(\d+)\s+required/;
+
+function checkPrAdvisor(repo: string, number: number): PrAdvisorGateResult {
+  const raw = run("gh", ["api", `repos/${repo}/issues/${number}/comments`, "--paginate"]);
+
+  if (!raw) {
+    // run() returns "" on API failure — fail closed, same as CodeRabbit gate
+    return { pass: false, details: "Could not fetch PR comments (API error — fail-closed)" };
+  }
+
+  let allComments: Array<{ body?: string }>;
+  try {
+    allComments = JSON.parse(raw) as Array<{ body?: string }>;
+  } catch {
+    return { pass: false, details: "Could not parse PR comments (invalid JSON — fail-closed)" };
+  }
+
+  const praComments = allComments.filter((c) =>
+    (c.body ?? "").includes("nemoclaw-pr-review-advisor"),
+  );
+  if (praComments.length === 0) {
+    return { pass: true, details: "No PR Review Advisor comment found" };
+  }
+
+  // Use the last PRA comment (most recent re-run)
+  const body = praComments[praComments.length - 1].body ?? "";
+
+  const metaMatch = PRA_META_RE.exec(body);
+  if (!metaMatch) {
+    return {
+      pass: true,
+      details: "PR Review Advisor comment found but no recommendation metadata",
+    };
+  }
+
+  const recommendation = metaMatch[1].toLowerCase();
+  if (recommendation !== "blocked") {
+    return { pass: true, details: `PR Review Advisor: ${recommendation}`, recommendation };
+  }
+
+  const requiredMatch = PRA_REQUIRED_RE.exec(body);
+  const openRequired = requiredMatch ? parseInt(requiredMatch[1], 10) : undefined;
+
+  return {
+    pass: false,
+    details: `PR Review Advisor: blocked${openRequired !== undefined ? ` (${openRequired} required item(s))` : ""}`,
+    recommendation,
+    openRequired,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gate 5: Risky code has tests
 // ---------------------------------------------------------------------------
 
 function checkRiskyCodeTested(
@@ -329,13 +394,14 @@ function main(): void {
   const conflicts = checkConflicts(prData.mergeStateStatus);
   const coderabbit = checkCodeRabbit(repo, prNumber);
   const riskyCodeTested = checkRiskyCodeTested(prData.files ?? []);
+  const prAdvisor = checkPrAdvisor(repo, prNumber);
 
   const output: GateOutput = {
     pr: prNumber,
     url: prData.url,
     title: prData.title,
-    allPass: ci.pass && conflicts.pass && coderabbit.pass && riskyCodeTested.pass,
-    gates: { ci, conflicts, coderabbit, riskyCodeTested },
+    allPass: ci.pass && conflicts.pass && coderabbit.pass && riskyCodeTested.pass && prAdvisor.pass,
+    gates: { ci, conflicts, coderabbit, riskyCodeTested, prAdvisor },
   };
 
   console.log(JSON.stringify(output, null, 2));
