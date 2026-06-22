@@ -153,7 +153,6 @@ describe("policies", () => {
       expect(names).toEqual(expected);
     });
   });
-
   describe("loadPreset", () => {
     it("loads existing preset", () => {
       const content = requirePresetContent(policies.loadPreset("outlook"));
