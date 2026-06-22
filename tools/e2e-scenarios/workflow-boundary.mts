@@ -4840,6 +4840,8 @@ export function validateE2eVitestScenariosWorkflowBoundary(
     "gateway-health-honest",
   );
 
+  validateFreeStandingJobSelector(errors, jobs, "jetson-nvmap-gpu-vitest", "jetson-nvmap-gpu");
+
   validateFreeStandingJobSelector(
     errors,
     jobs,
