@@ -205,6 +205,15 @@ function resolveOpenClawSlackApiLocation() {
       current = parent;
     }
   };
+  const externalLocation = (candidate, apiKind, apiPath) => {
+    console.error(`OpenClaw Slack external ${apiKind} root: ${candidate}`);
+    if (openclawRoot) console.error(`OpenClaw Slack external peer OpenClaw root: ${openclawRoot}`);
+    return { kind: "external", apiKind, root: candidate, apiPath, openclawRoot };
+  };
+  const coreLocation = (candidate, apiKind) => {
+    console.error(`OpenClaw Slack core ${apiKind} root: ${candidate}`);
+    return { kind: "core", apiKind, root: candidate };
+  };
 
   if (process.env.OPENCLAW_SLACK_PACKAGE_ROOT) {
     addExternalCandidate(process.env.OPENCLAW_SLACK_PACKAGE_ROOT);
@@ -248,7 +257,13 @@ function resolveOpenClawSlackApiLocation() {
           "*/node_modules/@openclaw/slack/dist/test-api.js",
           "-o",
           "-path",
+          "*/node_modules/@openclaw/slack/dist/runtime-api.js",
+          "-o",
+          "-path",
           "*/node_modules/openclaw/dist/extensions/slack/test-api.js",
+          "-o",
+          "-path",
+          "*/node_modules/openclaw/dist/extensions/slack/runtime-api.js",
           ")",
           "-print",
           "-quit",
@@ -257,6 +272,8 @@ function resolveOpenClawSlackApiLocation() {
         }).trim()
       : "";
     if (discovered.endsWith("/node_modules/@openclaw/slack/dist/test-api.js")) {
+      addExternalCandidate(path.resolve(discovered, "../.."));
+    } else if (discovered.endsWith("/node_modules/@openclaw/slack/dist/runtime-api.js")) {
       addExternalCandidate(path.resolve(discovered, "../.."));
     } else if (discovered) {
       addCoreCandidate(path.resolve(discovered, "../../../.."));
@@ -275,15 +292,19 @@ function resolveOpenClawSlackApiLocation() {
   for (const candidate of externalCandidates) {
     const testApiPath = path.join(candidate, "dist/test-api.js");
     if (fs.existsSync(testApiPath)) {
-      console.error(`OpenClaw Slack external test API root: ${candidate}`);
-      if (openclawRoot) console.error(`OpenClaw Slack external peer OpenClaw root: ${openclawRoot}`);
-      return { kind: "external", root: candidate, testApiPath, openclawRoot };
+      return externalLocation(candidate, "test-api", testApiPath);
+    }
+    const runtimeApiPath = path.join(candidate, "dist/runtime-api.js");
+    if (fs.existsSync(runtimeApiPath)) {
+      return externalLocation(candidate, "runtime-api", runtimeApiPath);
     }
   }
   for (const candidate of coreCandidates) {
     if (fs.existsSync(path.join(candidate, "dist/extensions/slack/test-api.js"))) {
-      console.error(`OpenClaw Slack core test API root: ${candidate}`);
-      return { kind: "core", root: candidate };
+      return coreLocation(candidate, "test-api");
+    }
+    if (fs.existsSync(path.join(candidate, "dist/extensions/slack/runtime-api.js"))) {
+      return coreLocation(candidate, "runtime-api");
     }
   }
   return null;
@@ -420,7 +441,14 @@ function createExternalOpenClawSlackProofRoot(location) {
   return slackProofRoot;
 }
 
-async function importSlackProofModulesFromDir(slackDir) {
+async function importSlackProofModulesFromDir(slackDir, apiKind) {
+  if (apiKind === "runtime-api") {
+    const runtimeModule = await import(pathToFileURL(path.join(slackDir, "runtime-api.js")).href);
+    return {
+      proofApiKind: "runtime-api",
+      sendMessageSlack: runtimeModule.sendMessageSlack,
+    };
+  }
   const testApiSource = fs.readFileSync(path.join(slackDir, "test-api.js"), "utf8");
   const helperPath = resolveSlackTestApiImport(testApiSource, "createInboundSlackTestContext");
   const preparePath = resolveSlackTestApiImport(testApiSource, "prepareSlackMessage");
@@ -431,6 +459,7 @@ async function importSlackProofModulesFromDir(slackDir) {
     import(pathToFileURL(path.join(slackDir, sendPath)).href),
   ]);
   return {
+    proofApiKind: "test-api",
     createInboundSlackTestContext: helperModule.createInboundSlackTestContext ?? helperModule.t,
     prepareSlackMessage: prepareModule.prepareSlackMessage ?? prepareModule.t,
     sendMessageSlack: sendModule.sendMessageSlack ?? sendModule.t,
@@ -440,11 +469,11 @@ async function importSlackProofModulesFromDir(slackDir) {
 async function importOpenClawSlackProofApi(location) {
   if (location.kind === "external") {
     const proofRoot = createExternalOpenClawSlackProofRoot(location);
-    return importSlackProofModulesFromDir(path.join(proofRoot, "dist"));
+    return importSlackProofModulesFromDir(path.join(proofRoot, "dist"), location.apiKind);
   }
 
   const proofRoot = createOpenClawSlackProofRoot(location.root);
-  return importSlackProofModulesFromDir(path.join(proofRoot, "dist/extensions/slack"));
+  return importSlackProofModulesFromDir(path.join(proofRoot, "dist/extensions/slack"), location.apiKind);
 }
 
 function postForm(pathname, fields, authorization) {
@@ -536,12 +565,50 @@ async function postChannelProofMessage() {
 async function runOpenClawPrivateProof(location) {
   const slackApi = await importOpenClawSlackProofApi(location);
   const { createInboundSlackTestContext, prepareSlackMessage, sendMessageSlack } = slackApi;
+  if (typeof sendMessageSlack !== "function") {
+    fail("installed OpenClaw Slack API does not expose sendMessageSlack");
+  }
+  const fakeClient = {
+    chat: {
+      postMessage: async (payload) => {
+        const response = await postForm(
+          "/api/chat.postMessage",
+          {
+            token,
+            channel: payload.channel || "",
+            text: payload.text || "",
+            ...(payload.thread_ts ? { thread_ts: payload.thread_ts } : {}),
+            ...(payload.blocks ? { blocks: JSON.stringify(payload.blocks) } : {}),
+          },
+          `Bearer ${token}`,
+        );
+        if (response.statusCode !== 200 || response.body?.ok !== true) {
+          throw new Error(`fake Slack chat.postMessage failed: ${response.statusCode} ${JSON.stringify(response.body)}`);
+        }
+        return response.body;
+      },
+    },
+  };
   if (
     typeof createInboundSlackTestContext !== "function" ||
-    typeof prepareSlackMessage !== "function" ||
-    typeof sendMessageSlack !== "function"
+    typeof prepareSlackMessage !== "function"
   ) {
-    fail("installed OpenClaw Slack test API does not expose the required proof helpers");
+    const sendResult = await sendMessageSlack(`channel:${channelId}`, proofText, {
+      cfg,
+      token,
+      client: fakeClient,
+      accountId: "default",
+    });
+    if (sendResult.channelId !== channelId) {
+      fail(`sendMessageSlack returned unexpected channelId: ${sendResult.channelId}`);
+    }
+    return {
+      proof: "openclaw-runtime-api",
+      allowedReplyTarget: `channel:${channelId}`,
+      privateMentionHelpers: false,
+      messageId: sendResult.messageId,
+      channelId: sendResult.channelId,
+    };
   }
   // Records sender-facing feedback actions (chat.postEphemeral / chat.postMessage)
   // so the proof can assert that a denied explicit @-mention still produces
@@ -668,28 +735,6 @@ async function runOpenClawPrivateProof(location) {
   if (deniedFeedbackText.includes(allowedUser) || /allow\s*list|allowlist|allowed users/i.test(deniedFeedbackText)) {
     fail(`denied Slack feedback leaked allowlist details: ${deniedFeedbackText}`);
   }
-
-  const fakeClient = {
-    chat: {
-      postMessage: async (payload) => {
-        const response = await postForm(
-          "/api/chat.postMessage",
-          {
-            token,
-            channel: payload.channel || "",
-            text: payload.text || "",
-            ...(payload.thread_ts ? { thread_ts: payload.thread_ts } : {}),
-            ...(payload.blocks ? { blocks: JSON.stringify(payload.blocks) } : {}),
-          },
-          `Bearer ${token}`,
-        );
-        if (response.statusCode !== 200 || response.body?.ok !== true) {
-          throw new Error(`fake Slack chat.postMessage failed: ${response.statusCode} ${JSON.stringify(response.body)}`);
-        }
-        return response.body;
-      },
-    },
-  };
 
   const sendResult = await sendMessageSlack(allowedPrepared.replyTarget, proofText, {
     cfg,
