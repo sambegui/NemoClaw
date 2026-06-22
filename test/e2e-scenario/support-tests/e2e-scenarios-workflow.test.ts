@@ -470,26 +470,6 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
       });
       expect(
         evaluateE2eVitestWorkflowDispatchSelectors({
-          scenarios: "openshell-gateway-upgrade",
-        }),
-      ).toMatchObject({
-        valid: true,
-        liveScenariosRuns: false,
-        selectedFreeStandingJobs: ["openshell-gateway-upgrade-vitest"],
-        registryScenarios: [],
-      });
-      expect(
-        evaluateE2eVitestWorkflowDispatchSelectors({
-          jobs: "openshell-gateway-upgrade-vitest",
-        }),
-      ).toMatchObject({
-        valid: true,
-        liveScenariosRuns: false,
-        selectedFreeStandingJobs: ["openshell-gateway-upgrade-vitest"],
-        registryScenarios: [],
-      });
-      expect(
-        evaluateE2eVitestWorkflowDispatchSelectors({
           scenarios: "model-router-provider-routed-inference",
         }),
       ).toMatchObject({
@@ -663,15 +643,11 @@ describe("e2e-vitest-scenarios workflow boundary", () => {
     expect(inventory.allowedJobs).toContain("openshell-version-pin-vitest");
     expect(inventory.allowedJobs).toContain("gateway-guard-recovery");
     expect(inventory.allowedJobs).toContain("upgrade-stale-sandbox-vitest");
-    expect(inventory.allowedJobs).toContain("openshell-gateway-upgrade-vitest");
     expect(inventory.scenarioToJob.get("openshell-version-pin")).toBe(
       "openshell-version-pin-vitest",
     );
     expect(inventory.scenarioToJob.get("upgrade-stale-sandbox")).toBe(
       "upgrade-stale-sandbox-vitest",
-    );
-    expect(inventory.scenarioToJob.get("openshell-gateway-upgrade")).toBe(
-      "openshell-gateway-upgrade-vitest",
     );
     expect(inventory.scenarioToJob.get("credential-migration")).toBeUndefined();
     expect(
