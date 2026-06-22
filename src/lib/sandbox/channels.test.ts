@@ -16,8 +16,8 @@ import {
 } from "./channels";
 
 describe("sandbox-channels KNOWN_CHANNELS", () => {
-  it("covers telegram, discord, wechat, slack, and whatsapp", () => {
-    expect(knownChannelNames()).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp"]);
+  it("covers telegram, discord, wechat, slack, whatsapp, and zalo", () => {
+    expect(knownChannelNames()).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp", "zalo"]);
   });
 
   it("exposes the primary bot-token env var for token-based channels", () => {
@@ -163,7 +163,7 @@ describe("sandbox-channels token-shape helpers", () => {
 describe("sandbox-channels listChannels", () => {
   it("materialises an array with the name merged into each entry", () => {
     const list = listChannels();
-    expect(list.map((c) => c.name)).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp"]);
+    expect(list.map((c) => c.name)).toEqual(["telegram", "discord", "wechat", "slack", "whatsapp", "zalo"]);
     const telegram = list.find((c) => c.name === "telegram");
     expect(telegram?.envKey).toBe("TELEGRAM_BOT_TOKEN");
     expect(telegram?.allowIdsMode).toBe("dm");

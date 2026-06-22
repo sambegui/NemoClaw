@@ -22,10 +22,12 @@ describe("messaging channel config", () => {
       "SLACK_ALLOWED_USERS",
       "SLACK_ALLOWED_CHANNELS",
       "WHATSAPP_ALLOWED_IDS",
+      "ZALO_ALLOWED_IDS",
       "TELEGRAM_GROUP_POLICY",
       "WECHAT_ACCOUNT_ID",
       "WECHAT_BASE_URL",
       "WECHAT_USER_ID",
+      "ZALO_GROUP_POLICY",
     ]);
   });
 

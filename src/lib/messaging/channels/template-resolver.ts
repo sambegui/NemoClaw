@@ -7,6 +7,7 @@ import { resolveTelegramTemplateReference } from "./telegram/template-resolver";
 import type { BuiltInRenderTemplateResolver } from "./template-resolver-utils";
 import { resolveWechatTemplateReference } from "./wechat/template-resolver";
 import { resolveWhatsappTemplateReference } from "./whatsapp/template-resolver";
+import { resolveZaloTemplateReference } from "./zalo/template-resolver";
 
 const BUILT_IN_TEMPLATE_REFERENCE_RESOLVERS: readonly BuiltInRenderTemplateResolver[] = [
   resolveTelegramTemplateReference,
@@ -14,6 +15,7 @@ const BUILT_IN_TEMPLATE_REFERENCE_RESOLVERS: readonly BuiltInRenderTemplateResol
   resolveWechatTemplateReference,
   resolveSlackTemplateReference,
   resolveWhatsappTemplateReference,
+  resolveZaloTemplateReference,
 ];
 
 export function createBuiltInRenderTemplateResolver(): BuiltInRenderTemplateResolver {

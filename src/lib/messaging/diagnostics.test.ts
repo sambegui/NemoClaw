@@ -15,6 +15,7 @@ describe("messaging channel diagnostics", () => {
       "wechat",
       "slack",
       "whatsapp",
+      "zalo",
     ]);
     expect(specs.find((spec) => spec.channelId === "telegram")).toMatchObject({
       policyPresets: ["telegram"],

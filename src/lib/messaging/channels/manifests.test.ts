@@ -202,6 +202,7 @@ describe("built-in channel manifests", () => {
       "wechat",
       "slack",
       "whatsapp",
+      "zalo",
     ]);
     expect(registry.listAvailable({ agent: "hermes" }).map((manifest) => manifest.id)).toEqual([
       "telegram",

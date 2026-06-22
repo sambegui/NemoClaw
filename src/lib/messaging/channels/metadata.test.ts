@@ -30,6 +30,7 @@ describe("built-in messaging channel metadata", () => {
       "wechat",
       "slack",
       "whatsapp",
+      "zalo",
     ]);
     expect(listAvailableMessagingChannelIds({ agent: "hermes" })).toEqual([
       "telegram",
@@ -78,6 +79,8 @@ describe("built-in messaging channel metadata", () => {
       "SLACK_ALLOWED_USERS",
       "SLACK_ALLOWED_CHANNELS",
       "WHATSAPP_ALLOWED_IDS",
+      "ZALO_ALLOWED_IDS",
+      "ZALO_GROUP_POLICY",
     ]);
     expect(getMessagingConfigEnvAliases()).toEqual({
       DISCORD_SERVER_ID: ["DISCORD_SERVER_IDS"],
@@ -110,6 +113,7 @@ describe("built-in messaging channel metadata", () => {
       "openclaw-weixin",
       "slack",
       "whatsapp",
+      "zalo",
     ]);
     expect(
       Object.fromEntries(
