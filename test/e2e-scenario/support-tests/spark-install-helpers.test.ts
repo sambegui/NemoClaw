@@ -67,6 +67,17 @@ describe("spark install live test helpers", () => {
     }
   });
 
+  it("defaults public curl-pipe mode to the allowlisted installer URL", () => {
+    const invocation = buildInstallerInvocation({
+      repoRoot: "/repo",
+      env: { NEMOCLAW_E2E_PUBLIC_INSTALL: "1" },
+    });
+
+    expect(invocation.mode).toBe("public");
+    expect(invocation.installUrl).toBe(DEFAULT_INSTALL_URL);
+    expect(invocation.script).toContain(`curl -fsSL '${DEFAULT_INSTALL_URL}'`);
+  });
+
   it("keeps public curl-pipe mode on the allowlisted installer and enables pipefail", () => {
     const invocation = buildInstallerInvocation({
       repoRoot: "/repo",

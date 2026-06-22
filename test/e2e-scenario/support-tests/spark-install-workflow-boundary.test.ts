@@ -57,9 +57,13 @@ describe("spark install workflow boundary", () => {
     };
     const job = workflow.jobs["spark-install-vitest"];
     expect(job).toBeDefined();
+    job["runs-on" as keyof typeof job] = "self-hosted" as never;
     job["timeout-minutes" as keyof typeof job] = 30 as never;
     job.env = {
       ...job.env,
+      E2E_ARTIFACT_DIR: "tmp/spark-install",
+      NEMOCLAW_CLI_BIN: "/usr/bin/nemoclaw",
+      NEMOCLAW_RUN_E2E_SCENARIOS: "0",
       NVIDIA_API_KEY: "${{ secrets.NVIDIA_API_KEY }}",
       NEMOCLAW_NON_INTERACTIVE: "0",
       NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "0",
@@ -109,7 +113,11 @@ describe("spark install workflow boundary", () => {
     try {
       expect(validateE2eVitestScenariosWorkflowBoundary(workflowPath)).toEqual(
         expect.arrayContaining([
+          "spark-install-vitest job must run on ubuntu-latest",
           "spark-install-vitest job must keep a 45 minute timeout",
+          "spark-install-vitest job must write artifacts under e2e-artifacts/vitest/spark-install",
+          "spark-install-vitest job must point NEMOCLAW_CLI_BIN at the repo CLI",
+          "spark-install-vitest job must set NEMOCLAW_RUN_E2E_SCENARIOS=1",
           "spark-install-vitest job must set NEMOCLAW_NON_INTERACTIVE=1",
           "spark-install-vitest job must accept third-party software non-interactively",
           "spark-install-vitest job must set NEMOCLAW_FRESH=1",
