@@ -951,14 +951,15 @@ describe("E2E reusable workflow contract", () => {
       .sort();
 
     expect(aliasJobs).toEqual([...HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS].sort());
-    for (const [name, job] of reusableNightlyJobs(nightlyWorkflow)) {
-      const script = String(job.with?.script ?? "");
-      if (script.startsWith("test/e2e/") && existsSync(script)) {
-        const readsLegacyAlias = readFileSync(script, "utf8").includes("NVIDIA_API_KEY");
-        expect(HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name), name).toBe(
-          readsLegacyAlias && job.with?.nvidia_api_key === true,
-        );
-      }
+    const shellScriptJobs = reusableNightlyJobs(nightlyWorkflow)
+      .map(([name, job]) => ({ name, job, script: String(job.with?.script ?? "") }))
+      .filter(({ script }) => script.startsWith("test/e2e/") && existsSync(script));
+
+    for (const { name, job, script } of shellScriptJobs) {
+      const readsLegacyAlias = readFileSync(script, "utf8").includes("NVIDIA_API_KEY");
+      expect(HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET.has(name), name).toBe(
+        readsLegacyAlias && job.with?.nvidia_api_key === true,
+      );
     }
   });
 
