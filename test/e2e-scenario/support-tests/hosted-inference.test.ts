@@ -178,16 +178,16 @@ describe("hosted inference E2E config", () => {
     });
   });
 
-  it("prefers an explicit fixture model over workflow defaults", () => {
+  it("preserves workflow-hosted model defaults ahead of fixture fallbacks", () => {
     const cfg = requireHostedInferenceConfig(
       secrets({ NVIDIA_INFERENCE_API_KEY: "repo-hosted-key" }),
       { NEMOCLAW_MODEL: "nvidia/workflow-model" },
       { model: "nvidia/scenario-model" },
     );
 
-    expect(cfg.model).toBe("nvidia/scenario-model");
-    expect(cfg.env.NEMOCLAW_MODEL).toBe("nvidia/scenario-model");
-    expect(cfg.env.NEMOCLAW_COMPAT_MODEL).toBe("nvidia/scenario-model");
+    expect(cfg.model).toBe("nvidia/workflow-model");
+    expect(cfg.env.NEMOCLAW_MODEL).toBe("nvidia/workflow-model");
+    expect(cfg.env.NEMOCLAW_COMPAT_MODEL).toBe("nvidia/workflow-model");
   });
 
   it("preserves an explicit hosted inference API preference", () => {

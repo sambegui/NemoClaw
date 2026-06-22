@@ -43,9 +43,9 @@ export function requireHostedInferenceConfig(
     : HOSTED_INFERENCE_SECRET;
   const endpointUrl = env.NEMOCLAW_ENDPOINT_URL || DEFAULT_HOSTED_INFERENCE_BASE_URL;
   const model =
-    options.model ||
     env.NEMOCLAW_MODEL ||
     env.NEMOCLAW_COMPAT_MODEL ||
+    options.model ||
     DEFAULT_HOSTED_INFERENCE_MODEL;
   const preferredApi = options.preferredApi || env.NEMOCLAW_PREFERRED_API || "openai-completions";
   return {
