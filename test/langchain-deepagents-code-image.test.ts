@@ -159,6 +159,11 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(policy).not.toContain("compatibility: best_effort");
     expect(policy).toContain("fail closed when Landlock cannot be applied");
     expect(policy).toContain("silently degrading");
+    expect(policy).toContain("observes Python module traffic from dcode as the Python");
+    expect(policy).toContain("process-wide only for the read-only PyPI hosts");
+    expect(policy).toContain(
+      "Tavily, LangSmith, MCP, and arbitrary hosts are intentionally absent",
+    );
   });
 
   it("ships a live policy behavior check for Deep Agents Code Landlock paths", () => {
