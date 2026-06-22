@@ -8,7 +8,7 @@
 
 name: langchain-deepagents-code
 display_name: "LangChain Deep Agents Code"
-description: "Experimental terminal coding agent built on the Deep Agents SDK"
+description: "Terminal coding agent built on the Deep Agents SDK"
 version_constraint: ">=0.1.12"
 language: python
 license: MIT

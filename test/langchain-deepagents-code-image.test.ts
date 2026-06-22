@@ -148,18 +148,17 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(policy).not.toContain("dcode.upstream");
   });
 
-  it("keeps optional service egress out of the default experimental policy", () => {
+  it("keeps optional service egress out of the default policy and requires Landlock", () => {
     const policy = readAgentFile("policy-additions.yaml");
 
     expect(policy).not.toContain("api.tavily.com");
     expect(policy).not.toContain("api.smith.langchain.com");
     expect(policy).toContain("    - /usr\n");
     expect(policy).toContain("    - /etc\n");
-    expect(policy).toContain("compatibility: best_effort");
-    expect(policy).toContain("Source boundary: OpenShell owns the workspace mount");
-    expect(policy).toContain("strict Landlock currently fails against the");
-    expect(policy).toContain("Regression coverage lives in the Deep Agents Code image");
-    expect(policy).toContain("non-FUSE workspace path");
+    expect(policy).toContain("compatibility: strict");
+    expect(policy).not.toContain("compatibility: best_effort");
+    expect(policy).toContain("fail closed when Landlock cannot be applied");
+    expect(policy).toContain("silently degrading");
   });
 
   it("ships a live policy behavior check for Deep Agents Code Landlock paths", () => {

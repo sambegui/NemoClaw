@@ -84,8 +84,7 @@ const canonicalScenarioInputs: CanonicalScenarioInput[] = [
     environment: ubuntuRepoDocker("cloud-langchain-deepagents-code"),
     expectedStateId: "cloud-deepagents-code-ready",
     suiteIds: ["smoke", "inference", "terminal-agent"],
-    description:
-      "Ubuntu repo checkout with Docker and experimental LangChain Deep Agents Code onboarding.",
+    description: "Ubuntu repo checkout with Docker and LangChain Deep Agents Code onboarding.",
     requiredSecrets: ["NVIDIA_API_KEY"],
   },
   {

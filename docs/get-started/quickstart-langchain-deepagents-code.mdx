@@ -1,23 +1,22 @@
 ---
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-title: "Experimental Quickstart with LangChain Deep Agents Code"
+title: "Quickstart with LangChain Deep Agents Code"
 sidebar-title: "LangChain Deep Agents Code"
-description: "Create a NemoClaw sandbox that runs LangChain Deep Agents Code as an experimental terminal harness."
-description-agent: "Creates a NemoClaw sandbox that runs LangChain Deep Agents Code as an experimental terminal harness. Use when testing dcode with NemoClaw-managed inference."
+description: "Create a NemoClaw sandbox that runs LangChain Deep Agents Code as a terminal harness."
+description-agent: "Creates a NemoClaw sandbox that runs LangChain Deep Agents Code as a terminal harness. Use when testing dcode with NemoClaw-managed inference."
 keywords: ["langchain deep agents code nemoclaw", "dcode openshell sandbox", "langchain coding agent"]
 topics: ["get-started", "terminal-runtime", "langchain-deepagents-code"]
-tags: ["experimental", "deep-agents-code", "dcode", "managed-inference"]
+tags: ["deep-agents-code", "dcode", "managed-inference"]
 difficulty: "intermediate"
 audience: "operators"
-status: "experimental"
+status: published
 content:
   type: "get_started"
 ---
-# Experimental Quickstart with LangChain Deep Agents Code
+# Quickstart with LangChain Deep Agents Code
 
-LangChain Deep Agents Code support is experimental.
-Use it when you want NemoClaw to build an OpenShell sandbox with the `dcode` terminal coding agent installed and configured for NemoClaw-managed inference.
+Use this guide when you want NemoClaw to build an OpenShell sandbox with the `dcode` terminal coding agent installed and configured for NemoClaw-managed inference.
 
 ## Onboard
 
@@ -57,7 +56,7 @@ NemoClaw intentionally does not preserve `.env` or `.mcp.json` because users may
 ## Optional Web Search
 
 Deep Agents Code can use Tavily web search when you provide a Tavily credential in the runtime environment.
-NemoClaw does not enable Tavily or LangSmith by default for this experimental harness.
+NemoClaw does not enable Tavily or LangSmith by default for this harness.
 Before you provide those credentials, [add the required egress endpoints](../network-policy/customize-network-policy) to the sandbox policy so optional integrations stay explicit.
 
 ## Troubleshooting
