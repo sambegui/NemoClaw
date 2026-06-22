@@ -102,6 +102,9 @@ describe("docker-driver gateway runtime helpers", () => {
           expect(env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE).toBe(
             "ghcr.io/nvidia/openshell/supervisor:0.0.99",
           );
+          expect(env.OPENSHELL_GATEWAY_CONFIG).toBe(
+            path.join(path.resolve(stateDir), "openshell-gateway.toml"),
+          );
           expect(env.OPENSHELL_DB_URL).toBe(
             `sqlite:${path.join(path.resolve(stateDir), "openshell.db")}`,
           );

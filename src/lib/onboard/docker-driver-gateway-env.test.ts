@@ -33,6 +33,7 @@ describe("buildDockerDriverGatewayEnv", () => {
       OPENSHELL_DOCKER_NETWORK_NAME: "openshell-docker",
       OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "ghcr.io/nvidia/openshell/supervisor:0.0.37",
       OPENSHELL_DOCKER_SUPERVISOR_BIN: "/usr/bin/openshell-sandbox",
+      OPENSHELL_GATEWAY_CONFIG: "/tmp/nemoclaw-gateway/openshell-gateway.toml",
     });
   });
 
@@ -51,10 +52,69 @@ describe("buildDockerDriverGatewayEnv", () => {
       OPENSHELL_GRPC_ENDPOINT: "http://127.0.0.1:8080",
       OPENSHELL_DOCKER_NETWORK_NAME: "openshell-docker",
       OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "ghcr.io/nvidia/openshell/supervisor:0.0.37",
+      OPENSHELL_GATEWAY_CONFIG: "/tmp/nemoclaw-gateway/openshell-gateway.toml",
     });
     expect(env.OPENSHELL_DOCKER_SUPERVISOR_BIN).toBeUndefined();
     expect(env.OPENSHELL_VM_DRIVER_STATE_DIR).toBeUndefined();
     expect(env.OPENSHELL_DRIVER_DIR).toBeUndefined();
+  });
+
+  it("writes OpenShell 0.0.67 gateway JWT config into the managed state dir", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-env-config-"));
+    try {
+      const env = buildDockerDriverGatewayEnv({
+        platform: "linux",
+        stateDir,
+        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.67",
+        resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+      });
+      const configPath = path.join(stateDir, "openshell-gateway.toml");
+      const signingKeyPath = path.join(stateDir, "jwt", "signing.pem");
+      const publicKeyPath = path.join(stateDir, "jwt", "public.pem");
+      const kidPath = path.join(stateDir, "jwt", "kid");
+      const toml = fs.readFileSync(configPath, "utf-8");
+
+      expect(env.OPENSHELL_GATEWAY_CONFIG).toBe(configPath);
+      expect(toml).toContain("[openshell.gateway.gateway_jwt]");
+      expect(toml).toContain(`signing_key_path = "${signingKeyPath}"`);
+      expect(toml).toContain(`public_key_path = "${publicKeyPath}"`);
+      expect(toml).toContain(`kid_path = "${kidPath}"`);
+      expect(toml).toContain('gateway_id = "nemoclaw-');
+      expect(toml).toContain("ttl_secs = 0");
+      expect(toml).toContain('compute_drivers = ["docker"]');
+      expect(toml).toContain('supervisor_bin = "/usr/bin/openshell-sandbox"');
+      expect(fs.statSync(stateDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(stateDir, "jwt")).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(signingKeyPath).mode & 0o777).toBe(0o600);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a complete gateway JWT bundle across config rewrites", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-env-config-"));
+    try {
+      buildDockerDriverGatewayEnv({
+        platform: "linux",
+        stateDir,
+        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.67",
+        resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+      });
+      const signingKeyPath = path.join(stateDir, "jwt", "signing.pem");
+      const firstSigningKey = fs.readFileSync(signingKeyPath, "utf-8");
+
+      buildDockerDriverGatewayEnv({
+        platform: "linux",
+        stateDir,
+        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.67",
+        resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+      });
+
+      expect(fs.readFileSync(signingKeyPath, "utf-8")).toBe(firstSigningKey);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -79,6 +139,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
         OPENSHELL_SSH_GATEWAY_PORT: "8990",
         OPENSHELL_DOCKER_NETWORK_NAME: "openshell-docker",
         OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "new",
+        OPENSHELL_GATEWAY_CONFIG: "/tmp/openshell-gateway.toml",
         OPENSHELL_VM_DRIVER_STATE_DIR: "/tmp/old-vm-driver",
       },
     );
@@ -87,6 +148,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
     expect(next).toContain("OPENSHELL_BIND_ADDRESS=0.0.0.0\n");
     expect(next).toContain("OPENSHELL_SERVER_PORT=8990\n");
     expect(next).toContain("OPENSHELL_DOCKER_SUPERVISOR_IMAGE=new\n");
+    expect(next).toContain("OPENSHELL_GATEWAY_CONFIG=/tmp/openshell-gateway.toml\n");
     expect(next).toContain("OPENSHELL_VM_DRIVER_STATE_DIR=/tmp/old-vm-driver\n");
     expect(next).not.toContain("OPENSHELL_BIND_ADDRESS=127.0.0.1");
     expect(next).not.toContain("OPENSHELL_DOCKER_SUPERVISOR_IMAGE=old");

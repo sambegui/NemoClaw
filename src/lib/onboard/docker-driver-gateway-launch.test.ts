@@ -127,7 +127,11 @@ describe("docker-driver-gateway-launch", () => {
       expect(configPath).toBe(path.join(stateDir, "openshell-gateway.toml"));
       expect(configPath).toBeDefined();
       if (!configPath) throw new Error("expected generated gateway config path");
-      expect(fs.readFileSync(configPath, "utf-8")).toContain(`supervisor_bin = "${sandboxBin}"`);
+      const toml = fs.readFileSync(configPath, "utf-8");
+      expect(toml).toContain(`supervisor_bin = "${sandboxBin}"`);
+      expect(toml).toContain("[openshell.gateway.gateway_jwt]");
+      expect(toml).toContain(`signing_key_path = "${path.join(stateDir, "jwt", "signing.pem")}"`);
+      expect(fs.existsSync(path.join(stateDir, "jwt", "public.pem"))).toBe(true);
     });
   });
 
@@ -215,6 +219,9 @@ describe("docker-driver-gateway-launch", () => {
 
       expect(identity.launch?.mode).toBe("host");
       expect(identity.driftGatewayBin).toBe(gatewayBin);
+      expect(identity.desiredEnv.OPENSHELL_GATEWAY_CONFIG).toBe(
+        path.join(dir, "openshell-gateway.toml"),
+      );
       expect(resolveDriftGatewayBin(identity, gatewayBin)).toBe(gatewayBin);
     });
   });

@@ -13,6 +13,7 @@ import {
   getGatewayHttpsEndpoint,
 } from "../core/gateway-address";
 import { GATEWAY_PORT } from "../core/ports";
+import { prepareDockerDriverGatewayConfigEnv } from "./docker-driver-gateway-config";
 import {
   hasOpenShellGatewayUserService,
   startPackageManagedDockerDriverGateway,
@@ -35,6 +36,7 @@ export const DOCKER_DRIVER_GATEWAY_RUNTIME_ENV_KEYS = [
   "OPENSHELL_DOCKER_NETWORK_NAME",
   "OPENSHELL_DOCKER_SUPERVISOR_IMAGE",
   "OPENSHELL_DOCKER_SUPERVISOR_BIN",
+  "OPENSHELL_GATEWAY_CONFIG",
   "OPENSHELL_VM_DRIVER_STATE_DIR",
   "OPENSHELL_DRIVER_DIR",
 ] as const;
@@ -101,6 +103,7 @@ export function buildDockerDriverGatewayEnv({
       env.OPENSHELL_DOCKER_SUPERVISOR_BIN = sandboxBin;
     }
   }
+  prepareDockerDriverGatewayConfigEnv(env, stateDir, env.OPENSHELL_DOCKER_SUPERVISOR_BIN);
   return env;
 }
 

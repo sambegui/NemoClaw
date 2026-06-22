@@ -6,13 +6,18 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { dockerForceRm } from "../adapters/docker";
+import {
+  buildDockerDriverGatewayConfigToml,
+  prepareDockerDriverGatewayConfigEnv,
+} from "./docker-driver-gateway-config";
 
 const DEFAULT_COMPAT_IMAGE = "ubuntu:24.04";
 const DEFAULT_COMPAT_CONTAINER_NAME = "nemoclaw-openshell-gateway";
 const GATEWAY_MOUNT_PATH = "/opt/nemoclaw/openshell-gateway";
-const COMPAT_GATEWAY_CONFIG_NAME = "openshell-gateway.toml";
 const DEFAULT_COMPAT_BIND_ADDRESS = "0.0.0.0";
 const LOOPBACK_BIND_ADDRESS = "127.0.0.1";
+
+export { buildDockerDriverGatewayConfigToml };
 
 export type DockerDriverGatewayLaunch = {
   command: string;
@@ -174,55 +179,6 @@ function addEnv(args: string[], key: string, value: string | undefined): void {
   if (typeof value === "string") args.push("--env", key);
 }
 
-function tomlString(value: string): string {
-  return JSON.stringify(value);
-}
-
-export function buildDockerDriverGatewayConfigToml(
-  gatewayEnv: Record<string, string>,
-  sandboxBin: string,
-): string {
-  const dockerEntries: [string, string | undefined][] = [
-    ["grpc_endpoint", gatewayEnv.OPENSHELL_GRPC_ENDPOINT],
-    ["network_name", gatewayEnv.OPENSHELL_DOCKER_NETWORK_NAME],
-    ["supervisor_image", gatewayEnv.OPENSHELL_DOCKER_SUPERVISOR_IMAGE],
-    ["supervisor_bin", sandboxBin],
-  ];
-  const dockerConfig = dockerEntries
-    .filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== "",
-    )
-    .map(([key, value]) => `${key} = ${tomlString(value)}`)
-    .join("\n");
-
-  return [
-    "[openshell]",
-    "version = 1",
-    "",
-    "[openshell.gateway]",
-    'compute_drivers = ["docker"]',
-    "",
-    "[openshell.drivers.docker]",
-    dockerConfig,
-    "",
-  ].join("\n");
-}
-
-function writeDockerDriverGatewayConfig(
-  stateDir: string,
-  gatewayEnv: Record<string, string>,
-  sandboxBin: string,
-): string {
-  const configPath = path.join(stateDir, COMPAT_GATEWAY_CONFIG_NAME);
-  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(configPath, buildDockerDriverGatewayConfigToml(gatewayEnv, sandboxBin), {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
-  fs.chmodSync(configPath, 0o600);
-  return configPath;
-}
-
 function safeDockerName(value: string | undefined, fallback: string): string {
   const candidate = String(value || "").trim();
   if (!candidate) return fallback;
@@ -264,6 +220,11 @@ export function buildDockerDriverGatewayLaunch(
   if (options.sandboxBin && !gatewayEnv.OPENSHELL_DOCKER_SUPERVISOR_BIN) {
     gatewayEnv.OPENSHELL_DOCKER_SUPERVISOR_BIN = options.sandboxBin;
   }
+  prepareDockerDriverGatewayConfigEnv(
+    gatewayEnv,
+    options.stateDir,
+    options.sandboxBin || gatewayEnv.OPENSHELL_DOCKER_SUPERVISOR_BIN,
+  );
   const baseEnv = options.env ?? process.env;
   const compat = shouldUseContainerizedGateway(options);
   if (!compat.useContainer) {
@@ -286,8 +247,7 @@ export function buildDockerDriverGatewayLaunch(
         "Re-run the NemoClaw installer or set NEMOCLAW_OPENSHELL_SANDBOX_BIN.",
     );
   }
-  const configPath = writeDockerDriverGatewayConfig(options.stateDir, gatewayEnv, sandboxBin);
-  env.OPENSHELL_GATEWAY_CONFIG = configPath;
+  env.OPENSHELL_GATEWAY_CONFIG = gatewayEnv.OPENSHELL_GATEWAY_CONFIG;
 
   const image = safeDockerImage(env.NEMOCLAW_OPENSHELL_GATEWAY_COMPAT_IMAGE, DEFAULT_COMPAT_IMAGE);
   // The per-port compatContainerName wins so a process-wide
@@ -363,7 +323,12 @@ export function buildDockerDriverGatewayRuntimeIdentity(
             ? { OPENSHELL_GATEWAY_CONFIG: launch.env.OPENSHELL_GATEWAY_CONFIG }
             : {}),
         }
-      : options.gatewayEnv;
+      : {
+          ...options.gatewayEnv,
+          ...(typeof launch.env.OPENSHELL_GATEWAY_CONFIG === "string"
+            ? { OPENSHELL_GATEWAY_CONFIG: launch.env.OPENSHELL_GATEWAY_CONFIG }
+            : {}),
+        };
   return {
     launch,
     desiredEnv,
