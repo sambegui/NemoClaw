@@ -438,8 +438,13 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
         redactionValues,
         timeoutMs: 20_000,
       });
-      if (health.exitCode === 0 && /"ok"/i.test(resultText(health))) break;
-      await sleep(4_000);
+      switch (health.exitCode === 0 && /"ok"/i.test(resultText(health))) {
+        case true:
+          attempt = 16;
+          break;
+        default:
+          await sleep(4_000);
+      }
     }
     expect(health, "Hermes health probe did not run").toBeTruthy();
     expect(health?.exitCode, health ? resultText(health) : "missing health result").toBe(0);
@@ -592,9 +597,10 @@ import https from "node:https";
 const env = fs.readFileSync("/sandbox/.hermes/.env", "utf8");
 const line = env.split(/\\n/).find((entry) => entry.startsWith("DISCORD_BOT_TOKEN="));
 const token = line ? line.slice("DISCORD_BOT_TOKEN=".length) : "";
-if (!token) {
-  console.log(JSON.stringify({ error: "missing_token" }));
-  process.exit(0);
+switch (token ? "present" : "missing") {
+  case "missing":
+    console.log(JSON.stringify({ error: "missing_token" }));
+    process.exit(0);
 }
 const req = https.request({
   hostname: "discord.com",
@@ -623,16 +629,19 @@ req.end();
       .filter((line) => line.trim().startsWith("{"))
       .map((line) => JSON.parse(line) as { statusCode?: number; error?: string });
     const discordApiResult = discordApiRows.at(-1) ?? {};
-    if (discordApiResult.error === "timeout") {
-      await artifacts.writeJson("phase-6-discord-users-me-skip.json", {
-        reason: "Discord API timed out, matching legacy skip behavior",
-      });
-    } else if (discordApiResult.error) {
-      throw new Error(`Discord API call failed: ${discordApiResult.error}`);
-    } else {
-      expect([200, 401], `Unexpected Discord users/@me response: ${discordApi.stdout}`).toContain(
-        discordApiResult.statusCode,
-      );
+    switch (discordApiResult.error ?? "") {
+      case "timeout":
+        await artifacts.writeJson("phase-6-discord-users-me-skip.json", {
+          reason: "Discord API timed out, matching legacy skip behavior",
+        });
+        break;
+      case "":
+        expect([200, 401], `Unexpected Discord users/@me response: ${discordApi.stdout}`).toContain(
+          discordApiResult.statusCode,
+        );
+        break;
+      default:
+        throw new Error(`Discord API call failed: ${discordApiResult.error}`);
     }
 
     const bridgeResidue = await sandboxEncodedSh(
@@ -703,7 +712,12 @@ done`,
     expectExitZero(rebuild, "Hermes rebuild without NVIDIA_INFERENCE_API_KEY");
     expect(resultText(rebuild)).not.toMatch(/provider credential not found/i);
 
-    if (process.env.NEMOCLAW_E2E_KEEP_SANDBOX !== "1") {
+    await (async (): Promise<void> => {
+      switch (process.env.NEMOCLAW_E2E_KEEP_SANDBOX) {
+        case "1":
+          return;
+        default:
+      }
       const destroy = await host.command("nemoclaw", [SANDBOX_NAME, "destroy", "--yes"], {
         artifactName: "phase-9-nemoclaw-destroy",
         env,
@@ -734,7 +748,7 @@ done`,
       );
       expectExitZero(registryProbe, "sandbox removed from registry");
       expect(registryProbe.stdout.trim()).toBe("ABSENT");
-    }
+    })();
 
     await artifacts.writeJson("scenario-result.json", {
       id: "hermes-discord",
