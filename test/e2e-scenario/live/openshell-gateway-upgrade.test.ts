@@ -146,7 +146,7 @@ async function bash(
 
 function patchOldInstallerFixture(installer: string): void {
   const needle = '  legacy_script="${source_root}/install.sh"\n';
-  const hook = `  if [[ -n "\${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" && -f "$payload_script" ]]; then
+  const hook = String.raw`  if [[ -n "\${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" && -f "$payload_script" ]]; then
     python3 - "$payload_script" <<'NEMOCLAW_OLD_PAYLOAD_PIN_PY'
 from pathlib import Path
 import sys
@@ -185,7 +185,7 @@ if hook not in text:
     path.write_text(text, encoding="utf-8")
 NEMOCLAW_OLD_PAYLOAD_PIN_PY
   fi
-`;
+`.replaceAll("\\${", "${");
 
   const text = fs.readFileSync(installer, "utf8");
   const patchedText = text.includes(hook)
