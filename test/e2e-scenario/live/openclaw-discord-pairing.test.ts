@@ -28,7 +28,8 @@ import {
   expectSandboxReady,
   installSandboxOrSkipOnRateLimit,
   resultText,
-  sandboxEncodedSh,
+  sandboxSh,
+  shellQuote,
 } from "./phase6-messaging-helpers.ts";
 
 const SANDBOX_NAME = process.env.NEMOCLAW_SANDBOX_NAME ?? "e2e-openclaw-discord-pairing";
@@ -106,17 +107,12 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
     );
     expectExitZero(provider, "Discord provider exists");
 
-    const config = await sandboxEncodedSh(
+    const configScript =
+      "import json; cfg=json.load(open('/sandbox/.openclaw/openclaw.json')); account=(cfg.get('channels',{}).get('discord',{}).get('accounts',{}).get('default') or {}); proxy=cfg.get('proxy') or {}; print(json.dumps({'token': account.get('token',''), 'dmPolicy': account.get('dmPolicy',''), 'allowFrom': account.get('allowFrom', []), 'accountProxy': account.get('proxy',''), 'managedProxy': proxy.get('proxyUrl','')}))";
+    const config = await sandboxSh(
       sandbox,
       SANDBOX_NAME,
-      `python3 - <<'PY'
-import json
-cfg=json.load(open('/sandbox/.openclaw/openclaw.json'))
-account=(cfg.get('channels',{}).get('discord',{}).get('accounts',{}).get('default') or {})
-proxy=cfg.get('proxy') or {}
-print(json.dumps({'token': account.get('token',''), 'dmPolicy': account.get('dmPolicy',''), 'allowFrom': account.get('allowFrom', []), 'accountProxy': account.get('proxy',''), 'managedProxy': proxy.get('proxyUrl','') if proxy.get('enabled') is True else ''}))
-PY`,
-      [],
+      `python3 -c ${shellQuote(configScript)}`,
       { artifactName: "discord-openclaw-config", redactionValues: redactions },
     );
     expectExitZero(config, "Discord OpenClaw config");

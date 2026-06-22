@@ -28,7 +28,32 @@ function encodeClientText(payload: string): Buffer {
   const mask = crypto.randomBytes(4);
   const masked = Buffer.alloc(body.length);
   for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4];
-  return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  const header = [
+    { max: 125, encode: (length: number) => Buffer.from([0x81, 0x80 | length]) },
+    {
+      max: 0xffff,
+      encode: (length: number) => {
+        const value = Buffer.alloc(4);
+        value[0] = 0x81;
+        value[1] = 0x80 | 126;
+        value.writeUInt16BE(length, 2);
+        return value;
+      },
+    },
+    {
+      max: Number.MAX_SAFE_INTEGER,
+      encode: (length: number) => {
+        const value = Buffer.alloc(10);
+        value[0] = 0x81;
+        value[1] = 0x80 | 127;
+        value.writeBigUInt64BE(BigInt(length), 2);
+        return value;
+      },
+    },
+  ]
+    .find(({ max }) => body.length <= max)
+    ?.encode(body.length);
+  return Buffer.concat([header ?? Buffer.alloc(0), mask, masked]);
 }
 
 async function waitForPort(portFile: string): Promise<number> {
@@ -77,7 +102,7 @@ async function sendDiscordIdentify(port: number, token: string): Promise<void> {
                   d: {
                     token,
                     intents: 0,
-                    properties: { os: "linux", browser: "test", device: "test" },
+                    properties: { os: "linux", browser: "nemoclaw-e2e", device: "nemoclaw-e2e" },
                   },
                 }),
               ),
@@ -143,6 +168,7 @@ describe("OpenClaw Discord pairing helper contracts", () => {
         .find((row) => row.event === "identify");
 
       expect(serialized).not.toContain(sentinel);
+      expect(serialized).not.toContain("malformed_text");
       expect(identify).not.toHaveProperty("token");
       expect(identify?.tokenMatchesExpected).toBe(true);
       expect(identify?.tokenLooksPlaceholder).toBe(false);
