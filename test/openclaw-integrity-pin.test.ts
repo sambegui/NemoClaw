@@ -166,6 +166,46 @@ describe("OpenClaw npm integrity pins", () => {
     expect(base.calls).toContain(`npm install -g openclaw@${LEGACY_REBUILD_OPENCLAW_VERSION}`);
   });
 
+  it("fails closed before npm install when the registry integrity drifts", () => {
+    const installBlocks = [
+      {
+        label: "production Dockerfile",
+        file: DOCKERFILE,
+        startMarker: "# OPENCLAW_VERSION is the NemoClaw runtime build target",
+        endMarker: "# Patch OpenClaw media fetch",
+      },
+      {
+        label: "base Dockerfile",
+        file: DOCKERFILE_BASE,
+        startMarker: "# Install OpenClaw CLI + PyYAML.",
+        endMarker: "# Baseline health check.",
+      },
+    ];
+
+    for (const block of installBlocks) {
+      const { result, calls } = runInstallBlock(
+        extractRunBlock(block.file, block.startMarker, block.endMarker),
+        {
+          openclawVersion: PINNED_OPENCLAW_VERSION,
+          committedIntegrity: PINNED_OPENCLAW_INTEGRITY,
+          registryIntegrity: "sha512-registry-drift",
+        },
+      );
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status, block.label).not.toBe(0);
+      expect(output, block.label).toContain(
+        `OpenClaw ${PINNED_OPENCLAW_VERSION} npm integrity mismatch`,
+      );
+      expect(output, block.label).toContain(`Expected: ${PINNED_OPENCLAW_INTEGRITY}`);
+      expect(output, block.label).toContain("Actual:   sha512-registry-drift");
+      expect(calls, block.label).toContain(
+        `npm view openclaw@${PINNED_OPENCLAW_VERSION} dist.integrity`,
+      );
+      expect(calls, block.label).not.toContain("npm install -g");
+    }
+  });
+
   it("fails closed before npm install for unpinned production Dockerfile overrides", () => {
     const { result, calls } = runInstallBlock(
       extractRunBlock(
