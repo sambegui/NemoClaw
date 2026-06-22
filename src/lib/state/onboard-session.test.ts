@@ -16,11 +16,28 @@ type OnboardMachineEventsModule = typeof import("../../../dist/lib/onboard/machi
 type OnboardMachineEvent = import("../../../dist/lib/onboard/machine/events").OnboardMachineEvent;
 type LoadedSession = NonNullable<ReturnType<OnboardSessionModule["loadSession"]>>;
 type DebugSummary = NonNullable<ReturnType<OnboardSessionModule["summarizeForDebug"]>>;
+type NullableSessionUpdateKey =
+  import("../../../dist/lib/state/onboard-session").NullableSessionUpdateKey;
 type MessagingPlan = NonNullable<LoadedSession["messagingPlan"]>;
 type MessagingChannelId = MessagingPlan["channels"][number]["channelId"];
 let session: OnboardSessionModule;
 let machineEvents: OnboardMachineEventsModule;
 let tmpDir: string;
+
+const _nullableSessionUpdateKeyAcceptsNullableFields: Record<
+  Extract<"model" | "credentialEnv" | "webSearchConfig", NullableSessionUpdateKey>,
+  true
+> = {
+  model: true,
+  credentialEnv: true,
+  webSearchConfig: true,
+};
+const _nullableSessionUpdateKeyRejectsNonNullableFields: Record<
+  Extract<"status" | "gpuPassthrough" | "metadata", NullableSessionUpdateKey>,
+  never
+> = {};
+void _nullableSessionUpdateKeyAcceptsNullableFields;
+void _nullableSessionUpdateKeyRejectsNonNullableFields;
 
 function requireLoadedSession(
   loaded: ReturnType<OnboardSessionModule["loadSession"]>,
@@ -320,10 +337,10 @@ describe("onboard session", () => {
       sandboxName: "my-assistant",
       endpointUrl:
         "https://alice:super-secret-token@example.com/v1?token=super-secret-token&keep=yes#token=super-secret-token",
-      credentialEnv: "NVIDIA_API_KEY",
+      credentialEnv: "NVIDIA_INFERENCE_API_KEY",
     });
     session.markStepSkipped("openclaw");
-    session.markStepFailed("sandbox", "NVIDIA_API_KEY=super-secret-token");
+    session.markStepFailed("sandbox", "NVIDIA_INFERENCE_API_KEY=super-secret-token");
     session.completeSession({ provider: "ollama-local", credentialEnv: null });
 
     expect(emitted.map((event) => event.type)).toEqual([
@@ -345,7 +362,7 @@ describe("onboard session", () => {
     });
     expect(emitted[1].context).toMatchObject({
       sandboxName: "my-assistant",
-      credentialEnv: "NVIDIA_API_KEY",
+      credentialEnv: "NVIDIA_INFERENCE_API_KEY",
     });
     expect(emitted[1].context.endpointOrigin).toBe("https://example.com");
     expect(emitted[1].metadata.fields).toEqual(["sandboxName", "endpointUrl", "credentialEnv"]);
@@ -353,7 +370,7 @@ describe("onboard session", () => {
       type: "state.failed",
       state: "sandbox",
       step: "sandbox",
-      error: "NVIDIA_API_KEY=<REDACTED>",
+      error: "NVIDIA_INFERENCE_API_KEY=<REDACTED>",
     });
     expect(emitted[5]).toMatchObject({ type: "onboard.failed", state: "failed" });
     expect(emitted.at(-1)).toMatchObject({ type: "onboard.completed", state: "complete" });
@@ -409,7 +426,7 @@ describe("onboard session", () => {
       model: "nvidia/test-model",
       sandboxName: "my-assistant",
       endpointUrl: "https://example.com/v1",
-      credentialEnv: "NVIDIA_API_KEY",
+      credentialEnv: "NVIDIA_INFERENCE_API_KEY",
       preferredInferenceApi: "openai-completions",
       nimContainer: "nim-123",
       policyPresets: ["pypi", "npm"],
@@ -426,7 +443,7 @@ describe("onboard session", () => {
     expect(loaded.model).toBe("nvidia/test-model");
     expect(loaded.sandboxName).toBe("my-assistant");
     expect(loaded.endpointUrl).toBe("https://example.com/v1");
-    expect(loaded.credentialEnv).toBe("NVIDIA_API_KEY");
+    expect(loaded.credentialEnv).toBe("NVIDIA_INFERENCE_API_KEY");
     expect(loaded.preferredInferenceApi).toBe("openai-completions");
     expect(loaded.nimContainer).toBe("nim-123");
     expect(loaded.policyPresets).toEqual(["pypi", "npm"]);
@@ -515,6 +532,49 @@ describe("onboard session", () => {
     expect(loaded.hermesAuthMethod).toBeNull();
   });
 
+  it("classifies nullable string update intent explicitly", () => {
+    const unchanged = session.getNullableStringUpdateIntent(undefined);
+    const malformed = session.getNullableStringUpdateIntent(42);
+    const clear = session.getNullableStringUpdateIntent(null);
+    const normalizedClear = session.getNullableStringUpdateIntent(
+      "https://secret.example",
+      () => null,
+    );
+    const set = session.getNullableStringUpdateIntent("model");
+
+    expect(unchanged).toEqual({ kind: "unchanged" });
+    expect(malformed).toEqual({ kind: "unchanged" });
+    expect(clear).toEqual({ kind: "clear" });
+    expect(normalizedClear).toEqual({ kind: "clear" });
+    expect(set).toEqual({ kind: "set", value: "model" });
+    expect(session.hasSessionUpdateValue(unchanged)).toBe(false);
+    expect(session.hasSessionUpdateValue(clear)).toBe(true);
+    expect(session.isSessionUpdateClear(clear)).toBe(true);
+    expect(session.isSessionUpdateClear(set)).toBe(false);
+  });
+
+  it("applies nullable session update intent to safe updates", () => {
+    const safe: Partial<LoadedSession> = {};
+
+    session.applyNullableSessionUpdate(
+      safe,
+      "model",
+      session.getNullableStringUpdateIntent("model-a"),
+    );
+    session.applyNullableSessionUpdate(
+      safe,
+      "credentialEnv",
+      session.getNullableStringUpdateIntent(null),
+    );
+    session.applyNullableSessionUpdate(
+      safe,
+      "provider",
+      session.getNullableStringUpdateIntent(undefined),
+    );
+
+    expect(safe).toEqual({ model: "model-a", credentialEnv: null });
+  });
+
   it("accepts null as an explicit clear for every nullable string field", () => {
     // All six nullable fields that travel through filterSafeUpdates must
     // support the null-clear contract. If any regresses to the old
@@ -579,7 +639,72 @@ describe("onboard session", () => {
     session.saveSession(created);
 
     const loaded = requireLoadedSession(session.loadSession());
-    expect(loaded.messagingPlan).toEqual(created.messagingPlan);
+    expect(loaded.messagingPlan).toMatchObject({
+      schemaVersion: 1,
+      sandboxName: "my-assistant",
+      agent: "openclaw",
+      workflow: "onboard",
+      disabledChannels: ["slack"],
+      channels: [
+        expect.objectContaining({ channelId: "telegram", configured: true, disabled: false }),
+        expect.objectContaining({ channelId: "slack", configured: true, disabled: true }),
+      ],
+    });
+    expect(loaded.messagingPlan?.channels[0]?.inputs.map((input) => input.inputId)).toContain(
+      "botToken",
+    );
+  });
+
+  it("writes compact messagingPlan derived fields to onboard-session.json", () => {
+    const created = session.createSession();
+    created.messagingPlan = {
+      ...makeMessagingPlan("my-assistant", ["telegram"]),
+      channels: [
+        {
+          ...makeMessagingPlan("my-assistant", ["telegram"]).channels[0],
+          hooks: [
+            {
+              channelId: "telegram",
+              id: "telegram-token-paste",
+              phase: "enroll",
+              handler: "common.tokenPaste",
+            },
+          ],
+        },
+      ],
+      agentRender: [
+        {
+          channelId: "telegram",
+          renderId: "telegram-openclaw-channel",
+          hookId: "telegram-openclaw-channel",
+          handler: "common.staticOutputs",
+          kind: "json-fragment",
+          agent: "openclaw",
+          target: "openclaw.json",
+          path: "channels.telegram",
+          value: { enabled: true },
+          templateRefs: [],
+        },
+      ],
+    };
+
+    session.saveSession(created);
+
+    const raw = JSON.parse(fs.readFileSync(session.SESSION_FILE, "utf-8"));
+    expect(raw.messagingPlan.networkPolicy).toEqual({ presets: [], entries: [] });
+    expect(raw.messagingPlan.agentRender).toBeUndefined();
+    expect(raw.messagingPlan.buildSteps).toBeUndefined();
+    expect(raw.messagingPlan.runtimeSetup).toBeUndefined();
+    expect(raw.messagingPlan.stateUpdates).toBeUndefined();
+    expect(raw.messagingPlan.healthChecks).toBeUndefined();
+    expect(raw.messagingPlan.channels[0].displayName).toBeUndefined();
+    expect(raw.messagingPlan.channels[0].authMode).toBeUndefined();
+    expect(raw.messagingPlan.channels[0].active).toBe(true);
+    expect(raw.messagingPlan.channels[0].selected).toBeUndefined();
+    expect(raw.messagingPlan.channels[0].hooks).toBeUndefined();
+    const reloadedPlan = requireLoadedSession(session.loadSession()).messagingPlan;
+    expect(reloadedPlan?.agentRender).toEqual([]);
+    expect(reloadedPlan?.channels[0]?.hooks).toEqual([]);
   });
 
   it("drops malformed persisted messagingPlan on load", () => {
@@ -622,7 +747,10 @@ describe("onboard session", () => {
     session.saveSession(session.createSession());
     const plan = makeMessagingPlan("my-assistant", ["discord"]);
     session.markStepComplete("provider_selection", { messagingPlan: plan });
-    expect(requireLoadedSession(session.loadSession()).messagingPlan).toEqual(plan);
+    expect(requireLoadedSession(session.loadSession()).messagingPlan).toMatchObject({
+      sandboxName: "my-assistant",
+      channels: [expect.objectContaining({ channelId: "discord", configured: true })],
+    });
 
     session.markStepComplete("provider_selection", { messagingPlan: null });
     expect(requireLoadedSession(session.loadSession()).messagingPlan).toBeNull();
@@ -1000,11 +1128,11 @@ describe("onboard session", () => {
     session.saveSession(session.createSession());
     session.markStepFailed(
       "inference",
-      "provider auth failed with NVIDIA_API_KEY=nvapi-secret Bearer topsecret sk-secret-value-that-is-long-enough ghp_1234567890123456789012345",
+      "provider auth failed with NVIDIA_INFERENCE_API_KEY=nvapi-secret Bearer topsecret sk-secret-value-that-is-long-enough ghp_1234567890123456789012345",
     );
 
     const loaded = requireLoadedSession(session.loadSession());
-    expect(loaded.steps.inference.error).toContain("NVIDIA_API_KEY=<REDACTED>");
+    expect(loaded.steps.inference.error).toContain("NVIDIA_INFERENCE_API_KEY=<REDACTED>");
     expect(loaded.steps.inference.error).toContain("Bearer <REDACTED>");
     expect(loaded.steps.inference.error).not.toContain("nvapi-secret");
     expect(loaded.steps.inference.error).not.toContain("topsecret");
@@ -1033,7 +1161,10 @@ describe("onboard session", () => {
     const saved = session.saveSession(created);
     const loaded = requireLoadedSession(session.loadSession());
     expect(saved.messagingPlan).toEqual(plan);
-    expect(loaded.messagingPlan).toEqual(plan);
+    expect(loaded.messagingPlan).toMatchObject({
+      sandboxName: "my-assistant",
+      channels: [expect.objectContaining({ channelId: "telegram", configured: true })],
+    });
   });
 
   it("filterSafeUpdates preserves messagingPlan field", () => {
@@ -1044,7 +1175,13 @@ describe("onboard session", () => {
     });
 
     const loaded = requireLoadedSession(session.loadSession());
-    expect(loaded.messagingPlan).toEqual(plan);
+    expect(loaded.messagingPlan).toMatchObject({
+      sandboxName: "my-assistant",
+      channels: [
+        expect.objectContaining({ channelId: "slack", configured: true }),
+        expect.objectContaining({ channelId: "discord", configured: true }),
+      ],
+    });
   });
 
   it("filterSafeUpdates ignores malformed messagingPlan values", () => {

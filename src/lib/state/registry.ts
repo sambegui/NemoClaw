@@ -5,17 +5,32 @@ import fs from "node:fs";
 import path from "node:path";
 import { isErrnoException } from "../core/errno";
 import { ensureConfigDir, readConfigFile, writeConfigFile } from "./config-io";
+import type { SandboxMessagingState } from "./registry-messaging";
+
+export {
+  getSandboxEntryDisplayInference,
+  getSandboxEntryGatewayBinding,
+  getSandboxEntryInference,
+  type NormalizedSandboxEntry,
+  normalizeSandboxEntryView,
+  type SandboxEntryDisplayInference,
+  type SandboxEntryInference,
+  type SandboxGatewayBinding,
+} from "./registry-entry-view";
+
 import {
   cloneSandboxMessagingState,
   getConfiguredMessagingChannels as getRegistryConfiguredMessagingChannels,
   getDisabledChannels as getRegistryDisabledChannels,
+  serializeSandboxMessagingStateForDisk,
   setChannelDisabled as setRegistryChannelDisabled,
 } from "./registry-messaging";
-import type { SandboxMessagingState } from "./registry-messaging";
+
 export {
   getActiveMessagingChannelsFromEntry,
   getConfiguredMessagingChannelsFromEntry,
   getDisabledMessagingChannelsFromEntry,
+  getHydratedMessagingPlanFromEntry,
   getMessagingPlanFromEntry,
   type SandboxMessagingState,
 } from "./registry-messaging";
@@ -79,7 +94,6 @@ export interface SandboxEntry {
   // are never auto-rebuilt onto the default image (#5026).
   nemoclawVersion?: string | null;
   imageTag?: string | null;
-  providerCredentialHashes?: Record<string, string>;
   messaging?: SandboxMessagingState;
   hermesToolGateways?: string[];
   hermesDashboardEnabled?: boolean;
@@ -305,11 +319,70 @@ export function withLock<T>(fn: () => T): T {
 }
 
 export function load(): SandboxRegistry {
-  return readConfigFile<SandboxRegistry>(REGISTRY_FILE, { sandboxes: {}, defaultSandbox: null });
+  return normalizeRegistry(
+    readConfigFile<SandboxRegistry>(REGISTRY_FILE, { sandboxes: {}, defaultSandbox: null }),
+  );
 }
 
 export function save(data: SandboxRegistry): void {
-  writeConfigFile(REGISTRY_FILE, data);
+  writeConfigFile(REGISTRY_FILE, serializeRegistryForDisk(data));
+}
+
+function normalizeRegistry(data: SandboxRegistry): SandboxRegistry {
+  return {
+    defaultSandbox: data.defaultSandbox ?? null,
+    sandboxes: Object.fromEntries(
+      sandboxRegistryEntries(data).map(([name, entry]) => [
+        name,
+        normalizeSandboxEntryForRuntime(entry),
+      ]),
+    ),
+  };
+}
+
+function serializeRegistryForDisk(data: SandboxRegistry): SandboxRegistry {
+  return {
+    defaultSandbox: data.defaultSandbox ?? null,
+    sandboxes: Object.fromEntries(
+      sandboxRegistryEntries(data).map(([name, entry]) => [
+        name,
+        serializeSandboxEntryForDisk(entry),
+      ]),
+    ),
+  };
+}
+
+function sandboxRegistryEntries(data: SandboxRegistry): Array<[string, SandboxEntry]> {
+  const sandboxes = isRecord(data.sandboxes) ? data.sandboxes : {};
+  return Object.entries(sandboxes).filter((entry): entry is [string, SandboxEntry] =>
+    isSandboxEntryLike(entry[1]),
+  );
+}
+
+function isSandboxEntryLike(entry: unknown): entry is SandboxEntry {
+  return isRecord(entry);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeSandboxEntryForRuntime(entry: SandboxEntry): SandboxEntry {
+  const messaging = cloneSandboxMessagingState(entry.messaging);
+  if (!messaging) {
+    const { messaging: _messaging, ...rest } = entry;
+    return rest;
+  }
+  return { ...entry, messaging };
+}
+
+function serializeSandboxEntryForDisk(entry: SandboxEntry): SandboxEntry {
+  const messaging = serializeSandboxMessagingStateForDisk(entry.messaging);
+  if (!messaging) {
+    const { messaging: _messaging, ...rest } = entry;
+    return rest;
+  }
+  return { ...entry, messaging };
 }
 
 export function getSandbox(name: string): SandboxEntry | null {
@@ -354,7 +427,6 @@ export function registerSandbox(entry: SandboxEntry): void {
       agentVersion: entry.agentVersion || null,
       nemoclawVersion: entry.nemoclawVersion || null,
       imageTag: entry.imageTag || null,
-      providerCredentialHashes: entry.providerCredentialHashes || undefined,
       messaging: cloneSandboxMessagingState(entry.messaging),
       hermesToolGateways:
         Array.isArray(entry.hermesToolGateways) && entry.hermesToolGateways.length > 0
