@@ -4932,6 +4932,7 @@ export function validateE2eVitestScenariosWorkflowBoundary(
   validateRuntimeOverridesVitestJob(errors, jobs);
   validateDoubleOnboardVitestJob(errors, jobs);
   validateHermesE2EVitestJob(errors, jobs);
+  validateFreeStandingJobSelector(errors, jobs, "hermes-discord-vitest", "hermes-discord");
   validateHermesRootEntrypointSmokeVitestJob(errors, jobs);
   validateNetworkPolicyVitestJob(errors, jobs);
   validateCommonEgressAgentVitestJob(errors, jobs);
