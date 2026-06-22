@@ -324,6 +324,7 @@ def main(argv: list[str]) -> int:
     try:
         with open(tmp, "w", encoding="utf-8") as handle:
             yaml.safe_dump(dashboard, handle, sort_keys=False)
+        os.chmod(tmp, 0o600)
         os.replace(tmp, dst)
     except Exception as exc:
         print(f"[dashboard] failed to seed model routing into {dst} ({exc})", file=sys.stderr)

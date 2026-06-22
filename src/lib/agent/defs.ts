@@ -324,7 +324,12 @@ function readWebAuth(record: ManifestRecord): AgentWebAuth {
   const rawEnv = record.web_auth_env;
   // Require an env-var-shaped name so the value can be safely interpolated into
   // the in-sandbox grep that reads it; reject anything else.
-  const env = typeof rawEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(rawEnv) ? rawEnv : null;
+  const env =
+    method === "bearer_token" &&
+    typeof rawEnv === "string" &&
+    /^[A-Za-z_][A-Za-z0-9_]*$/.test(rawEnv)
+      ? rawEnv
+      : null;
   if (method === "bearer_token" && !env) {
     throw new Error(
       "Agent manifest declares web_auth_method: bearer_token but web_auth_env is missing or not a valid env-var name",

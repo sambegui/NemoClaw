@@ -81,12 +81,22 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-for tool in curl python3 npm sha256sum tar sed; do
+for tool in curl python3 npm sha256sum tar sed realpath; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "ERROR: required tool not found: $tool" >&2
     exit 1
   }
 done
+
+image_ref_without_tag() {
+  local ref="$1"
+  local basename="${ref##*/}"
+  if [[ "$basename" == *:* ]]; then
+    printf '%s\n' "${ref%:*}"
+    return
+  fi
+  printf '%s\n' "$ref"
+}
 
 gh_api() {
   local url="$1"
@@ -333,9 +343,7 @@ if [[ "$DO_REBUILD" == 1 ]]; then
   base_image_id="$(docker image inspect -f '{{.Id}}' "$BASE_REF")"
   base_image_id_short="${base_image_id#sha256:}"
   base_image_id_short="${base_image_id_short:0:12}"
-  # Strip the tag (last colon segment) from BASE_REF; `%:*` keeps registry
-  # ports intact (host:5000/repo:tag -> host:5000/repo).
-  pin_tag="${BASE_REF%:*}:${TAG#v}-${base_image_id_short}"
+  pin_tag="$(image_ref_without_tag "$BASE_REF"):${TAG#v}-${base_image_id_short}"
   docker tag "$BASE_REF" "$pin_tag"
   echo ""
   echo "Rebuilding sandbox against ${pin_tag} (image ID ${base_image_id})…"

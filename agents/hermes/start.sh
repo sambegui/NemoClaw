@@ -721,7 +721,6 @@ start_hermes_dashboard_current_user() {
   echo "[gateway] hermes dashboard launched (pid $DASHBOARD_PID)" >&2
   start_dashboard_log_stream
   start_socat_forwarder "$DASHBOARD_PUBLIC_PORT" "$DASHBOARD_INTERNAL_PORT" "dashboard" DASHBOARD_SOCAT_PID
-  seed_hermes_dashboard_config ""
 }
 
 start_hermes_dashboard_sandbox_user() {
@@ -735,7 +734,6 @@ start_hermes_dashboard_sandbox_user() {
   echo "[gateway] hermes dashboard launched as 'sandbox' user (pid $DASHBOARD_PID)" >&2
   start_dashboard_log_stream
   start_socat_forwarder "$DASHBOARD_PUBLIC_PORT" "$DASHBOARD_INTERNAL_PORT" "dashboard" DASHBOARD_SOCAT_PID
-  seed_hermes_dashboard_config sandbox:sandbox
 }
 
 wait_for_hermes_gateway_internal() {
