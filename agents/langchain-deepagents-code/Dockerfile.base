@@ -5,14 +5,11 @@
 #
 # Contains the expensive, rarely-changing layers for the terminal harness:
 # Node for NemoClaw build-time config generation, Python, shell tools, and a
-# pinned deepagents-code install with the NVIDIA provider extra.
+# hash-locked deepagents-code install with the NVIDIA provider extra.
 
 FROM node:22-trixie-slim@sha256:2d9f5c76c8f4dd36e8f253bee5d828a83a6c09f36188f0b0414325232e0b175d
 
 ENV DEBIAN_FRONTEND=noninteractive
-
-ARG DEEPAGENTS_CODE_VERSION=0.1.12
-ARG UV_VERSION=0.11.8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3=3.13.5-1 \
@@ -60,11 +57,11 @@ RUN printf '%s\n' \
     && chown root:root /sandbox/.bashrc /sandbox/.profile \
     && chmod 444 /sandbox/.bashrc /sandbox/.profile
 
-# Experimental harness: PyPI dependencies are exact-pinned but not hash-locked.
-# This base image is not production-supported until the install uses
-# --require-hashes or a pinned wheelhouse.
-RUN pip3 install --no-cache-dir --break-system-packages "uv==${UV_VERSION}" \
-    && pip3 install --no-cache-dir --break-system-packages "deepagents-code[nvidia]==${DEEPAGENTS_CODE_VERSION}" \
+COPY agents/langchain-deepagents-code/requirements.lock /tmp/deepagents-code-requirements.lock
+
+RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed --require-hashes \
+        -r /tmp/deepagents-code-requirements.lock \
+    && rm -f /tmp/deepagents-code-requirements.lock \
     && /usr/local/bin/dcode --version
 
 ENV HOME=/sandbox \

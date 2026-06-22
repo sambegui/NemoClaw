@@ -18,7 +18,6 @@ content:
 
 LangChain Deep Agents Code support is experimental.
 Use it when you want NemoClaw to build an OpenShell sandbox with the `dcode` terminal coding agent installed and configured for NemoClaw-managed inference.
-Do not treat this harness as production-supported until NemoClaw graduates the image, policy, and live runtime acceptance criteria.
 
 ## Onboard
 
@@ -28,16 +27,9 @@ Run onboarding with the canonical agent ID.
 nemoclaw onboard --agent langchain-deepagents-code
 ```
 
-The image installs a pinned Deep Agents Code release with NVIDIA provider support.
+The image installs a hash-locked, pinned Deep Agents Code release with NVIDIA provider support.
 NemoClaw writes `/sandbox/.deepagents/config.toml` with an OpenAI-compatible provider pointed at `https://inference.local/v1`, uses a scoped placeholder API key for that managed route, and sets `use_responses_api = false` for Chat Completions compatibility.
 NemoClaw/OpenShell keeps real provider credentials in credential handling and does not write them into the Deep Agents config file.
-
-## Experimental Boundaries
-
-This harness keeps two explicit experimental boundaries:
-
-- The base image exact-pins `uv` and `deepagents-code[nvidia]`, but it does not hash-lock the full PyPI dependency tree or install from a pinned wheelhouse yet.
-- The sandbox policy keeps Landlock in `best_effort` mode for the current OpenShell/FUSE workspace path. NemoClaw keeps `/usr` and `/etc` in the read-only policy and includes a live E2E check for Deep Agents Code sandboxes, but full production support requires live built-sandbox acceptance on a strict-compatible workspace path.
 
 ## Use the Harness
 

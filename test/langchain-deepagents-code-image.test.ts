@@ -184,24 +184,22 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(checkScript).toContain("/etc is Landlock read-only for Deep Agents Code");
   });
 
-  it("marks un-hashed PyPI installs as an experimental-only base image exception", () => {
+  it("hash-locks Deep Agents Code base image PyPI installs", () => {
     const baseDockerfile = readAgentFile("Dockerfile.base");
-    const quickstart = fs.readFileSync(
-      path.join(process.cwd(), "docs", "get-started", "quickstart-langchain-deepagents-code.mdx"),
-      "utf8",
-    );
+    const requirementsLock = readAgentFile("requirements.lock");
 
-    const hasHashLockedInstall =
-      baseDockerfile.includes("--require-hashes") || baseDockerfile.includes("wheelhouse");
-    const hasExperimentalException =
-      baseDockerfile.includes(
-        "Experimental harness: PyPI dependencies are exact-pinned but not hash-locked.",
-      ) &&
-      baseDockerfile.includes("not production-supported") &&
-      quickstart.includes('status: "experimental"') &&
-      quickstart.includes("Do not treat this harness as production-supported") &&
-      quickstart.includes("does not hash-lock the full PyPI dependency tree");
-    expect(hasHashLockedInstall || hasExperimentalException).toBe(true);
+    expect(baseDockerfile).toContain("COPY agents/langchain-deepagents-code/requirements.lock");
+    expect(baseDockerfile).toContain("--require-hashes");
+    expect(baseDockerfile).toContain("--ignore-installed");
+    expect(baseDockerfile).toContain("-r /tmp/deepagents-code-requirements.lock");
+    expect(baseDockerfile).not.toContain(
+      'pip3 install --no-cache-dir --break-system-packages \\"uv==',
+    );
+    expect(baseDockerfile).not.toContain("deepagents-code[nvidia]==${DEEPAGENTS_CODE_VERSION}");
+    expect(requirementsLock).toContain("uv==0.11.8 \\");
+    expect(requirementsLock).toContain("deepagents-code==0.1.12 \\");
+    expect(requirementsLock).toContain("langchain-nvidia-ai-endpoints==");
+    expect(requirementsLock).toMatch(/--hash=sha256:[a-f0-9]{64}/);
   });
 
   it("patches direct module execution back to NemoClaw managed posture", () => {
