@@ -26,10 +26,7 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-function requireSparkInstallContract(
-  condition: boolean,
-  message: string,
-): void {
+function requireSparkInstallContract(condition: boolean, message: string): void {
   condition || fail(message);
 }
 
@@ -60,10 +57,7 @@ export function assertRequiredInstallerEnv(env: NodeJS.ProcessEnv): void {
 export function validatePublicInstallUrl(raw: string): string {
   const url = new URL(raw);
   const hostname = url.hostname.toLowerCase();
-  requireSparkInstallContract(
-    url.protocol === "https:",
-    "public installer URL must use https",
-  );
+  requireSparkInstallContract(url.protocol === "https:", "public installer URL must use https");
   requireSparkInstallContract(
     url.username === "" && url.password === "",
     "public installer URL must not include credentials",
@@ -131,9 +125,7 @@ export function logTail(
   lineCount = 80,
   redactionValues: readonly string[] = [],
 ): string {
-  const lines = fs.existsSync(file)
-    ? fs.readFileSync(file, "utf8").split(/\r?\n/)
-    : [];
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
   return redactString(lines.slice(-lineCount).join("\n"), redactionValues);
 }
 

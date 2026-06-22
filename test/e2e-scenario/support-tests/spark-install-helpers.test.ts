@@ -24,9 +24,7 @@ const RESULT_WITH_SECRET = {
 
 describe("spark install live test helpers", () => {
   it("writes and reports only redacted install logs", () => {
-    const tmp = fs.mkdtempSync(
-      path.join(os.tmpdir(), "spark-install-helpers-"),
-    );
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "spark-install-helpers-"));
     const installLog = path.join(tmp, "install.log");
 
     try {
@@ -91,12 +89,8 @@ describe("spark install live test helpers", () => {
     expect(assertSparkInstallSandboxName("e2e-spark-install-local-1")).toBe(
       "e2e-spark-install-local-1",
     );
-    expect(() => assertSparkInstallSandboxName("personal-dev")).toThrow(
-      /e2e-spark-install-/,
-    );
-    expect(() => assertSparkInstallSandboxName("bad name")).toThrow(
-      /sandbox name is invalid/,
-    );
+    expect(() => assertSparkInstallSandboxName("personal-dev")).toThrow(/e2e-spark-install-/);
+    expect(() => assertSparkInstallSandboxName("bad name")).toThrow(/sandbox name is invalid/);
   });
 
   it("requires the real non-interactive installer environment", () => {
@@ -106,11 +100,11 @@ describe("spark install live test helpers", () => {
         NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1",
       }),
     ).not.toThrow();
-    expect(() =>
-      assertRequiredInstallerEnv({ NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1" }),
-    ).toThrow(/NEMOCLAW_NON_INTERACTIVE=1/);
-    expect(() =>
-      assertRequiredInstallerEnv({ NEMOCLAW_NON_INTERACTIVE: "1" }),
-    ).toThrow(/NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1/);
+    expect(() => assertRequiredInstallerEnv({ NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1" })).toThrow(
+      /NEMOCLAW_NON_INTERACTIVE=1/,
+    );
+    expect(() => assertRequiredInstallerEnv({ NEMOCLAW_NON_INTERACTIVE: "1" })).toThrow(
+      /NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1/,
+    );
   });
 });
