@@ -83,24 +83,18 @@ describe("spark install workflow boundary", () => {
     expect(setupNode).toBeDefined();
     setupNode!.uses = "actions/setup-node@v6";
 
-    const install = job.steps.find(
-      (step) => step.name === "Install root dependencies",
-    );
+    const install = job.steps.find((step) => step.name === "Install root dependencies");
     expect(install).toBeDefined();
     install!.env = { NVIDIA_API_KEY: "${{ secrets.NVIDIA_API_KEY }}" };
     install!.run = "npm install";
 
-    const runSpark = job.steps.find(
-      (step) => step.name === "Run Spark install live test",
-    );
+    const runSpark = job.steps.find((step) => step.name === "Run Spark install live test");
     expect(runSpark).toBeDefined();
     runSpark!.env = {};
     runSpark!.run =
       "npx vitest run --project e2e-scenarios-live test/e2e-scenario/live/other.test.ts";
 
-    const upload = job.steps.find(
-      (step) => step.name === "Upload Spark install artifacts",
-    );
+    const upload = job.steps.find((step) => step.name === "Upload Spark install artifacts");
     expect(upload).toBeDefined();
     upload!.with = {
       ...(upload!.with as Record<string, unknown>),
