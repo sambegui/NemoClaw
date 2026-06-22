@@ -28,7 +28,20 @@ function encodeClientText(payload: string): Buffer {
   const mask = crypto.randomBytes(4);
   const masked = Buffer.alloc(body.length);
   for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4];
-  return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  if (body.length < 126)
+    return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  if (body.length <= 0xffff) {
+    const header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 0x80 | 126;
+    header.writeUInt16BE(body.length, 2);
+    return Buffer.concat([header, mask, masked]);
+  }
+  const header = Buffer.alloc(10);
+  header[0] = 0x81;
+  header[1] = 0x80 | 127;
+  header.writeBigUInt64BE(BigInt(body.length), 2);
+  return Buffer.concat([header, mask, masked]);
 }
 
 async function waitForPort(portFile: string): Promise<number> {
@@ -77,7 +90,7 @@ async function sendDiscordIdentify(port: number, token: string): Promise<void> {
                   d: {
                     token,
                     intents: 0,
-                    properties: { os: "linux", browser: "test", device: "test" },
+                    properties: { os: "linux", browser: "nemoclaw-e2e", device: "nemoclaw-e2e" },
                   },
                 }),
               ),
@@ -143,6 +156,7 @@ describe("OpenClaw Discord pairing helper contracts", () => {
         .find((row) => row.event === "identify");
 
       expect(serialized).not.toContain(sentinel);
+      expect(serialized).not.toContain("malformed_text");
       expect(identify).not.toHaveProperty("token");
       expect(identify?.tokenMatchesExpected).toBe(true);
       expect(identify?.tokenLooksPlaceholder).toBe(false);

@@ -390,7 +390,25 @@ const port = Number(process.env.FAKE_DISCORD_GATEWAY_PORT);
 const identifyToken = "openshell:resolve:env:DISCORD_BOT_TOKEN";
 const results = [];
 function finish(message) { if (message) results.push(message); console.log(results.join("\n")); process.exit(0); }
-function encodeClientText(payload) { const body = Buffer.from(payload, "utf8"); const mask = crypto.randomBytes(4); const masked = Buffer.alloc(body.length); for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4]; return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]); }
+function encodeClientText(payload) {
+  const body = Buffer.from(payload, "utf8");
+  const mask = crypto.randomBytes(4);
+  const masked = Buffer.alloc(body.length);
+  for (let i = 0; i < body.length; i += 1) masked[i] = body[i] ^ mask[i % 4];
+  if (body.length < 126) return Buffer.concat([Buffer.from([0x81, 0x80 | body.length]), mask, masked]);
+  if (body.length <= 0xffff) {
+    const header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 0x80 | 126;
+    header.writeUInt16BE(body.length, 2);
+    return Buffer.concat([header, mask, masked]);
+  }
+  const header = Buffer.alloc(10);
+  header[0] = 0x81;
+  header[1] = 0x80 | 127;
+  header.writeBigUInt64BE(BigInt(body.length), 2);
+  return Buffer.concat([header, mask, masked]);
+}
 function encodeClientClose(code) { const body = Buffer.alloc(2); body.writeUInt16BE(code, 0); const mask = crypto.randomBytes(4); for (let i = 0; i < body.length; i += 1) body[i] ^= mask[i % 4]; return Buffer.concat([Buffer.from([0x88, 0x80 | 2]), mask, body]); }
 function decodeFrame(buffer) { if (buffer.length < 2) return null; const opcode = buffer[0] & 0x0f; let payloadLength = buffer[1] & 0x7f; let offset = 2; if (payloadLength === 126) { if (buffer.length < 4) return null; payloadLength = buffer.readUInt16BE(2); offset = 4; } if (buffer.length < offset + payloadLength) return null; return { opcode, payload: buffer.slice(offset, offset + payloadLength), totalLength: offset + payloadLength }; }
 const socket = net.createConnection({ host, port });
