@@ -319,10 +319,15 @@ NODE
 // Source-of-truth boundary: the Slack live probe owns only validation for its
 // localized fake API port and proxy environment because those values are injected
 // by the Vitest harness before the probe opens direct Node socket/http clients.
-// Invalid state is a malformed fake port or non-HTTP/malformed proxy env that
-// would otherwise hide the real pairing failure behind a low-level network error.
-// Remove this localized parser once the Slack probe delegates Socket Mode/REST
-// traffic to a shared fake-provider client instead of hand-rolled sockets.
+// Invalid state: a malformed fake port or proxy env, or a proxy destination other
+// than the NemoClaw/OpenShell gateway proxy emitted by scripts/nemoclaw-start.sh,
+// would otherwise hide the real pairing failure behind a low-level network error
+// or route the fake Slack websocket through an unexpected host. Source-fix
+// constraint: do not change global sandbox proxy generation for this probe; fail
+// closed here before network access. Support tests cover malformed values and an
+// unexpected-but-valid HTTP proxy host. Remove this localized parser once the
+// Slack probe delegates Socket Mode/REST traffic to a shared fake-provider client
+// instead of hand-rolled sockets.
 export const SLACK_PROBE_INPUT_VALIDATION_SOURCE = String.raw`
 function parseFakeSlackPort() {
   const raw = process.env.FAKE_SLACK_API_PORT || "";
@@ -342,6 +347,7 @@ function parseProxyTarget() {
   if (parsed.protocol !== "http:") throw new Error("Slack pairing probe only supports HTTP proxies");
   const port = Number(parsed.port || "80");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("HTTP proxy port for Slack pairing probe is invalid");
+  if (parsed.hostname !== "10.200.0.1" || port !== 3128) throw new Error("unexpected HTTP proxy for Slack pairing probe");
   return { host: parsed.hostname, port };
 }
 `;

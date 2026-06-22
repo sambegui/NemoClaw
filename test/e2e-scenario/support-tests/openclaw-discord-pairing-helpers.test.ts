@@ -198,6 +198,11 @@ describe("OpenClaw Discord pairing helper contracts", () => {
       env: { FAKE_SLACK_API_PORT: "12345", HTTP_PROXY: "http://127.0.0.1:70000", http_proxy: "" },
       error: "HTTP proxy for Slack pairing probe is malformed",
     },
+    {
+      name: "unexpected valid proxy host",
+      env: { FAKE_SLACK_API_PORT: "12345", HTTP_PROXY: "http://127.0.0.1:3128", http_proxy: "" },
+      error: "unexpected HTTP proxy for Slack pairing probe",
+    },
   ])("fails closed on invalid Slack probe input before network access: $name", ({ env, error }) => {
     const result = spawnSync(process.execPath, ["--input-type=module"], {
       input: `${SLACK_PROBE_INPUT_VALIDATION_SOURCE}\nlet networkAttempted = false;\ntry { parseFakeSlackPort(); parseProxyTarget(); networkAttempted = true; } catch (error) { console.error(error.message); console.error("NETWORK_ATTEMPTED=" + networkAttempted); process.exit(1); }\n`,
