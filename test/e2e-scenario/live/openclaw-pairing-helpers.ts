@@ -316,23 +316,14 @@ console.log("DISCORD_PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, 
 NODE
 `.replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE);
 
-export const SLACK_PAIRING_SCRIPT = String.raw`
-set -eu
-set -a
-[ -f /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh
-set +a
-fake_slack_api_port="$1"
-slack_pairing_user="$2"
-: "${"$"}{OPENCLAW_HOME:?OPENCLAW_HOME missing}"
-: "${"$"}{OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
-: "${"$"}{OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
-: "${"$"}{OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
-exec env HOME=/sandbox PATH="/usr/local/bin:/usr/bin:/bin:${"$"}{PATH:-}" OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="${"$"}{HTTP_PROXY:-}" HTTPS_PROXY="${"$"}{HTTPS_PROXY:-}" http_proxy="${"$"}{http_proxy:-}" https_proxy="${"$"}{https_proxy:-}" NO_PROXY="${"$"}{NO_PROXY:-}" no_proxy="${"$"}{no_proxy:-}" NODE_OPTIONS="${"$"}{NODE_OPTIONS:-}" FAKE_SLACK_API_HOST="host.openshell.internal" FAKE_SLACK_API_PORT="$fake_slack_api_port" SLACK_PAIRING_USER="$slack_pairing_user" node --input-type=module <<'NODE'
-__LOAD_CONVERSATION_RUNTIME_SOURCE__
-import crypto from "node:crypto";
-import http from "node:http";
-import net from "node:net";
-
+// Source-of-truth boundary: the Slack live probe owns only validation for its
+// localized fake API port and proxy environment because those values are injected
+// by the Vitest harness before the probe opens direct Node socket/http clients.
+// Invalid state is a malformed fake port or non-HTTP/malformed proxy env that
+// would otherwise hide the real pairing failure behind a low-level network error.
+// Remove this localized parser once the Slack probe delegates Socket Mode/REST
+// traffic to a shared fake-provider client instead of hand-rolled sockets.
+export const SLACK_PROBE_INPUT_VALIDATION_SOURCE = String.raw`
 function parseFakeSlackPort() {
   const raw = process.env.FAKE_SLACK_API_PORT || "";
   const port = Number(raw);
@@ -353,6 +344,26 @@ function parseProxyTarget() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("HTTP proxy port for Slack pairing probe is invalid");
   return { host: parsed.hostname, port };
 }
+`;
+
+export const SLACK_PAIRING_SCRIPT = String.raw`
+set -eu
+set -a
+[ -f /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh
+set +a
+fake_slack_api_port="$1"
+slack_pairing_user="$2"
+: "${"$"}{OPENCLAW_HOME:?OPENCLAW_HOME missing}"
+: "${"$"}{OPENCLAW_STATE_DIR:?OPENCLAW_STATE_DIR missing}"
+: "${"$"}{OPENCLAW_CONFIG_PATH:?OPENCLAW_CONFIG_PATH missing}"
+: "${"$"}{OPENCLAW_OAUTH_DIR:?OPENCLAW_OAUTH_DIR missing}"
+exec env HOME=/sandbox PATH="/usr/local/bin:/usr/bin:/bin:${"$"}{PATH:-}" OPENCLAW_HOME="$OPENCLAW_HOME" OPENCLAW_STATE_DIR="$OPENCLAW_STATE_DIR" OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" OPENCLAW_OAUTH_DIR="$OPENCLAW_OAUTH_DIR" HTTP_PROXY="${"$"}{HTTP_PROXY:-}" HTTPS_PROXY="${"$"}{HTTPS_PROXY:-}" http_proxy="${"$"}{http_proxy:-}" https_proxy="${"$"}{https_proxy:-}" NO_PROXY="${"$"}{NO_PROXY:-}" no_proxy="${"$"}{no_proxy:-}" NODE_OPTIONS="${"$"}{NODE_OPTIONS:-}" FAKE_SLACK_API_HOST="host.openshell.internal" FAKE_SLACK_API_PORT="$fake_slack_api_port" SLACK_PAIRING_USER="$slack_pairing_user" node --input-type=module <<'NODE'
+__LOAD_CONVERSATION_RUNTIME_SOURCE__
+import crypto from "node:crypto";
+import http from "node:http";
+import net from "node:net";
+
+__SLACK_PROBE_INPUT_VALIDATION_SOURCE__
 function encodeClientText(payload) {
   const body = Buffer.from(payload, "utf8");
   const mask = crypto.randomBytes(4);
@@ -487,7 +498,9 @@ const result = await issuePairingChallenge({
 if (!result.created || !result.code) throw new Error("pairing challenge was not created: " + JSON.stringify(result));
 console.log("PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, senderId: event.user, channelId: event.channel }));
 NODE
-`.replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE);
+`
+  .replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE)
+  .replace("__SLACK_PROBE_INPUT_VALIDATION_SOURCE__", SLACK_PROBE_INPUT_VALIDATION_SOURCE);
 
 export type PairingResult = {
   code: string;

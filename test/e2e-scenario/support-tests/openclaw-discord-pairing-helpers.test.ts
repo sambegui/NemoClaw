@@ -14,6 +14,7 @@ import {
   buildPairingPendingCommand,
   DISCORD_GATEWAY_PROOF_SOURCE,
   LOAD_CONVERSATION_RUNTIME_SOURCE,
+  SLACK_PROBE_INPUT_VALIDATION_SOURCE,
 } from "../live/openclaw-pairing-helpers.ts";
 import { sandboxNode } from "../live/phase6-messaging-helpers.ts";
 
@@ -169,6 +170,44 @@ describe("OpenClaw Discord pairing helper contracts", () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it.each([
+    {
+      name: "missing fake port",
+      env: { FAKE_SLACK_API_PORT: "", HTTP_PROXY: "", http_proxy: "" },
+      error: "FAKE_SLACK_API_PORT must be an integer in 1..65535",
+    },
+    {
+      name: "out-of-range fake port",
+      env: { FAKE_SLACK_API_PORT: "70000", HTTP_PROXY: "", http_proxy: "" },
+      error: "FAKE_SLACK_API_PORT must be an integer in 1..65535",
+    },
+    {
+      name: "malformed proxy",
+      env: { FAKE_SLACK_API_PORT: "12345", HTTP_PROXY: "http://[", http_proxy: "" },
+      error: "HTTP proxy for Slack pairing probe is malformed",
+    },
+    {
+      name: "non-HTTP proxy",
+      env: { FAKE_SLACK_API_PORT: "12345", HTTP_PROXY: "socks5://127.0.0.1:1080", http_proxy: "" },
+      error: "Slack pairing probe only supports HTTP proxies",
+    },
+    {
+      name: "invalid proxy port",
+      env: { FAKE_SLACK_API_PORT: "12345", HTTP_PROXY: "http://127.0.0.1:70000", http_proxy: "" },
+      error: "HTTP proxy for Slack pairing probe is malformed",
+    },
+  ])("fails closed on invalid Slack probe input before network access: $name", ({ env, error }) => {
+    const result = spawnSync(process.execPath, ["--input-type=module"], {
+      input: `${SLACK_PROBE_INPUT_VALIDATION_SOURCE}\nlet networkAttempted = false;\ntry { parseFakeSlackPort(); parseProxyTarget(); networkAttempted = true; } catch (error) { console.error(error.message); console.error("NETWORK_ATTEMPTED=" + networkAttempted); process.exit(1); }\n`,
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toEqual(expect.stringContaining(error));
+    expect(result.stderr).toEqual(expect.stringContaining("NETWORK_ATTEMPTED=false"));
   });
 
   it("keeps Discord Gateway proof source valid for sandbox node heredoc", () => {
