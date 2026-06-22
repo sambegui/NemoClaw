@@ -9,6 +9,7 @@ import YAML from "yaml";
 import {
   HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOBS,
   HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET,
+  HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_VITEST_JOB_SET,
 } from "./hosted-inference-legacy-alias.mts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -397,7 +398,8 @@ function requireHostedInferenceCredentialEnv(
   const allowLegacyNvidiaApiKey =
     options.allowLegacyNvidiaApiKey ??
     (options.jobName
-      ? HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(options.jobName)
+      ? HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(options.jobName) ||
+        HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_VITEST_JOB_SET.has(options.jobName)
       : false);
 
   if (env.NVIDIA_INFERENCE_API_KEY !== HOSTED_INFERENCE_SECRET_EXPR) {
@@ -537,7 +539,8 @@ function validateFreeStandingInventoryBoundary(
       }
       if (
         Object.hasOwn(stepEnv, "NVIDIA_API_KEY") &&
-        !HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(jobName)
+        !HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_JOB_SET.has(jobName) &&
+        !HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_VITEST_JOB_SET.has(jobName)
       ) {
         errors.push(
           `${jobName} step '${step.name ?? step.uses ?? "<unnamed>"}' must not receive NVIDIA_API_KEY unless listed as a legacy alias consumer`,

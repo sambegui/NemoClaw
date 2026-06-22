@@ -20,6 +20,7 @@ const COMPAT_HELPER = path.join(
 
 function secrets(values: Record<string, string | undefined>) {
   return {
+    optional: (name: string) => values[name],
     required: (name: string) => {
       const value = values[name];
       if (!value) throw new Error(`missing ${name}`);
@@ -101,6 +102,20 @@ describe("hosted inference E2E config", () => {
 
     expect(cfg.apiKey).toBe("sk-compatible-key");
     expect(cfg.credentialEnv).toBe("COMPATIBLE_API_KEY");
+  });
+
+  it("prefers the hosted public fallback secret for inference-api validation", () => {
+    const cfg = requireHostedInferenceConfig(
+      secrets({
+        NVIDIA_INFERENCE_API_KEY: "build-only-key",
+        NVIDIA_API_KEY: "nvapi-hosted-key",
+      }),
+      {},
+    );
+
+    expect(cfg.apiKey).toBe("nvapi-hosted-key");
+    expect(cfg.sourceSecretName).toBe("NVIDIA_API_KEY");
+    expect(cfg.env.COMPATIBLE_API_KEY).toBe("nvapi-hosted-key");
   });
 
   it("uses a lightweight compatible reachability probe without API or auth requests", () => {

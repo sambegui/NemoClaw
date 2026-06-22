@@ -1441,6 +1441,7 @@ jobs:
         # Endpoints, so the test must exercise the compatible-provider route.
         env:
           NVIDIA_INFERENCE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
+          NVIDIA_API_KEY: ${{ startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || (startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || '') }}
           COMPATIBLE_API_KEY: ${{ startsWith(secrets.NVIDIA_INFERENCE_API_KEY, 'nvapi-') && secrets.NVIDIA_INFERENCE_API_KEY || (startsWith(secrets.NVIDIA_API_KEY, 'nvapi-') && secrets.NVIDIA_API_KEY || '') }}
           NEMOCLAW_E2E_USE_HOSTED_INFERENCE: "1"
           NEMOCLAW_PROVIDER: custom
