@@ -163,6 +163,18 @@ describe("hosted inference E2E config", () => {
     });
   });
 
+  it("prefers an explicit fixture model over workflow defaults", () => {
+    const cfg = requireHostedInferenceConfig(
+      secrets({ NVIDIA_INFERENCE_API_KEY: "repo-hosted-key" }),
+      { NEMOCLAW_MODEL: "nvidia/workflow-model" },
+      { model: "nvidia/scenario-model" },
+    );
+
+    expect(cfg.model).toBe("nvidia/scenario-model");
+    expect(cfg.env.NEMOCLAW_MODEL).toBe("nvidia/scenario-model");
+    expect(cfg.env.NEMOCLAW_COMPAT_MODEL).toBe("nvidia/scenario-model");
+  });
+
   it("preserves an explicit hosted inference API preference", () => {
     const cfg = requireHostedInferenceConfig(
       secrets({ NVIDIA_INFERENCE_API_KEY: "repo-hosted-key" }),
@@ -170,5 +182,15 @@ describe("hosted inference E2E config", () => {
     );
 
     expect(cfg.env.NEMOCLAW_PREFERRED_API).toBe("openai-responses");
+  });
+
+  it("prefers an explicit fixture API preference over workflow defaults", () => {
+    const cfg = requireHostedInferenceConfig(
+      secrets({ NVIDIA_INFERENCE_API_KEY: "repo-hosted-key" }),
+      { NEMOCLAW_PREFERRED_API: "openai-responses" },
+      { preferredApi: "openai-completions" },
+    );
+
+    expect(cfg.env.NEMOCLAW_PREFERRED_API).toBe("openai-completions");
   });
 });
