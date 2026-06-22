@@ -156,17 +156,51 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(policy).toContain("    - /usr\n");
     expect(policy).toContain("    - /etc\n");
     expect(policy).toContain("compatibility: best_effort");
+    expect(policy).toContain("Source boundary: OpenShell owns the workspace mount");
+    expect(policy).toContain("strict Landlock currently fails against the");
+    expect(policy).toContain("Regression coverage lives in the Deep Agents Code image");
     expect(policy).toContain("non-FUSE workspace path");
+  });
+
+  it("ships a live policy behavior check for Deep Agents Code Landlock paths", () => {
+    const checkScript = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "test",
+        "e2e",
+        "e2e-cloud-experimental",
+        "checks",
+        "05-deepagents-code-landlock-readonly.sh",
+      ),
+      "utf8",
+    );
+
+    expect(checkScript).toContain("test -d /sandbox/.deepagents && command -v dcode");
+    expect(checkScript).toContain("touch /sandbox/.deepagents/deepagents-landlock-test");
+    expect(checkScript).toContain("touch /usr/deepagents-landlock-test");
+    expect(checkScript).toContain("touch /etc/deepagents-landlock-test");
+    expect(checkScript).toContain("touch /tmp/deepagents-landlock-test");
+    expect(checkScript).toContain("/usr is Landlock read-only for Deep Agents Code");
+    expect(checkScript).toContain("/etc is Landlock read-only for Deep Agents Code");
   });
 
   it("marks un-hashed PyPI installs as an experimental-only base image exception", () => {
     const baseDockerfile = readAgentFile("Dockerfile.base");
+    const quickstart = fs.readFileSync(
+      path.join(process.cwd(), "docs", "get-started", "quickstart-langchain-deepagents-code.mdx"),
+      "utf8",
+    );
 
     const hasHashLockedInstall =
       baseDockerfile.includes("--require-hashes") || baseDockerfile.includes("wheelhouse");
-    const hasExperimentalException = baseDockerfile.includes(
-      "Experimental harness: PyPI dependencies are exact-pinned but not hash-locked.",
-    );
+    const hasExperimentalException =
+      baseDockerfile.includes(
+        "Experimental harness: PyPI dependencies are exact-pinned but not hash-locked.",
+      ) &&
+      baseDockerfile.includes("not production-supported") &&
+      quickstart.includes('status: "experimental"') &&
+      quickstart.includes("Do not treat this harness as production-supported") &&
+      quickstart.includes("does not hash-lock the full PyPI dependency tree");
     expect(hasHashLockedInstall || hasExperimentalException).toBe(true);
   });
 

@@ -26,8 +26,15 @@ filesystem_policy:
     - /dev/null
 
 landlock:
-  # Deep Agents Code currently needs best-effort compatibility with the
-  # OpenShell/FUSE sandbox filesystem. Tighten this to strict once OpenShell
+  # Source boundary: OpenShell owns the workspace mount and applies Landlock
+  # policy to the sandbox root. Invalid state: Deep Agents Code or one of its
+  # dependencies mutates system paths that this policy declares read-only.
+  # Source-fix constraint: strict Landlock currently fails against the
+  # OpenShell/FUSE workspace path during policy application/startup, so NemoClaw
+  # cannot make this terminal harness strict without replacing that OpenShell
+  # workspace boundary. Regression coverage lives in the Deep Agents Code image
+  # contract and the opt-in live check script that attempts writes to /usr,
+  # /etc, and /sandbox/.deepagents. Tighten this to strict once OpenShell
   # exposes a non-FUSE workspace path that preserves the read-only /usr and /etc
   # policy proof for this terminal harness (tracked by #4861).
   compatibility: best_effort
