@@ -34,11 +34,7 @@ import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
 import { shellQuote } from "../../../src/lib/core/shell-quote";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
-const INSTALL_OPENSHELL = path.join(
-  REPO_ROOT,
-  "scripts",
-  "install-openshell.sh",
-);
+const INSTALL_OPENSHELL = path.join(REPO_ROOT, "scripts", "install-openshell.sh");
 const STATE_DIR = path.join(
   os.homedir(),
   ".local",
@@ -48,15 +44,12 @@ const STATE_DIR = path.join(
 );
 const PID_FILE = path.join(STATE_DIR, "openshell-gateway.pid");
 const OLD_NEMOCLAW_REF = process.env.NEMOCLAW_OLD_NEMOCLAW_REF ?? "v0.0.36";
-const OLD_OPENSHELL_VERSION =
-  process.env.NEMOCLAW_OLD_OPENSHELL_VERSION ?? "0.0.36";
-const CURRENT_OPENSHELL_VERSION =
-  process.env.NEMOCLAW_CURRENT_OPENSHELL_VERSION ?? "0.0.44";
+const OLD_OPENSHELL_VERSION = process.env.NEMOCLAW_OLD_OPENSHELL_VERSION ?? "0.0.36";
+const CURRENT_OPENSHELL_VERSION = process.env.NEMOCLAW_CURRENT_OPENSHELL_VERSION ?? "0.0.44";
 const OLD_SANDBOX_BASE_IMAGE_REF =
   process.env.NEMOCLAW_OLD_SANDBOX_BASE_IMAGE_REF ??
   "ghcr.io/nvidia/nemoclaw/sandbox-base@sha256:104151ffadc2ff0b6c815e3c95c2783ced61aee0d0f83fc327cc02be9b7e14e6";
-const OLD_OPENCLAW_VERSION =
-  process.env.NEMOCLAW_OLD_OPENCLAW_VERSION ?? "2026.4.24";
+const OLD_OPENCLAW_VERSION = process.env.NEMOCLAW_OLD_OPENCLAW_VERSION ?? "2026.4.24";
 const SURVIVOR_SANDBOX =
   process.env.NEMOCLAW_GATEWAY_UPGRADE_SURVIVOR_NAME ??
   [
@@ -68,8 +61,7 @@ const SURVIVOR_SANDBOX =
     .filter(Boolean)
     .join("-");
 const SURVIVOR_MARKER = `gateway-upgrade-survivor-${Date.now()}`;
-const SURVIVOR_MARKER_PATH =
-  "/sandbox/.openclaw/workspace/nemoclaw-gateway-upgrade-marker";
+const SURVIVOR_MARKER_PATH = "/sandbox/.openclaw/workspace/nemoclaw-gateway-upgrade-marker";
 const REGISTRY_FILE = path.join(os.homedir(), ".nemoclaw", "sandboxes.json");
 const TEST_TIMEOUT_MS = 60 * 60_000;
 const INSTALL_TIMEOUT_MS = 35 * 60_000;
@@ -116,11 +108,7 @@ function expectExitZero(result: ShellProbeResult, label: string): void {
   expect(result.exitCode, `${label} failed:\n${resultText(result)}`).toBe(0);
 }
 
-function expectOutputContains(
-  result: ShellProbeResult,
-  value: string,
-  label: string,
-): void {
+function expectOutputContains(result: ShellProbeResult, value: string, label: string): void {
   expect(resultText(result), label).toContain(value);
 }
 
@@ -146,7 +134,8 @@ async function bash(
 
 function patchOldInstallerFixture(installer: string): void {
   const needle = '  legacy_script="${source_root}/install.sh"\n';
-  const hook = String.raw`  if [[ -n "\${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" && -f "$payload_script" ]]; then
+  const hook =
+    String.raw`  if [[ -n "\${NEMOCLAW_OLD_OPENCLAW_VERSION:-}" && -f "$payload_script" ]]; then
     python3 - "$payload_script" <<'NEMOCLAW_OLD_PAYLOAD_PIN_PY'
 from pathlib import Path
 import sys
@@ -277,24 +266,17 @@ exec "$real_docker" "\${args[@]}"
   return wrapperDir;
 }
 
-async function waitForSurvivorReady(
-  host: HostCliClient,
-  labelPrefix: string,
-): Promise<void> {
+async function waitForSurvivorReady(host: HostCliClient, labelPrefix: string): Promise<void> {
   let attempt = 0;
   let ready = false;
   while (attempt < 60 && !ready) {
-    const result = await bash(
-      host,
-      `openshell sandbox list 2>/dev/null || true`,
-      {
-        artifactName: `${labelPrefix}-sandbox-list-${attempt}`,
-        timeoutMs: 30_000,
-      },
-    );
+    const result = await bash(host, `openshell sandbox list 2>/dev/null || true`, {
+      artifactName: `${labelPrefix}-sandbox-list-${attempt}`,
+      timeoutMs: 30_000,
+    });
     ready = new RegExp(`${SURVIVOR_SANDBOX}.*Ready`).test(resultText(result));
     attempt += 1;
-    ready || (await new Promise((resolve) => setTimeout(resolve, 2_000)));
+    ready || (await new Promise<void>((resolve) => setTimeout(resolve, 2_000)));
   }
   expect(ready, `survivor sandbox ${SURVIVOR_SANDBOX} did not become Ready`).toBe(true);
 }
@@ -319,15 +301,13 @@ async function survivorAgentProbe(
   );
 }
 
-async function waitForSurvivorAgentReady(
-  host: HostCliClient,
-): Promise<ShellProbeResult> {
+async function waitForSurvivorAgentReady(host: HostCliClient): Promise<ShellProbeResult> {
   let last: ShellProbeResult | undefined;
   let attempt = 0;
   while (attempt < 60 && last?.exitCode !== 0) {
     last = await survivorAgentProbe(host, `survivor-agent-probe-${attempt}`);
     attempt += 1;
-    last.exitCode === 0 || (await new Promise((resolve) => setTimeout(resolve, 1_000)));
+    last.exitCode === 0 || (await new Promise<void>((resolve) => setTimeout(resolve, 1_000)));
   }
   expect(
     last?.exitCode,
@@ -355,11 +335,10 @@ bash ${shellQuote(installer)} --non-interactive --yes-i-accept-third-party-softw
       timeoutMs: INSTALL_TIMEOUT_MS,
     },
   );
-  const tail = await bash(
-    host,
-    `tail -160 ${shellQuote(logFile)} 2>/dev/null || true`,
-    { artifactName: `${label}-installer-tail`, timeoutMs: 30_000 },
-  );
+  const tail = await bash(host, `tail -160 ${shellQuote(logFile)} 2>/dev/null || true`, {
+    artifactName: `${label}-installer-tail`,
+    timeoutMs: 30_000,
+  });
   expect(result.exitCode, `${label} NemoClaw installer failed:\n${resultText(tail)}`).toBe(0);
   return result;
 }
@@ -426,10 +405,7 @@ chmod 755 ${shellQuote(oldInstaller)}`,
     wrongOldOpenClaw?.[1],
     `old fixture log must not use an unexpected OpenClaw version:\n${oldLog}`,
   ).toBeUndefined();
-  expect(
-    oldLog,
-    `old fixture must show pinned OpenClaw ${OLD_OPENCLAW_VERSION}`,
-  ).toMatch(
+  expect(oldLog, `old fixture must show pinned OpenClaw ${OLD_OPENCLAW_VERSION}`).toMatch(
     new RegExp(
       `OpenClaw ${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")}|openclaw@${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")}`,
     ),
@@ -466,16 +442,10 @@ chmod 755 ${shellQuote(oldInstaller)}`,
     timeoutMs: 60_000,
   });
   expectExitZero(list, "old nemoclaw list");
-  expectOutputContains(
-    list,
-    SURVIVOR_SANDBOX,
-    "old NemoClaw install must register survivor claw",
-  );
+  expectOutputContains(list, SURVIVOR_SANDBOX, "old NemoClaw install must register survivor claw");
 }
 
-async function startSurvivorAgentInExistingClaw(
-  host: HostCliClient,
-): Promise<number> {
+async function startSurvivorAgentInExistingClaw(host: HostCliClient): Promise<number> {
   const markerResult = await bash(
     host,
     `openshell sandbox exec --name ${shellQuote(SURVIVOR_SANDBOX)} -- sh -lc ${shellQuote(`mkdir -p /sandbox/.openclaw/workspace && printf '%s\\n' ${shellQuote(SURVIVOR_MARKER)} >${shellQuote(SURVIVOR_MARKER_PATH)}`)}`,
@@ -524,15 +494,10 @@ async function installCurrentNemoclawUpgrade(
   fakeBaseUrl: string,
   currentInstallLog: string,
 ): Promise<void> {
-  const currentRef =
-    process.env.NEMOCLAW_CURRENT_NEMOCLAW_REF ??
-    process.env.GITHUB_SHA ??
-    "HEAD";
+  const currentRef = process.env.NEMOCLAW_CURRENT_NEMOCLAW_REF ?? process.env.GITHUB_SHA ?? "HEAD";
   const currentRefResult = await bash(
     host,
-    currentRef === "HEAD"
-      ? "git rev-parse HEAD"
-      : `printf '%s' ${shellQuote(currentRef)}`,
+    currentRef === "HEAD" ? "git rev-parse HEAD" : `printf '%s' ${shellQuote(currentRef)}`,
     {
       artifactName: "current-ref",
       timeoutMs: 30_000,
@@ -567,12 +532,8 @@ async function installCurrentNemoclawUpgrade(
   );
 
   const currentLog = fs.readFileSync(currentInstallLog, "utf8");
-  expect(currentLog).toContain(
-    "Accepted experimental OpenShell gateway upgrade",
-  );
-  expect(currentLog).toContain(
-    "Pre-upgrade backup: 1 backed up, 0 failed, 0 skipped",
-  );
+  expect(currentLog).toContain("Accepted experimental OpenShell gateway upgrade");
+  expect(currentLog).toContain("Pre-upgrade backup: 1 backed up, 0 failed, 0 skipped");
 
   const openshellVersion = await bash(host, `openshell --version`, {
     artifactName: "current-openshell-version",
@@ -596,9 +557,7 @@ async function installCurrentNemoclawUpgrade(
   );
 }
 
-async function assertSurvivorSandboxAfterUpgrade(
-  host: HostCliClient,
-): Promise<void> {
+async function assertSurvivorSandboxAfterUpgrade(host: HostCliClient): Promise<void> {
   await waitForSurvivorReady(host, "post-upgrade");
 
   const marker = await bash(
@@ -620,24 +579,15 @@ async function assertSurvivorSandboxAfterUpgrade(
   );
   expect(agentCheck.stdout.trim().length).toBeGreaterThan(0);
 
-  expect(
-    fs.existsSync(REGISTRY_FILE),
-    `${REGISTRY_FILE} must exist after upgrade`,
-  ).toBe(true);
-  expect(fs.readFileSync(REGISTRY_FILE, "utf8")).toContain(
-    `"${SURVIVOR_SANDBOX}"`,
-  );
+  expect(fs.existsSync(REGISTRY_FILE), `${REGISTRY_FILE} must exist after upgrade`).toBe(true);
+  expect(fs.readFileSync(REGISTRY_FILE, "utf8")).toContain(`"${SURVIVOR_SANDBOX}"`);
 
   const list = await bash(host, `nemoclaw list`, {
     artifactName: "post-upgrade-nemoclaw-list",
     timeoutMs: 60_000,
   });
   expectExitZero(list, "nemoclaw list after gateway upgrade");
-  expectOutputContains(
-    list,
-    SURVIVOR_SANDBOX,
-    "nemoclaw list must still show survivor sandbox",
-  );
+  expectOutputContains(list, SURVIVOR_SANDBOX, "nemoclaw list must still show survivor sandbox");
 }
 
 function runMacInstallerProbe(
@@ -659,16 +609,8 @@ function runMacInstallerProbe(
     encoding: "utf8",
   });
   fs.mkdirSync(artifacts.pathFor(`macos-${name}`), { recursive: true });
-  fs.writeFileSync(
-    artifacts.pathFor(`macos-${name}/stdout.txt`),
-    result.stdout ?? "",
-    "utf8",
-  );
-  fs.writeFileSync(
-    artifacts.pathFor(`macos-${name}/stderr.txt`),
-    result.stderr ?? "",
-    "utf8",
-  );
+  fs.writeFileSync(artifacts.pathFor(`macos-${name}/stdout.txt`), result.stdout ?? "", "utf8");
+  fs.writeFileSync(artifacts.pathFor(`macos-${name}/stderr.txt`), result.stderr ?? "", "utf8");
   return result;
 }
 
@@ -727,16 +669,13 @@ runLinuxOpenShellGatewayUpgrade(
       survivorSandbox: SURVIVOR_SANDBOX,
     });
 
-    cleanup.add(
-      "remove openshell gateway upgrade survivor sandbox",
-      async () => {
-        await bash(
-          host,
-          `command -v openshell >/dev/null 2>&1 && openshell sandbox delete ${shellQuote(SURVIVOR_SANDBOX)} >/dev/null 2>&1 || true`,
-          { artifactName: "cleanup-survivor-sandbox", timeoutMs: 120_000 },
-        );
-      },
-    );
+    cleanup.add("remove openshell gateway upgrade survivor sandbox", async () => {
+      await bash(
+        host,
+        `command -v openshell >/dev/null 2>&1 && openshell sandbox delete ${shellQuote(SURVIVOR_SANDBOX)} >/dev/null 2>&1 || true`,
+        { artifactName: "cleanup-survivor-sandbox", timeoutMs: 120_000 },
+      );
+    });
     cleanup.add("remove openshell gateway upgrade gateway", async () => {
       await bash(
         host,
@@ -752,10 +691,7 @@ rm -f ${shellQuote(PID_FILE)}`,
       responseText: "ok",
     });
     cleanup.add("close compatible endpoint mock", async () => {
-      await artifacts.writeJson(
-        "fake-openai-compatible-requests.json",
-        fake.requests(),
-      );
+      await artifacts.writeJson("fake-openai-compatible-requests.json", fake.requests());
       await fake.close();
     });
     await artifacts.writeJson("fake-openai-compatible.json", {
@@ -778,20 +714,14 @@ runOpenShellGatewayUpgrade(
   "openshell-gateway-upgrade: macOS incomplete current install fetches Darwin gateway asset",
   async ({ artifacts }) => {
     const curlLog = artifacts.pathFor("macos-missing-gateway/curl.log");
-    const result = runMacInstallerProbe(
-      artifacts,
-      "missing-gateway",
-      (fakeBin) => {
-        fs.mkdirSync(path.dirname(curlLog), { recursive: true });
-        writeFakeDarwinUname(fakeBin);
-        writeFakeCurrentOpenshell(fakeBin);
-        writeExecutable(
-          path.join(fakeBin, "gh"),
-          "#!/usr/bin/env bash\nexit 1\n",
-        );
-        writeExecutable(
-          path.join(fakeBin, "curl"),
-          `#!/usr/bin/env bash
+    const result = runMacInstallerProbe(artifacts, "missing-gateway", (fakeBin) => {
+      fs.mkdirSync(path.dirname(curlLog), { recursive: true });
+      writeFakeDarwinUname(fakeBin);
+      writeFakeCurrentOpenshell(fakeBin);
+      writeExecutable(path.join(fakeBin, "gh"), "#!/usr/bin/env bash\nexit 1\n");
+      writeExecutable(
+        path.join(fakeBin, "curl"),
+        `#!/usr/bin/env bash
 out=""
 prev=""
 for arg in "$@"; do
@@ -807,50 +737,32 @@ if [ -n "$out" ]; then
 fi
 exit 0
 `,
-        );
-        return { NEMOCLAW_FAKE_CURL_LOG: curlLog };
-      },
-    );
+      );
+      return { NEMOCLAW_FAKE_CURL_LOG: curlLog };
+    });
     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     expect(result.status, output).not.toBe(0);
     expect(result.stdout).toContain("missing Docker-driver binaries");
     const downloads = fs.readFileSync(curlLog, "utf8");
-    expect(downloads).toContain(
-      "openshell-gateway-aarch64-apple-darwin.tar.gz",
-    );
-    expect(downloads).not.toContain(
-      "openshell-driver-vm-aarch64-apple-darwin.tar.gz",
-    );
+    expect(downloads).toContain("openshell-gateway-aarch64-apple-darwin.tar.gz");
+    expect(downloads).not.toContain("openshell-driver-vm-aarch64-apple-darwin.tar.gz");
   },
 );
 
 runOpenShellGatewayUpgrade(
   "openshell-gateway-upgrade: macOS installer does not require VM driver Hypervisor entitlement",
   async ({ artifacts }) => {
-    const signLog = artifacts.pathFor(
-      "macos-vm-driver-entitlement/codesign.log",
-    );
-    const stateFile = artifacts.pathFor(
-      "macos-vm-driver-entitlement/codesign-state",
-    );
-    const result = runMacInstallerProbe(
-      artifacts,
-      "vm-driver-entitlement",
-      (fakeBin) => {
-        fs.mkdirSync(path.dirname(signLog), { recursive: true });
-        writeFakeDarwinUname(fakeBin);
-        writeFakeCurrentOpenshell(fakeBin);
-        writeExecutable(
-          path.join(fakeBin, "openshell-gateway"),
-          "#!/usr/bin/env bash\nexit 0\n",
-        );
-        writeExecutable(
-          path.join(fakeBin, "openshell-driver-vm"),
-          "#!/usr/bin/env bash\nexit 0\n",
-        );
-        writeExecutable(
-          path.join(fakeBin, "codesign"),
-          `#!/usr/bin/env bash
+    const signLog = artifacts.pathFor("macos-vm-driver-entitlement/codesign.log");
+    const stateFile = artifacts.pathFor("macos-vm-driver-entitlement/codesign-state");
+    const result = runMacInstallerProbe(artifacts, "vm-driver-entitlement", (fakeBin) => {
+      fs.mkdirSync(path.dirname(signLog), { recursive: true });
+      writeFakeDarwinUname(fakeBin);
+      writeFakeCurrentOpenshell(fakeBin);
+      writeExecutable(path.join(fakeBin, "openshell-gateway"), "#!/usr/bin/env bash\nexit 0\n");
+      writeExecutable(path.join(fakeBin, "openshell-driver-vm"), "#!/usr/bin/env bash\nexit 0\n");
+      writeExecutable(
+        path.join(fakeBin, "codesign"),
+        `#!/usr/bin/env bash
 if [ "\${1:-}" = "-d" ]; then
   if [ -f ${shellQuote(stateFile)} ]; then
     printf '%s\n' '<plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>'
@@ -861,18 +773,15 @@ printf '%s\n' "$*" >>${shellQuote(signLog)}
 : >${shellQuote(stateFile)}
 exit 0
 `,
-        );
-        return {
-          NEMOCLAW_FAKE_CODESIGN_LOG: signLog,
-          NEMOCLAW_FAKE_CODESIGN_STATE: stateFile,
-        };
-      },
-    );
+      );
+      return {
+        NEMOCLAW_FAKE_CODESIGN_LOG: signLog,
+        NEMOCLAW_FAKE_CODESIGN_STATE: stateFile,
+      };
+    });
     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     expect(result.status, output).toBe(0);
-    const signLogText = fs.existsSync(signLog)
-      ? fs.readFileSync(signLog, "utf8")
-      : "";
+    const signLogText = fs.existsSync(signLog) ? fs.readFileSync(signLog, "utf8") : "";
     expect(signLogText).not.toContain("--force --sign - --entitlements");
     expect(result.stdout).not.toContain("Installing OpenShell from release");
   },
@@ -887,10 +796,7 @@ runOpenShellGatewayUpgrade(
       boundary: "static Dockerfile and Dockerfile patch contract",
       legacySource: "test/e2e/test-openshell-gateway-upgrade.sh",
     });
-    const dockerfile = fs.readFileSync(
-      path.join(REPO_ROOT, "Dockerfile"),
-      "utf8",
-    );
+    const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "Dockerfile"), "utf8");
     const patchFlow = fs.readFileSync(
       path.join(REPO_ROOT, "src/lib/onboard/sandbox-dockerfile-patch-flow.ts"),
       "utf8",
@@ -912,8 +818,6 @@ runOpenShellGatewayUpgrade(
     expect(dockerfile).toContain("chmod -R a+rwX /sandbox/.openclaw");
     expect(hermesDockerfile).toContain("ARG NEMOCLAW_DARWIN_VM_COMPAT=0");
     expect(hermesDockerfile).toContain("chmod -R a+rwX /sandbox/.hermes");
-    expect(hermesDockerfile).toContain(
-      "chmod a+rw /sandbox/.bashrc /sandbox/.profile",
-    );
+    expect(hermesDockerfile).toContain("chmod a+rw /sandbox/.bashrc /sandbox/.profile");
   },
 );
