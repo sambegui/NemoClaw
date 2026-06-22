@@ -18,7 +18,6 @@ import {
   PAIRING_USER,
   pairingEnv,
   pairingRedactions,
-  premergeSlackPolicyIfNeeded,
   startFakeSlackApi,
   writePairingArtifacts,
 } from "./openclaw-pairing-helpers.ts";
@@ -92,7 +91,6 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
     cleanup.add(`destroy Slack pairing sandbox ${SANDBOX_NAME}`, () =>
       cleanupPairingSandbox(host, SANDBOX_NAME, env, redactions, "cleanup-slack-pairing"),
     );
-    await premergeSlackPolicyIfNeeded(cleanup);
     await cleanupPairingSandbox(host, SANDBOX_NAME, env, redactions, "preclean-slack-pairing");
 
     const docker = await dockerInfo(host, env);

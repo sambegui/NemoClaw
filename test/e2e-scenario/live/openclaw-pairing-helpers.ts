@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import fs from "node:fs";
-import path from "node:path";
-
 import type { ArtifactSink } from "../fixtures/artifacts.ts";
 import type { CleanupRegistry } from "../fixtures/cleanup.ts";
 import type { HostCliClient } from "../fixtures/clients/host.ts";
@@ -17,7 +14,6 @@ import {
   cleanupSandbox,
   expectExitZero,
   phase6Env,
-  REPO_ROOT,
   resultText,
   sandboxSh,
   shellQuote,
@@ -85,98 +81,6 @@ export async function cleanupPairingSandbox(
       timeoutMs: 120_000,
     }),
   );
-}
-
-function policyTextHasHost(text: string, host: string): boolean {
-  const accepted = new Set([
-    `host: ${host}`,
-    `host: "${host}"`,
-    `host: '${host}'`,
-    `- host: ${host}`,
-    `- host: "${host}"`,
-    `- host: '${host}'`,
-  ]);
-  return text.split(/\r?\n/).some((line) => accepted.has(line.trim()));
-}
-
-/**
- * Temporary first-boot mitigation for the Slack pairing migration.
- *
- * Source boundary: `openclaw-sandbox.yaml` intentionally excludes messaging
- * endpoints; `policies/presets/slack.yaml` is the source of Slack policy
- * semantics. This helper only handles the current installer boot-order invalid
- * state where the Slack SDK may connect before the opt-in preset has been
- * applied. Keep the appended block semantically aligned with that preset and
- * assert the effective sandbox policy before fake-host overrides. Remove this
- * helper once Slack preset application happens before any Slack SDK connection,
- * or once the scenario can apply the real preset before startup without
- * mutating the baseline policy.
- */
-export async function premergeSlackPolicyIfNeeded(cleanup: CleanupRegistry): Promise<void> {
-  const basePolicy = path.join(
-    REPO_ROOT,
-    "nemoclaw-blueprint",
-    "policies",
-    "openclaw-sandbox.yaml",
-  );
-  const original = fs.readFileSync(basePolicy, "utf8");
-  if (policyTextHasHost(original, "api.slack.com")) return;
-  fs.appendFileSync(
-    basePolicy,
-    `
-
-  # Slack - pre-merged for OpenClaw Slack pairing Vitest E2E (#3730)
-  slack:
-    name: slack
-    endpoints:
-      - host: slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        request_body_credential_rewrite: true
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: api.slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        request_body_credential_rewrite: true
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: hooks.slack.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        request_body_credential_rewrite: true
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: wss-primary.slack.com
-        port: 443
-        protocol: websocket
-        enforcement: enforce
-        websocket_credential_rewrite: true
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: WEBSOCKET_TEXT, path: "/**" }
-      - host: wss-backup.slack.com
-        port: 443
-        protocol: websocket
-        enforcement: enforce
-        websocket_credential_rewrite: true
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: WEBSOCKET_TEXT, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/node }
-      - { path: /usr/bin/node }
-`,
-  );
-  cleanup.add("restore Slack pairing base policy pre-merge", async () => {
-    fs.writeFileSync(basePolicy, original);
-  });
 }
 
 export async function assertSlackPresetPolicySemantics(options: {
