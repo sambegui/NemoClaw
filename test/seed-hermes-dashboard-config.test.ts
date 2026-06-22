@@ -82,9 +82,9 @@ function writeYaml(name: string, value: unknown): string {
 
 function readYaml(p: string): Record<string, unknown> {
   const parsed = YAML.parse(fs.readFileSync(p, "utf-8"));
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Expected ${p} to contain a YAML object`);
-  }
+  expect(parsed, `${p} should contain a YAML object`).toBeTruthy();
+  expect(typeof parsed, `${p} should contain a YAML object`).toBe("object");
+  expect(Array.isArray(parsed), `${p} should contain a YAML object`).toBe(false);
   return parsed as Record<string, unknown>;
 }
 
