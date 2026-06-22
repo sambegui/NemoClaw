@@ -250,6 +250,20 @@ describe("sandbox base image helpers", () => {
     expect(baseImageInputsChangedSinceMain(root, gitEnv, [agentBase])).toBe(true);
   });
 
+  it("rejects traversal paths before checking base-image input diffs", () => {
+    const root = createGitFixture();
+    git(root, ["switch", "-c", "feature"]);
+    writeFixture(root, "src/other.ts", "export const value = 2;\n");
+    git(root, ["add", "src/other.ts"]);
+    git(root, ["commit", "-m", "change app code"]);
+
+    expect(
+      baseImageInputsChangedSinceMain(root, gitEnv, [
+        "agents/foo/../../../outside/Dockerfile.base",
+      ]),
+    ).toBe(false);
+  });
+
   it("ignores non-base-image source changes relative to origin/main", () => {
     const root = createGitFixture();
     git(root, ["switch", "-c", "feature"]);

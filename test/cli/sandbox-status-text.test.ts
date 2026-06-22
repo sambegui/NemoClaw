@@ -121,8 +121,7 @@ describe("CLI sandbox status text output", () => {
 
     expect(r.code).toBe(0);
     expect(r.out).toContain("Harness:  missing-terminal-agent (unknown)");
-    expect(r.out).toContain("Agent load error:");
-    expect(r.out).toContain("Agent 'missing-terminal-agent' runtime:");
+    expect(r.out).toMatch(/Agent load error:\s+Agent 'missing-terminal-agent' not found:/);
     expect(r.out).not.toContain("Harness:  OpenClaw (gateway)");
     expect(r.out).not.toContain("OpenClaw: running");
   });

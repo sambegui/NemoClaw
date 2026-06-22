@@ -40,12 +40,21 @@ export type SandboxBaseImageResolution = {
 const BASE_IMAGE_INPUT_PATHS = ["Dockerfile.base", "nemoclaw-blueprint/blueprint.yaml"];
 
 function normalizeBaseImageInputPaths(rootDir: string, paths: string[] = []): string[] {
+  const absoluteRootDir = path.resolve(rootDir);
   const normalizedPaths = paths
     .map((inputPath) => {
       const trimmed = String(inputPath || "").trim();
       if (!trimmed) return null;
-      const relativePath = path.isAbsolute(trimmed) ? path.relative(rootDir, trimmed) : trimmed;
-      if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      const absolutePath = path.isAbsolute(trimmed)
+        ? path.resolve(trimmed)
+        : path.resolve(absoluteRootDir, trimmed);
+      const relativePath = path.relative(absoluteRootDir, absolutePath);
+      if (
+        !relativePath ||
+        relativePath === ".." ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath)
+      ) {
         return null;
       }
       return relativePath.split(path.sep).join("/");
