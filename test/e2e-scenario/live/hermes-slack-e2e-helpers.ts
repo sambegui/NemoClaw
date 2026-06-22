@@ -17,6 +17,7 @@ import {
   phase6Env,
   precleanSandbox,
   resultText,
+  sandboxEncodedSh,
   sandboxSh,
   shellQuote,
 } from "./phase6-messaging-helpers.ts";
@@ -292,7 +293,7 @@ export async function runHermesSlackE2E({
 
   await waitForHermesHealth({ sandbox, apiKey });
 
-  const configProbe = await sandboxSh(
+  const configProbe = await sandboxEncodedSh(
     sandbox,
     SANDBOX_NAME,
     String.raw`python3 - <<'PY'
@@ -323,6 +324,7 @@ if errors:
 else:
     print("OK")
 PY`,
+    [],
     {
       artifactName: "phase-4-config-shape",
       redactionValues,
@@ -332,7 +334,7 @@ PY`,
   expectExitZero(configProbe, "Hermes Slack config shape probe");
   expect(configProbe.stdout.trim()).toBe("OK");
 
-  const envProbe = await sandboxSh(
+  const envProbe = await sandboxEncodedSh(
     sandbox,
     SANDBOX_NAME,
     String.raw`python3 - <<'PY'
@@ -350,6 +352,7 @@ if missing:
 else:
     print("OK")
 PY`,
+    [],
     {
       artifactName: "phase-4-env-placeholders",
       redactionValues,
@@ -359,7 +362,7 @@ PY`,
   expectExitZero(envProbe, "Hermes Slack .env placeholder probe");
   expect(envProbe.stdout.trim()).toBe("OK");
 
-  const secretBoundaryProbe = await sandboxSh(
+  const secretBoundaryProbe = await sandboxEncodedSh(
     sandbox,
     SANDBOX_NAME,
     String.raw`python3 - <<'PY'
@@ -410,6 +413,7 @@ if violations:
 else:
     print("OK")
 PY`,
+    [],
     {
       artifactName: "phase-4-secret-boundary",
       redactionValues,
@@ -472,7 +476,7 @@ else:
   expect(slackBlock).toContain("wss-backup.slack.com");
   expect(slackBlock).toContain("request_body_credential_rewrite: true");
 
-  const bridgeResidue = await sandboxSh(
+  const bridgeResidue = await sandboxEncodedSh(
     sandbox,
     SANDBOX_NAME,
     String.raw`set +e
@@ -488,6 +492,7 @@ for p in /proc/[0-9]*; do
   cmd=$(tr "\000" " " < "$p/cmdline" 2>/dev/null || true)
   case "$cmd" in *"$decode_needle"*) echo PROCESS_DECODE_PROXY ;; esac
 done`,
+    [],
     {
       artifactName: "phase-5-bridge-residue",
       redactionValues,
@@ -497,7 +502,7 @@ done`,
   expectExitZero(bridgeResidue, "Hermes Slack bridge residue probe");
   expect(resultText(bridgeResidue).trim()).toBe("");
 
-  const slackProbe = await sandboxSh(
+  const slackProbe = await sandboxEncodedSh(
     sandbox,
     SANDBOX_NAME,
     String.raw`sh -lc '. /tmp/nemoclaw-proxy-env.sh 2>/dev/null || true; if [ -x /opt/hermes/.venv/bin/python ]; then exec /opt/hermes/.venv/bin/python -; fi; exec python3 -' <<'PY'
@@ -571,6 +576,7 @@ ok = call(
 ) and ok
 sys.exit(0 if ok else 2)
 PY`,
+    [],
     {
       artifactName: "phase-6-slack-python-probe",
       redactionValues,
