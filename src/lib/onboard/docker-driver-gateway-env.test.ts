@@ -87,6 +87,8 @@ describe("buildDockerDriverGatewayEnv", () => {
       expect(fs.statSync(path.join(stateDir, "jwt")).mode & 0o777).toBe(0o700);
       expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
       expect(fs.statSync(signingKeyPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(publicKeyPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(kidPath).mode & 0o777).toBe(0o600);
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
