@@ -232,7 +232,7 @@ def generate_platform_table(platforms: list[dict]) -> str:
     """Build a markdown table from platform entries.
 
     Deferred entries are tracked in the metadata but excluded from
-    user-facing tables — they have no validated setup path yet.
+    user-facing tables because they have no validated setup path yet.
     """
     header = "| OS | Container runtime | Status | Notes |"
     separator = "|----|-------------------|--------|-------|"
@@ -286,7 +286,7 @@ def generate_platform_table_full(platforms: list[dict]) -> str:
     CI columns and exposes deferred entries so the page reflects the
     complete support surface, not just shippable rows. The CI column
     distinguishes "Tested with limitations + in CI" from "Tested with
-    limitations + not in CI" — a caveat that the status label alone
+    limitations + not in CI", a caveat that the status label alone
     does not carry.
     """
     header = "| OS | Container runtime | Status | PRD priority | CI | Notes |"
@@ -294,7 +294,7 @@ def generate_platform_table_full(platforms: list[dict]) -> str:
     rows = []
     for p in platforms:
         runtimes = ", ".join(p["runtimes"])
-        priority = p.get("prd_priority", "—")
+        priority = p.get("prd_priority", "Unset")
         ci = "Yes" if p.get("ci_tested") else "No"
         rows.append(
             f"| {_escape_cell(p['name'])} | {_escape_cell(runtimes)} | "
@@ -394,7 +394,7 @@ def generate_project_status_block(status: dict) -> str:
 def generate_owners_block(owners: dict) -> str:
     return (
         f"- **Engineering owner:** {owners['engineering']} "
-        "(reviews via CODEOWNERS and signs off on launch-facing claim changes "
+        "(reviews through CODEOWNERS and signs off on launch-facing claim changes "
         "before they reach demos or sales material)."
     )
 
@@ -413,7 +413,7 @@ TABLE_GENERATORS = {
     "owners": generate_owners_block,
 }
 
-# The generator key isn't always the matrix dict key — the "full" tables
+# The generator key isn't always the matrix dict key. The "full" tables
 # read the same JSON arrays as the partial views but render them differently.
 GENERATOR_MATRIX_KEY = {
     "platforms_full": "platforms",
