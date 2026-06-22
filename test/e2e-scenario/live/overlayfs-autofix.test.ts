@@ -46,7 +46,7 @@ function assertTestOwnedSandboxName(): void {
 }
 
 function overlayfsAutofixNotInRuntimePath(): boolean {
-  return os.platform() === "linux" && isLinuxDockerDriverGatewayEnabled("linux", process.arch);
+  return isLinuxDockerDriverGatewayEnabled(os.platform(), process.arch);
 }
 
 function overlayEnv(apiKey: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -225,29 +225,33 @@ test.skipIf(!shouldRunLiveE2EScenarios() || overlayfsAutofixNotInRuntimePath())(
     const daemonBackup = path.join(stateDir, "daemon.json.bak");
     const daemonAbsentMarker = path.join(stateDir, "daemon.json.absent");
     cleanup.add("restore Docker daemon configuration after overlayfs-autofix", async () => {
-      await bestEffort(async () => {
-        await (fs.existsSync(daemonAbsentMarker)
+      const restore = await (fs.existsSync(daemonAbsentMarker)
+        ? bash(host, `sudo rm -f ${DAEMON_JSON}; sudo systemctl restart docker`, {
+            artifactName: "cleanup-restore-daemon-absent",
+            env: buildAvailabilityProbeEnv(),
+            timeoutMs: 60_000,
+          })
+        : fs.existsSync(daemonBackup)
           ? bash(
               host,
-              `sudo rm -f ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
+              `sudo cp ${JSON.stringify(daemonBackup)} ${DAEMON_JSON}; sudo systemctl restart docker`,
               {
-                artifactName: "cleanup-restore-daemon-absent",
+                artifactName: "cleanup-restore-daemon-backup",
                 env: buildAvailabilityProbeEnv(),
                 timeoutMs: 60_000,
               },
             )
-          : fs.existsSync(daemonBackup)
-            ? bash(
-                host,
-                `sudo cp ${JSON.stringify(daemonBackup)} ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
-                {
-                  artifactName: "cleanup-restore-daemon-backup",
-                  env: buildAvailabilityProbeEnv(),
-                  timeoutMs: 60_000,
-                },
-              )
-            : Promise.resolve());
-      });
+          : Promise.resolve<ShellProbeResult>({
+              command: [],
+              exitCode: 0,
+              signal: null,
+              timedOut: false,
+              stdout: "",
+              stderr: "",
+              artifacts: { stdout: "", stderr: "", result: "" },
+            }));
+      expect(restore.exitCode, `Docker daemon restore failed: ${text(restore)}`).toBe(0);
+      expect(await waitForDocker(host), "Docker must come back after daemon restore").toBe(true);
       fs.rmSync(stateDir, { recursive: true, force: true });
     });
     cleanup.add(`destroy overlayfs-autofix sandbox ${SANDBOX_NAME}`, async () => {
@@ -257,7 +261,7 @@ test.skipIf(!shouldRunLiveE2EScenarios() || overlayfsAutofixNotInRuntimePath())(
 
     const backup = await bash(
       host,
-      `[ -f ${DAEMON_JSON} ] && sudo cp ${DAEMON_JSON} ${JSON.stringify(daemonBackup)} || touch ${JSON.stringify(daemonAbsentMarker)}`,
+      `if [ -f ${DAEMON_JSON} ]; then sudo cp ${DAEMON_JSON} ${JSON.stringify(daemonBackup)}; else touch ${JSON.stringify(daemonAbsentMarker)}; fi`,
       {
         artifactName: "phase-1-backup-daemon-json",
         env: buildAvailabilityProbeEnv(),
@@ -362,7 +366,10 @@ sudo systemctl restart docker`,
       },
     );
     expect(beforeCreated.exitCode).toBe(0);
-    const openshellVersion = patchedTag.replace(/^nemoclaw-cluster:([^-]+)-.*$/, "$1");
+    const openshellVersion = patchedTag.replace(
+      /^nemoclaw-cluster:(.*)-fuse-overlayfs-[0-9a-f]{8}$/,
+      "$1",
+    );
     const upstreamImage = `ghcr.io/nvidia/openshell/cluster:${openshellVersion}`;
     const secondTagResult = await host.command(
       "node",
