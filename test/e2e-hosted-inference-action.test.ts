@@ -8,7 +8,10 @@ import YAML from "yaml";
 describe("export-e2e-hosted-inference action contract", () => {
   const action = YAML.parse(
     readFileSync(".github/actions/export-e2e-hosted-inference/action.yaml", "utf8"),
-  ) as { inputs?: Record<string, { description?: string }>; runs?: { steps?: Array<{ run?: string }> } };
+  ) as {
+    inputs?: Record<string, { description?: string }>;
+    runs?: { steps?: Array<{ run?: string }> };
+  };
   const run = action.runs?.steps?.[0]?.run ?? "";
 
   it("rejects multiline credentials before writing GITHUB_ENV", () => {
@@ -16,7 +19,7 @@ describe("export-e2e-hosted-inference action contract", () => {
     expect(run).toContain("*$'\\n'*");
     expect(run).toContain("*$'\\r'*");
     expect(run.indexOf("Hosted inference credentials must be single-line values")).toBeLessThan(
-      run.indexOf(">> \"${GITHUB_ENV}\""),
+      run.indexOf('>> "${GITHUB_ENV}"'),
     );
   });
 

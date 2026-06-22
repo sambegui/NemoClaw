@@ -921,9 +921,7 @@ describe("E2E reusable workflow contract", () => {
     });
     expect(workflowCall?.inputs?.nvidia_secret_as_compatible_api_key).toBeUndefined();
     expect(exportStep?.if).toBe("${{ inputs.nvidia_api_key }}");
-    expect(exportStep?.uses).toBe(
-      "./workflow-actions/.github/actions/export-e2e-hosted-inference",
-    );
+    expect(exportStep?.uses).toBe("./workflow-actions/.github/actions/export-e2e-hosted-inference");
     expect(exportStep?.with?.["nvidia-inference-api-key"]).toBe(RAW_HOSTED_INFERENCE_SECRET);
 
     expect(hostedJobs.length).toBeGreaterThan(20);
