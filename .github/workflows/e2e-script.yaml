@@ -85,6 +85,8 @@ on:
     secrets:
       NVIDIA_INFERENCE_API_KEY:
         required: false
+      NVIDIA_API_KEY:
+        required: false
       BRAVE_API_KEY:
         required: false
       DOCKERHUB_USERNAME:
@@ -223,6 +225,7 @@ jobs:
         uses: ./workflow-actions/.github/actions/export-e2e-hosted-inference
         with:
           nvidia-inference-api-key: ${{ secrets.NVIDIA_INFERENCE_API_KEY }}
+          nvidia-api-key: ${{ secrets.NVIDIA_API_KEY }}
           export-nvidia-api-key: ${{ inputs.nvidia_api_key_alias }}
 
       - name: Run E2E script

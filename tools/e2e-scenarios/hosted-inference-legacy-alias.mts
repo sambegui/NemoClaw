@@ -49,3 +49,15 @@ export type HostedInferenceLegacyNvidiaApiKeyScriptJob =
 export const HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET: ReadonlySet<string> = new Set(
   HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS,
 );
+
+export const HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOBS = [
+  "cloud-inference-e2e",
+  ...HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS,
+] as const;
+
+export type HostedInferencePublicNvidiaFallbackScriptJob =
+  (typeof HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOBS)[number];
+
+export const HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOB_SET: ReadonlySet<string> = new Set(
+  HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOBS,
+);

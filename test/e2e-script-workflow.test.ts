@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOBS,
   HOSTED_INFERENCE_LEGACY_NVIDIA_API_KEY_SCRIPT_JOB_SET,
+  HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOB_SET,
 } from "../tools/e2e-scenarios/hosted-inference-legacy-alias.mts";
 
 import {
@@ -54,6 +55,7 @@ const TRUSTED_REF_GUARD = "github.event_name != 'workflow_dispatch' || inputs.ta
 const GUARDED_HOSTED_INFERENCE_SECRET = `\${{ (${TRUSTED_REF_GUARD}) && secrets.NVIDIA_INFERENCE_API_KEY || '' }}`;
 const GUARDED_PUBLIC_NVIDIA_SECRET = `\${{ (${TRUSTED_REF_GUARD}) && secrets.NVIDIA_API_KEY || '' }}`;
 const RAW_HOSTED_INFERENCE_SECRET = "${{ secrets.NVIDIA_INFERENCE_API_KEY }}";
+const RAW_PUBLIC_NVIDIA_SECRET = "${{ secrets.NVIDIA_API_KEY }}";
 
 function timingSummary(
   phases: Record<string, number> = { "nemoclaw.onboard.phase.preflight": 1000 },
@@ -407,6 +409,9 @@ describe("E2E reusable workflow contract", () => {
       DOCKERHUB_TOKEN:
         "${{ (github.event_name != 'workflow_dispatch' || inputs.target_ref == '') && secrets.DOCKERHUB_TOKEN || '' }}",
     };
+    const legacyAliasSecret = {
+      NVIDIA_API_KEY: GUARDED_PUBLIC_NVIDIA_SECRET,
+    };
     const messagingLiveSecrets = {
       TELEGRAM_BOT_TOKEN_REAL: `\${{ (${TRUSTED_REF_GUARD}) && secrets.TELEGRAM_BOT_TOKEN_REAL || '' }}`,
       TELEGRAM_CHAT_ID_E2E: `\${{ (${TRUSTED_REF_GUARD}) && secrets.TELEGRAM_CHAT_ID_E2E || '' }}`,
@@ -420,9 +425,13 @@ describe("E2E reusable workflow contract", () => {
     expect(reusableJobs.length).toBeGreaterThan(20);
     for (const [name, job] of reusableJobs) {
       const expectsLiveMessaging = name === "messaging-providers-e2e";
+      const expectsPublicNvidiaFallback =
+        HOSTED_INFERENCE_PUBLIC_NVIDIA_FALLBACK_SCRIPT_JOB_SET.has(name);
       const expectedSecrets = expectsLiveMessaging
-        ? { ...defaultSecrets, ...messagingLiveSecrets }
-        : defaultSecrets;
+        ? { ...defaultSecrets, ...legacyAliasSecret, ...messagingLiveSecrets }
+        : expectsPublicNvidiaFallback
+          ? { ...defaultSecrets, ...legacyAliasSecret }
+          : defaultSecrets;
       expect(job.secrets, name).toEqual(expectedSecrets);
       expect(job.with?.messaging_live_secrets ?? false, name).toBe(
         expectsLiveMessaging
@@ -933,6 +942,7 @@ describe("E2E reusable workflow contract", () => {
     expect(exportStep?.if).toBe("${{ inputs.nvidia_api_key }}");
     expect(exportStep?.uses).toBe("./workflow-actions/.github/actions/export-e2e-hosted-inference");
     expect(exportStep?.with?.["nvidia-inference-api-key"]).toBe(RAW_HOSTED_INFERENCE_SECRET);
+    expect(exportStep?.with?.["nvidia-api-key"]).toBe(RAW_PUBLIC_NVIDIA_SECRET);
     expect(exportStep?.with?.["export-nvidia-api-key"]).toBe("${{ inputs.nvidia_api_key_alias }}");
 
     expect(hostedJobs.length).toBeGreaterThan(20);
