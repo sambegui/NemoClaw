@@ -12,6 +12,7 @@ import {
   buildDockerDriverGatewayLaunch,
   buildDockerDriverGatewayRuntimeIdentity,
   parseGlibcVersionsFromBinaryText,
+  prepareAndLogDockerDriverGatewayLaunch,
   resolveDriftGatewayBin,
   shouldUseContainerizedGateway,
 } from "../../../dist/lib/onboard/docker-driver-gateway-launch";
@@ -131,8 +132,35 @@ describe("docker-driver-gateway-launch", () => {
       expect(toml).toContain(`supervisor_bin = "${sandboxBin}"`);
       expect(toml).toContain("[openshell.gateway.gateway_jwt]");
       expect(toml).toContain(`signing_key_path = "${path.join(stateDir, "jwt", "signing.pem")}"`);
+      expect(toml).toContain("[openshell.gateway.auth]");
+      expect(toml).toContain("allow_unauthenticated_users = true");
       expect(fs.existsSync(path.join(stateDir, "jwt", "public.pem"))).toBe(true);
     });
+  });
+
+  it("logs the auth boundary when compatibility mode wildcard-binds the gateway", () => {
+    const messages: string[] = [];
+    prepareAndLogDockerDriverGatewayLaunch(
+      {
+        command: "docker",
+        args: [],
+        env: {
+          OPENSHELL_BIND_ADDRESS: "0.0.0.0",
+          OPENSHELL_GATEWAY_CONFIG: "/tmp/openshell-gateway.toml",
+        },
+        mode: "container",
+        processGatewayBin: null,
+        reason: "forced by test",
+      },
+      (message) => messages.push(message),
+    );
+
+    expect(messages).toContain(
+      "  Compatibility gateway bind: 0.0.0.0 (required for Docker sandbox callbacks).",
+    );
+    expect(messages).toContain(
+      "  Gateway auth boundary: local user CLI/API calls stay compatibility-unauthenticated; sandbox callbacks use OpenShell gateway JWT.",
+    );
   });
 
   it("writes Docker driver settings in gateway TOML because OpenShell driver config is not env-backed", () => {

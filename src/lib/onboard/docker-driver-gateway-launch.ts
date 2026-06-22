@@ -366,5 +366,8 @@ export function prepareAndLogDockerDriverGatewayLaunch(
   if (launch.env.OPENSHELL_BIND_ADDRESS === "0.0.0.0") {
     log("  Compatibility gateway bind: 0.0.0.0 (required for Docker sandbox callbacks).");
   }
+  log(
+    "  Gateway auth boundary: local user CLI/API calls stay compatibility-unauthenticated; sandbox callbacks use OpenShell gateway JWT.",
+  );
   prepareDockerDriverGatewayLaunch(launch);
 }

@@ -109,10 +109,20 @@ export function buildDockerDriverGatewayConfigToml(
 
   if (jwtBundle) {
     // OpenShell v0.0.67 loads these tables from OPENSHELL_GATEWAY_CONFIG, with
-    // OPENSHELL_* env vars taking precedence. NemoClaw still registers
-    // providers through local CLI/API calls without a user auth header, so the
-    // package-managed loopback gateway must allow those user calls while the
-    // sandbox supervisor channel uses the generated gateway_jwt bundle.
+    // OPENSHELL_* env vars taking precedence. Its docs classify
+    // allow_unauthenticated_users as a local/trusted-proxy escape hatch that
+    // affects user-facing CLI/API calls, not sandbox supervisor callbacks.
+    // NemoClaw's package-managed gateway still registers providers through
+    // local CLI/API calls without a user auth header, so keep that local user
+    // path compatible while the supervisor channel authenticates with the
+    // generated gateway_jwt bundle below. The normal package-managed gateway
+    // remains loopback-bound; the separate Docker compatibility wrapper may
+    // bind 0.0.0.0 only so Docker sandbox callbacks can reach the host-network
+    // gateway container.
+    //
+    // Removal condition: set this back to false once NemoClaw supplies
+    // OpenShell user auth for local provider registration/CLI calls, or once
+    // OpenShell exposes an equivalent trusted local-user auth path.
     sections.push(
       "[openshell.gateway.gateway_jwt]",
       `signing_key_path = ${tomlString(jwtBundle.signingKeyPath)}`,
