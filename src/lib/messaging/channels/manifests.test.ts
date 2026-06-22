@@ -24,6 +24,7 @@ import {
   telegramManifest,
   wechatManifest,
   whatsappManifest,
+  zaloManifest,
 } from "./index";
 import {
   SLACK_SOCKET_MODE_GATEWAY_CONFLICT_HOOK_HANDLER_ID,
@@ -239,6 +240,9 @@ describe("built-in channel manifests", () => {
       "src/lib/messaging/channels/slack/hooks/socket-mode-gateway-status.ts",
       "src/lib/messaging/channels/slack/hooks/validate-credentials.ts",
       "src/lib/messaging/channels/whatsapp/manifest.ts",
+      "src/lib/messaging/channels/zalo/manifest.ts",
+      "src/lib/messaging/channels/zalo/hooks/index.ts",
+      "src/lib/messaging/channels/zalo/hooks/openclaw-bridge-health.ts",
       "src/lib/messaging/hooks/common/config-prompt.ts",
       "src/lib/messaging/hooks/common/token-paste.ts",
     ];
@@ -649,5 +653,55 @@ describe("built-in channel manifests", () => {
     expectOpenClawNodePreload(whatsappManifest, "whatsapp-qr-compact");
     expect(JSON.stringify(whatsappManifest.runtime?.openclaw)).toContain("whatsapp-qr-compact");
     expectOpenClawRuntimeVisibility(whatsappManifest, ["whatsapp"], ["whatsapp"]);
+  });
+
+  it("declares Zalo as an OpenClaw-only flat-render channel with allowlist config", () => {
+    const botToken = findInput(zaloManifest, "botToken");
+    const allowedIds = findInput(zaloManifest, "allowedIds");
+    const groupPolicy = findInput(zaloManifest, "groupPolicy");
+    expect(zaloManifest.supportedAgents).toEqual(["openclaw"]);
+    expect(botToken.envKey).toBe("ZALO_BOT_TOKEN");
+    expect(allowedIds.envKey).toBe("ZALO_ALLOWED_IDS");
+    expect(allowedIds.statePath).toBe("allowedIds.zalo");
+    expect(groupPolicy).toMatchObject({
+      kind: "config",
+      envKey: "ZALO_GROUP_POLICY",
+      statePath: "zaloConfig.groupPolicy",
+      defaultValue: "allowlist",
+      validValues: ["open", "allowlist", "disabled"],
+    });
+    expect(policyPresetNames(zaloManifest)).toEqual(["zalo"]);
+    expect(zaloManifest.credentials).toEqual([
+      {
+        id: "zaloBotToken",
+        sourceInput: "botToken",
+        providerName: "{sandboxName}-zalo-bridge",
+        providerEnvKey: "ZALO_BOT_TOKEN",
+        placeholder: "openshell:resolve:env:ZALO_BOT_TOKEN",
+      },
+    ]);
+    // @openclaw/zalo rejects the shared accounts.default shape, so the OpenClaw
+    // render must stay a flat channels.zalo object.
+    expect(renderJson(zaloManifest)).toContain('"path":"channels.zalo"');
+    expect(renderJson(zaloManifest)).not.toContain('"accounts"');
+    expect(renderJson(zaloManifest)).toContain('"path":"plugins.entries.zalo"');
+    // OpenClaw-only: no Hermes render targets.
+    expect(zaloManifest.render.every((entry) => entry.agent === "openclaw")).toBe(true);
+    expect(zaloManifest.agentPackages).toContainEqual({
+      id: "openclawPluginPackage",
+      agent: "openclaw",
+      manager: "openclaw-plugin",
+      spec: "npm:@openclaw/zalo@{{openclaw.version}}",
+      pin: true,
+      required: true,
+    });
+    expectTokenPasteEnrollHook(zaloManifest, ["botToken"]);
+    expectConfigPromptEnrollHook(zaloManifest, ["allowedIds", "groupPolicy"]);
+    expectOpenClawBridgeHealthHook(
+      zaloManifest,
+      "zalo-openclaw-bridge-health",
+      "zalo.openclawBridgeHealth",
+    );
+    expectOpenClawRuntimeVisibility(zaloManifest, ["zalo"], ["zalo"]);
   });
 });

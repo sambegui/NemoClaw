@@ -22,6 +22,7 @@ const TEST_CREDENTIALS: Readonly<Record<string, string>> = {
   WECHAT_BOT_TOKEN: "test-wechat-token",
   SLACK_BOT_TOKEN: "xoxb-test-slack-token",
   SLACK_APP_TOKEN: "xapp-test-slack-token",
+  ZALO_BOT_TOKEN: "987654321:test-zalo-token",
 };
 const TEST_WECHAT_LOGIN = {
   token: "test-wechat-token",
@@ -120,6 +121,16 @@ async function withEnv<T>(
   }
 }
 
+function zaloChannelRender(plan: SandboxMessagingPlan) {
+  const render = plan.agentRender.find(
+    (entry) => entry.channelId === "zalo" && entry.renderId === "zalo-openclaw-channel",
+  );
+  if (!render || render.kind !== "json-fragment") {
+    throw new Error("expected a zalo channels.zalo json-fragment render");
+  }
+  return render;
+}
+
 describe("ManifestCompiler", () => {
   it("compiles built-in manifests into a deterministic OpenClaw plan", async () => {
     const plan = await compiler().compile({
@@ -127,17 +138,18 @@ describe("ManifestCompiler", () => {
       agent: "openclaw",
       workflow: "onboard",
       isInteractive: true,
-      configuredChannels: ["slack", "telegram", "wechat", "discord", "whatsapp"],
+      configuredChannels: ["slack", "telegram", "wechat", "discord", "whatsapp", "zalo"],
       credentialAvailability: {
         TELEGRAM_BOT_TOKEN: true,
         DISCORD_BOT_TOKEN: true,
         WECHAT_BOT_TOKEN: true,
         SLACK_BOT_TOKEN: true,
         SLACK_APP_TOKEN: true,
+        ZALO_BOT_TOKEN: true,
       },
     });
 
-    expect(plan.channels.map((channel) => channel.channelId)).toEqual(ALL_CHANNELS);
+    expect(plan.channels.map((channel) => channel.channelId)).toEqual([...ALL_CHANNELS, "zalo"]);
     expect(plan.channels.every((channel) => channel.active)).toBe(true);
     expect(plan.credentialBindings.map((binding) => binding.providerName)).toEqual([
       "demo-telegram-bridge",
@@ -145,6 +157,7 @@ describe("ManifestCompiler", () => {
       "demo-wechat-bridge",
       "demo-slack-bridge",
       "demo-slack-app",
+      "demo-zalo-bridge",
     ]);
     expect(plan.credentialBindings.map((binding) => binding.placeholder)).toEqual([
       "openshell:resolve:env:TELEGRAM_BOT_TOKEN",
@@ -152,6 +165,7 @@ describe("ManifestCompiler", () => {
       "openshell:resolve:env:WECHAT_BOT_TOKEN",
       "xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN",
       "xapp-OPENSHELL-RESOLVE-ENV-SLACK_APP_TOKEN",
+      "openshell:resolve:env:ZALO_BOT_TOKEN",
     ]);
     expect(plan.networkPolicy.entries).toEqual([
       {
@@ -184,6 +198,12 @@ describe("ManifestCompiler", () => {
         policyKeys: ["whatsapp"],
         source: "manifest",
       },
+      {
+        channelId: "zalo",
+        presetName: "zalo",
+        policyKeys: ["zalo"],
+        source: "manifest",
+      },
     ]);
     expect(plan.agentRender.map((render) => `${render.channelId}:${render.renderId}`)).toEqual([
       "telegram:telegram-openclaw-channel",
@@ -196,6 +216,8 @@ describe("ManifestCompiler", () => {
       "slack:slack-openclaw-plugin",
       "whatsapp:whatsapp-openclaw-channel",
       "whatsapp:whatsapp-openclaw-plugin",
+      "zalo:zalo-openclaw-channel",
+      "zalo:zalo-openclaw-plugin",
     ]);
     expect(plan.agentRender.every((render) => render.handler === "common.staticOutputs")).toBe(
       true,
@@ -246,6 +268,12 @@ describe("ManifestCompiler", () => {
       },
       {
         channelId: "whatsapp",
+        kind: "package-install",
+        outputId: "openclawPluginPackage",
+        required: true,
+      },
+      {
+        channelId: "zalo",
         kind: "package-install",
         outputId: "openclawPluginPackage",
         required: true,
@@ -304,12 +332,30 @@ describe("ManifestCompiler", () => {
         requiredBefore: "lifecycle-success",
         hookIds: ["slack-openclaw-bridge-health"],
       },
+      {
+        channelId: "zalo",
+        phase: "health-check",
+        requiredBefore: "lifecycle-success",
+        hookIds: ["zalo-openclaw-bridge-health"],
+      },
     ]);
     expect(
       plan.agentRender.find(
         (render) => render.channelId === "telegram" && render.kind === "json-fragment",
       )?.templateRefs,
     ).toEqual([]);
+
+    // Zalo renders a flat channels.zalo fragment (no accounts.default nesting,
+    // which @openclaw/zalo rejects); dmPolicy/allowFrom stay omitted without an allowlist.
+    const zaloValue = zaloChannelRender(plan).value as Record<string, unknown>;
+    expect(zaloValue).not.toHaveProperty("accounts");
+    expect(zaloValue).toMatchObject({
+      enabled: true,
+      botToken: "openshell:resolve:env:ZALO_BOT_TOKEN",
+      groupPolicy: "allowlist",
+    });
+    expect(zaloValue).not.toHaveProperty("dmPolicy");
+    expect(zaloValue).not.toHaveProperty("allowFrom");
   });
 
   it("compiles Hermes render and manifest-owned WeChat policy intent", async () => {
