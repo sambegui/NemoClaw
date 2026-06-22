@@ -12,6 +12,7 @@ import { expect, test } from "../fixtures/e2e-test.ts";
 import { requireHostedInferenceConfig } from "../fixtures/hosted-inference.ts";
 import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
 import type { ShellProbeResult, ShellProbeRunOptions } from "../fixtures/shell-probe.ts";
+import { negativeOverlayOutcome } from "./overlayfs-autofix-outcome.ts";
 
 // Live Vitest replacement for test/e2e/test-overlayfs-autofix.sh.
 // Keep this direct: the legacy contract mutates the host Docker daemon into
@@ -31,8 +32,6 @@ const TEST_TIMEOUT_MS = Number(process.env.NEMOCLAW_E2E_TIMEOUT_SECONDS ?? 1_500
 const NEGATIVE_TIMEOUT_SECONDS = Number(process.env.NEMOCLAW_OVERLAYFS_E2E_NEGATIVE_TIMEOUT ?? 300);
 const GATEWAY_CONTAINER = "openshell-cluster-nemoclaw";
 const DAEMON_JSON = "/etc/docker/daemon.json";
-const OVERLAY_SIGNATURES =
-  /overlayfs.*snapshotter cannot be enabled|CreateDiff: Canceled|failed to mount overlay/i;
 
 function text(result: ShellProbeResult): string {
   return [result.stdout, result.stderr].filter(Boolean).join("\n");
@@ -142,17 +141,6 @@ async function waitForDocker(host: HostCliClient): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, ready ? 0 : 2_000));
   }
   return ready;
-}
-
-function negativeOverlayOutcome(
-  result: ShellProbeResult,
-  evidence: string,
-): "reproduced" | "timeout" | "unrelated" {
-  return OVERLAY_SIGNATURES.test(evidence)
-    ? "reproduced"
-    : result.exitCode === 124 || result.timedOut
-      ? "timeout"
-      : "unrelated";
 }
 
 test.skipIf(!shouldRunLiveE2EScenarios() || overlayfsAutofixNotInRuntimePath())(
