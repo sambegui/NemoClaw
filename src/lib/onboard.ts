@@ -115,8 +115,6 @@ const {
 const {
   syncPresetSelection,
 }: typeof import("./onboard/policy-preset-sync") = require("./onboard/policy-preset-sync");
-const messagingPolicyTemplates: typeof import("./onboard/messaging-policy-templates") =
-  require("./onboard/messaging-policy-templates");
 const {
   maybeForceE2eStepFailure,
 }: typeof import("./onboard/e2e-failure-injection") = require("./onboard/e2e-failure-injection");
@@ -4596,8 +4594,7 @@ async function setupPoliciesWithSelection(
   sandboxName: string,
   options: SetupPolicySelectionOptions = {},
 ) {
-  let reconciledLivePolicy = false;
-  const result = await setupPoliciesWithSelectionImpl(
+  return setupPoliciesWithSelectionImpl(
     {
       policies,
       tiers,
@@ -4615,18 +4612,8 @@ async function setupPoliciesWithSelection(
       env: process.env,
     },
     sandboxName,
-    {
-      ...options,
-      onSelection: (policyPresets) => {
-        reconciledLivePolicy = true;
-        options.onSelection?.(policyPresets);
-      },
-    },
+    options,
   );
-  if (reconciledLivePolicy) {
-    messagingPolicyTemplates.applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName);
-  }
-  return result;
 }
 
 const {

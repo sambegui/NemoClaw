@@ -46,6 +46,12 @@ type TiersApi = {
   getTier(tierName: string): unknown;
 };
 
+function applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName: string): void {
+  const messagingPolicyTemplates: typeof import("./messaging-policy-templates") =
+    require("./messaging-policy-templates");
+  messagingPolicyTemplates.applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName);
+}
+
 export type SetupPresetSuggestionOptions = {
   enabledChannels?: string[] | null;
   webSearchConfig?: WebSearchConfig | null;
@@ -373,6 +379,7 @@ async function setupPoliciesWithSelectionInner(
     }
     deps.note(`  [resume] Reapplying policy presets: ${resumeSelection.join(", ")}`);
     deps.syncPresetSelection(sandboxName, currentAppliedPresets, resumeSelection);
+    applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName);
     return resumeSelection;
   }
 
@@ -464,6 +471,7 @@ async function setupPoliciesWithSelectionInner(
     }
     deps.note(`  [non-interactive] Applying policy presets: ${chosen.join(", ")}`);
     deps.syncPresetSelection(sandboxName, currentAppliedPresets, chosen);
+    applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName);
     return chosen;
   }
 
@@ -499,5 +507,6 @@ async function setupPoliciesWithSelectionInner(
   const accessByName: Record<string, string> = {};
   for (const preset of resolvedPresets) accessByName[preset.name] = preset.access;
   deps.syncPresetSelection(sandboxName, currentAppliedPresets, interactiveChoice, accessByName);
+  applyGeneratedMessagingPolicyTemplatesFromRegistry(sandboxName);
   return interactiveChoice;
 }
