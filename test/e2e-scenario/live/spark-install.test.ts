@@ -168,6 +168,7 @@ liveTest(
 
     const installLog =
       process.env.INSTALL_LOG ?? artifacts.pathFor("logs/install.log");
+    fs.mkdirSync(path.dirname(installLog), { recursive: true });
     const installer = buildInstallerInvocation(installLog);
     await artifacts.writeJson("installer.json", {
       mode: installer.mode,
