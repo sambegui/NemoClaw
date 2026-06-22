@@ -18,7 +18,7 @@ for value in "${canonical}" "${public_alias}"; do
   fi
 done
 
-if [[ -z "${canonical}" && "${public_alias}" == nvapi-* ]]; then
+if [[ "${canonical}" != nvapi-* && "${public_alias}" == nvapi-* ]]; then
   canonical="${public_alias}"
 fi
 if [[ -z "${public_alias}" && "${canonical}" == nvapi-* ]]; then
