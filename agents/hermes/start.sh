@@ -703,26 +703,20 @@ seed_hermes_dashboard_config() {
   local owner="${1:-}"
   local dst="${HERMES_DASHBOARD_HOME}/config.yaml"
   local env_dst="${HERMES_DASHBOARD_HOME}/.env"
+  local -a seed_env=()
   local rc=0
 
-  "$_HERMES_PYTHON" "$_HERMES_DASHBOARD_CONFIG_SEEDER" \
+  if [ "$(id -u)" -eq 0 ] && [ -n "$owner" ]; then
+    seed_env=(NEMOCLAW_DASHBOARD_SEED_OWNER="$owner")
+  fi
+
+  env "${seed_env[@]}" "$_HERMES_PYTHON" "$_HERMES_DASHBOARD_CONFIG_SEEDER" \
     "${HERMES_DIR}/config.yaml" "$dst" \
     "${HERMES_DIR}/.env" "$env_dst" || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "[dashboard] ERROR: config seed exited ${rc}; refusing dashboard startup" >&2
     return "$rc"
   fi
-
-  # The seeder runs as root on the privilege-separated path; hand the file back
-  # to the dashboard user (its HERMES_HOME is chmod 700) so it can read/rewrite it.
-  for _dashboard_seeded_file in "$dst" "$env_dst"; do
-    if [ -f "$_dashboard_seeded_file" ]; then
-      if [ "$(id -u)" -eq 0 ] && [ -n "$owner" ]; then
-        chown "$owner" "$_dashboard_seeded_file" 2>/dev/null || true
-      fi
-      chmod 600 "$_dashboard_seeded_file" 2>/dev/null || true
-    fi
-  done
 }
 
 start_hermes_dashboard_current_user() {

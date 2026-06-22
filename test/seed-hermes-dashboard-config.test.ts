@@ -64,11 +64,18 @@ const GATEWAY_CONFIG = {
 
 let tmpDir: string;
 
-function runSeed(srcPath: string, dstPath: string, envSrcPath?: string, envDstPath?: string) {
+function runSeed(
+  srcPath: string,
+  dstPath: string,
+  envSrcPath?: string,
+  envDstPath?: string,
+  env: Record<string, string | undefined> = {},
+) {
   const envArgs = envSrcPath && envDstPath ? [envSrcPath, envDstPath] : [];
   const args = [SCRIPT_PATH, srcPath, dstPath, ...envArgs];
   return spawnSync("python3", args, {
     encoding: "utf-8",
+    env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],
     timeout: 10_000,
   });
@@ -184,6 +191,30 @@ describe.skipIf(!PY_YAML_AVAILABLE)("seed-dashboard-config.py", () => {
       ].join("\n"),
     );
     expect(fs.statSync(envDst).mode & 0o777).toBe(0o600);
+  });
+
+  it("applies requested dashboard seed owner and mode before the atomic rename", () => {
+    const uid = process.getuid?.() ?? Number.NaN;
+    const gid = process.getgid?.() ?? Number.NaN;
+    const src = writeYaml("gw.yaml", GATEWAY_CONFIG);
+    const dst = path.join(tmpDir, "dash.yaml");
+    const envSrc = path.join(tmpDir, "gw.env");
+    const envDst = path.join(tmpDir, "dash.env");
+    fs.writeFileSync(envSrc, "API_SERVER_KEY=server-key\n");
+
+    const res = runSeed(src, dst, envSrc, envDst, {
+      NEMOCLAW_DASHBOARD_SEED_OWNER: `${uid}:${gid}`,
+    });
+
+    expect(res.status).toBe(0);
+    expect(Number.isInteger(uid)).toBe(true);
+    expect(Number.isInteger(gid)).toBe(true);
+    for (const seededPath of [dst, envDst]) {
+      const stat = fs.statSync(seededPath);
+      expect(stat.uid).toBe(uid);
+      expect(stat.gid).toBe(gid);
+      expect(stat.mode & 0o777).toBe(0o600);
+    }
   });
 
   it("keeps custom_providers dynamic via discover_models (no static model list)", () => {

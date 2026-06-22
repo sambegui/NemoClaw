@@ -39,7 +39,9 @@ to match the rest of the gateway startup contract.
 from __future__ import annotations
 
 import errno
+import grp
 import os
+import pwd
 import sys
 from typing import Callable, TextIO
 
@@ -57,6 +59,24 @@ _DASHBOARD_ENV_SKIP_KEYS = frozenset(
 )
 
 
+def _lookup_uid(value: str) -> int:
+    return int(value) if value.isdigit() else pwd.getpwnam(value).pw_uid
+
+
+def _lookup_gid(value: str) -> int:
+    return int(value) if value.isdigit() else grp.getgrnam(value).gr_gid
+
+
+def _seed_owner_ids() -> tuple[int, int] | None:
+    owner = os.environ.get("NEMOCLAW_DASHBOARD_SEED_OWNER", "").strip()
+    if not owner:
+        return None
+    user, separator, group = owner.partition(":")
+    uid = _lookup_uid(user)
+    gid = _lookup_gid(group) if separator else -1
+    return uid, gid
+
+
 def _load_yaml(path: str) -> dict:
     import yaml
 
@@ -71,15 +91,20 @@ def _atomic_write_no_follow(dst: str, label: str, writer: Callable[[TextIO], Non
     for flag_name in ("O_CLOEXEC", "O_NOFOLLOW"):
         flags |= getattr(os, flag_name, 0)
 
+    owner_ids = _seed_owner_ids()
     fd = -1
     created = False
     try:
         fd = os.open(tmp, flags, 0o600)
         created = True
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = -1
+        with os.fdopen(fd, "w", encoding="utf-8", closefd=False) as handle:
             writer(handle)
-        os.chmod(tmp, 0o600)
+            handle.flush()
+        if owner_ids is not None:
+            os.fchown(fd, owner_ids[0], owner_ids[1])
+        os.fchmod(fd, 0o600)
+        os.close(fd)
+        fd = -1
         os.replace(tmp, dst)
         created = False
         return True
