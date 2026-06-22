@@ -87,22 +87,45 @@ function runHermesConfigIntegrityVerifierAsRoot() {
   }
 }
 
-function runHermesDashboardSeedAsRoot() {
+function runHermesDashboardHomePrepAsRoot() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-hermes-dashboard-seed-"));
   const scriptPath = path.join(tmpDir, "run.sh");
+  const binDir = path.join(tmpDir, "bin");
   const fakePython = path.join(tmpDir, "fake-python.sh");
   const logPath = path.join(tmpDir, "seed.log");
   const hermesHome = path.join(tmpDir, ".hermes");
   const dashboardHome = path.join(hermesHome, "dashboard-home");
   const src = fs.readFileSync(START_SCRIPT, "utf-8");
   fs.mkdirSync(dashboardHome, { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(path.join(dashboardHome, "gateway_state.json"), "stale\n");
+  for (const [name, realCommand] of [
+    ["mkdir", "/bin/mkdir"],
+    ["chmod", "/bin/chmod"],
+    ["rm", "/bin/rm"],
+    ["chown", ""],
+  ] as const) {
+    fs.writeFileSync(
+      path.join(binDir, name),
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `printf 'cmd=${name} stepped=%s args=' "\${NEMOCLAW_TEST_STEPPED_DOWN:-0}" >>${shellQuote(logPath)}`,
+        `printf '%q ' "$@" >>${shellQuote(logPath)}`,
+        `printf '\\n' >>${shellQuote(logPath)}`,
+        realCommand ? `exec ${realCommand} "$@"` : "exit 64",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
   fs.writeFileSync(
     fakePython,
     [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
-      `printf 'stepped=%s\\n' "\${NEMOCLAW_TEST_STEPPED_DOWN:-0}" >>${shellQuote(logPath)}`,
+      `printf 'cmd=python stepped=%s args=' "\${NEMOCLAW_TEST_STEPPED_DOWN:-0}" >>${shellQuote(logPath)}`,
+      `printf '%q ' "$@" >>${shellQuote(logPath)}`,
+      `printf '\\n' >>${shellQuote(logPath)}`,
       `printf 'args=%s\\n' "$*" >>${shellQuote(logPath)}`,
     ].join("\n"),
     { mode: 0o700 },
@@ -112,14 +135,16 @@ function runHermesDashboardSeedAsRoot() {
     [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
+      `PATH=${shellQuote(`${binDir}:${process.env.PATH ?? ""}`)}`,
+      "export PATH",
       'id() { if [ "${1:-}" = "-u" ]; then printf "0\\n"; else command id "$@"; fi; }',
-      extractShellFunctionFromSource(src, "seed_hermes_dashboard_config"),
+      extractShellFunctionFromSource(src, "prepare_hermes_dashboard_home"),
       `HERMES_DIR=${shellQuote(hermesHome)}`,
       `HERMES_DASHBOARD_HOME=${shellQuote(dashboardHome)}`,
       `_HERMES_PYTHON=${shellQuote(fakePython)}`,
       `_HERMES_DASHBOARD_CONFIG_SEEDER=${shellQuote(path.join(tmpDir, "seed-dashboard-config.py"))}`,
       "STEP_DOWN_PREFIX_SANDBOX=(env NEMOCLAW_TEST_STEPPED_DOWN=1)",
-      "seed_hermes_dashboard_config sandbox:sandbox",
+      "prepare_hermes_dashboard_home sandbox:sandbox",
       `if [ -e ${shellQuote(path.join(dashboardHome, "gateway_state.json"))} ]; then echo gateway_state_exists=1; else echo gateway_state_exists=0; fi`,
       `cat ${shellQuote(logPath)}`,
     ].join("\n"),
@@ -792,13 +817,17 @@ describe("agents/hermes/start.sh config integrity", () => {
     expect(result.stdout.trim()).toMatch(/:stepped=1$/);
   });
 
-  it("runs root dashboard state cleanup and config seeding through the sandbox identity", () => {
-    const result = runHermesDashboardSeedAsRoot();
+  it("prepares root dashboard home and seeds config through the sandbox identity", () => {
+    const result = runHermesDashboardHomePrepAsRoot();
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("gateway_state_exists=0");
-    expect(result.stdout).toContain("stepped=1");
+    expect(result.stdout).toContain("cmd=mkdir stepped=1");
+    expect(result.stdout).toContain("cmd=chmod stepped=1");
+    expect(result.stdout).toContain("cmd=rm stepped=1");
+    expect(result.stdout).toContain("cmd=python stepped=1");
+    expect(result.stdout).not.toContain("cmd=chown");
     expect(result.stdout).toContain("/config.yaml");
     expect(result.stdout).toContain("/.env");
   });
