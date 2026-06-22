@@ -495,16 +495,17 @@ const envelope = await receiveSlackSocketEvent();
 const event = envelope?.payload?.event;
 if (!event || event.type !== "message" || !event.user || !event.channel) throw new Error("unexpected fake Slack envelope: " + JSON.stringify(envelope).slice(0, 400));
 if (event.user !== process.env.SLACK_PAIRING_USER) throw new Error("unexpected fake Slack user: " + event.user);
+let replyText = "";
 const result = await issuePairingChallenge({
   channel: "slack",
   senderId: event.user,
   senderIdLine: "Slack user ID: " + event.user,
   meta: { accountId: "default", channelId: event.channel, teamId: envelope.payload?.team_id || "" },
   upsertPairingRequest: async ({ id, meta }) => upsertChannelPairingRequest({ channel: "slack", id, accountId: "default", meta }),
-  sendPairingReply: async (text) => { await postPairingReply(text, event.channel); },
+  sendPairingReply: async (text) => { replyText = text; await postPairingReply(text, event.channel); },
 });
 if (!result.created || !result.code) throw new Error("pairing challenge was not created: " + JSON.stringify(result));
-console.log("PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, senderId: event.user, channelId: event.channel }));
+console.log("PAIRING_E2E_RESULT " + JSON.stringify({ code: result.code, senderId: event.user, channelId: event.channel, replyText }));
 NODE
 `
   .replace("__LOAD_CONVERSATION_RUNTIME_SOURCE__", LOAD_CONVERSATION_RUNTIME_SOURCE)

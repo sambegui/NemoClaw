@@ -13,7 +13,7 @@ import {
   assertOpenClawStateRoot,
   assertSlackPresetPolicySemantics,
   cleanupPairingSandbox,
-  extractPairingCode,
+  extractPairingResult,
   issuePairingRequest,
   PAIRING_USER,
   pairingEnv,
@@ -170,15 +170,24 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       fakeSlackPort: fakeSlack.port,
     });
     expectExitZero(issue, "Slack pairing request creation");
-    const code = extractPairingCode(resultText(issue), "PAIRING_E2E_RESULT");
-    assertSlackCapture(fakeSlack.captureFile, code, PAIRING_USER.slack);
-    await writePairingArtifacts(artifacts, "slack", { code, user: PAIRING_USER.slack });
+    const pairing = extractPairingResult(resultText(issue), "PAIRING_E2E_RESULT");
+    expect(pairing.replyText, "Slack pairing reply includes generated code").toContain(
+      pairing.code,
+    );
+    expect(pairing.replyText, "Slack pairing reply includes sender identity").toContain(
+      PAIRING_USER.slack,
+    );
+    assertSlackCapture(fakeSlack.captureFile, pairing.code, PAIRING_USER.slack);
+    await writePairingArtifacts(artifacts, "slack", {
+      code: pairing.code,
+      user: PAIRING_USER.slack,
+    });
 
     await approveAndAssertPairing({
       sandbox,
       sandboxName: SANDBOX_NAME,
       channel: "slack",
-      code,
+      code: pairing.code,
       redactions,
     });
   },
