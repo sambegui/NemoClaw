@@ -39,11 +39,14 @@ function text(result: ShellProbeResult): string {
 }
 
 function assertTestOwnedSandboxName(): void {
-  if (!SANDBOX_NAME.startsWith(TEST_SANDBOX_PREFIX)) {
-    throw new Error(
-      `overlayfs-autofix live test is destructive and only accepts sandbox names with prefix ${TEST_SANDBOX_PREFIX}; got ${SANDBOX_NAME}`,
-    );
-  }
+  expect(
+    SANDBOX_NAME.startsWith(TEST_SANDBOX_PREFIX),
+    `overlayfs-autofix live test is destructive and only accepts sandbox names with prefix ${TEST_SANDBOX_PREFIX}; got ${SANDBOX_NAME}`,
+  ).toBe(true);
+}
+
+function overlayfsAutofixNotInRuntimePath(): boolean {
+  return os.platform() === "linux" && isLinuxDockerDriverGatewayEnabled("linux", process.arch);
 }
 
 function overlayEnv(apiKey: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -128,19 +131,31 @@ async function dockerInfoJson(
 }
 
 async function waitForDocker(host: HostCliClient): Promise<boolean> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  let ready = false;
+  for (let attempt = 0; attempt < 10 && !ready; attempt += 1) {
     const result = await host.command("docker", ["info"], {
       artifactName: `wait-docker-info-${attempt + 1}`,
       env: buildAvailabilityProbeEnv(),
       timeoutMs: 30_000,
     });
-    if (result.exitCode === 0) return true;
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    ready = result.exitCode === 0;
+    await new Promise((resolve) => setTimeout(resolve, ready ? 0 : 2_000));
   }
-  return false;
+  return ready;
 }
 
-test.skipIf(!shouldRunLiveE2EScenarios())(
+function negativeOverlayOutcome(
+  result: ShellProbeResult,
+  evidence: string,
+): "reproduced" | "timeout" | "unrelated" {
+  return OVERLAY_SIGNATURES.test(evidence)
+    ? "reproduced"
+    : result.exitCode === 124 || result.timedOut
+      ? "timeout"
+      : "unrelated";
+}
+
+test.skipIf(!shouldRunLiveE2EScenarios() || overlayfsAutofixNotInRuntimePath())(
   "overlayfs-autofix: patched cluster image handles Docker containerd overlayfs",
   async ({ artifacts, cleanup, host, secrets, skip }) => {
     assertTestOwnedSandboxName();
@@ -160,17 +175,6 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       ],
     });
 
-    if (os.platform() === "linux" && isLinuxDockerDriverGatewayEnabled("linux", process.arch)) {
-      await artifacts.writeJson("applicability.json", {
-        skipped: true,
-        reason:
-          "OpenShell Docker-driver onboarding is active on Linux; k3s overlayfs auto-fix is not in the runtime path",
-      });
-      skip(
-        "OpenShell Docker-driver onboarding is active on Linux; k3s overlayfs auto-fix is not in the runtime path",
-      );
-    }
-
     const apiKey = secrets.required("NVIDIA_INFERENCE_API_KEY");
     const redactionValues = [apiKey];
 
@@ -179,26 +183,26 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       env: buildAvailabilityProbeEnv(),
       timeoutMs: 30_000,
     });
-    if (dockerPrereq.exitCode !== 0) {
-      if (process.env.GITHUB_ACTIONS === "true") {
-        throw new Error(`Docker is required for overlayfs-autofix: ${text(dockerPrereq)}`);
-      }
+    dockerPrereq.exitCode !== 0 &&
+      process.env.GITHUB_ACTIONS !== "true" &&
       skip("Docker is required for overlayfs-autofix live coverage");
-    }
+    expect(
+      dockerPrereq.exitCode,
+      `Docker is required for overlayfs-autofix: ${text(dockerPrereq)}`,
+    ).toBe(0);
 
     const sudoPrereq = await host.command("sudo", ["-n", "true"], {
       artifactName: "phase-0-sudo-check",
       env: buildAvailabilityProbeEnv(),
       timeoutMs: 30_000,
     });
-    if (sudoPrereq.exitCode !== 0) {
-      if (process.env.GITHUB_ACTIONS === "true") {
-        throw new Error(
-          `Passwordless sudo is required to edit ${DAEMON_JSON}: ${text(sudoPrereq)}`,
-        );
-      }
+    sudoPrereq.exitCode !== 0 &&
+      process.env.GITHUB_ACTIONS !== "true" &&
       skip(`Passwordless sudo is required to edit ${DAEMON_JSON}`);
-    }
+    expect(
+      sudoPrereq.exitCode,
+      `Passwordless sudo is required to edit ${DAEMON_JSON}: ${text(sudoPrereq)}`,
+    ).toBe(0);
 
     const installExists = fs.existsSync(path.join(process.cwd(), "install.sh"));
     expect(installExists, "install.sh must exist at repo root").toBe(true);
@@ -213,42 +217,42 @@ test.skipIf(!shouldRunLiveE2EScenarios())(
       },
     );
     const major = Number.parseInt(version.stdout.trim().split(".")[0] ?? "", 10);
-    if (Number.isFinite(major) && major < 23) {
+    Number.isFinite(major) &&
+      major < 23 &&
       skip(`Docker ${version.stdout.trim()} predates the containerd-snapshotter feature flag`);
-    }
 
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-overlayfs-vitest-"));
     const daemonBackup = path.join(stateDir, "daemon.json.bak");
     const daemonAbsentMarker = path.join(stateDir, "daemon.json.absent");
     cleanup.add("restore Docker daemon configuration after overlayfs-autofix", async () => {
       await bestEffort(async () => {
-        if (fs.existsSync(daemonAbsentMarker)) {
-          await bash(
-            host,
-            `sudo rm -f ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
-            {
-              artifactName: "cleanup-restore-daemon-absent",
-              env: buildAvailabilityProbeEnv(),
-              timeoutMs: 60_000,
-            },
-          );
-        } else if (fs.existsSync(daemonBackup)) {
-          await bash(
-            host,
-            `sudo cp ${JSON.stringify(daemonBackup)} ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
-            {
-              artifactName: "cleanup-restore-daemon-backup",
-              env: buildAvailabilityProbeEnv(),
-              timeoutMs: 60_000,
-            },
-          );
-        }
+        await (fs.existsSync(daemonAbsentMarker)
+          ? bash(
+              host,
+              `sudo rm -f ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
+              {
+                artifactName: "cleanup-restore-daemon-absent",
+                env: buildAvailabilityProbeEnv(),
+                timeoutMs: 60_000,
+              },
+            )
+          : fs.existsSync(daemonBackup)
+            ? bash(
+                host,
+                `sudo cp ${JSON.stringify(daemonBackup)} ${DAEMON_JSON} 2>/dev/null || true; sudo systemctl restart docker 2>/dev/null || true`,
+                {
+                  artifactName: "cleanup-restore-daemon-backup",
+                  env: buildAvailabilityProbeEnv(),
+                  timeoutMs: 60_000,
+                },
+              )
+            : Promise.resolve());
       });
       fs.rmSync(stateDir, { recursive: true, force: true });
     });
     cleanup.add(`destroy overlayfs-autofix sandbox ${SANDBOX_NAME}`, async () => {
-      if (process.env.NEMOCLAW_E2E_KEEP_SANDBOX === "1") return;
-      await bestEffort(() => preCleanup(host, apiKey, "cleanup-overlayfs-sandbox"));
+      process.env.NEMOCLAW_E2E_KEEP_SANDBOX !== "1" &&
+        (await bestEffort(() => preCleanup(host, apiKey, "cleanup-overlayfs-sandbox")));
     });
 
     const backup = await bash(
@@ -283,18 +287,16 @@ sudo systemctl restart docker`,
     expect(await waitForDocker(host), "Docker must come back after daemon restart").toBe(true);
 
     const info = await dockerInfoJson(host, "phase-1-docker-info-json");
-    if (info.Driver !== "overlayfs") {
-      await artifacts.writeJson("phase-1-skip-driver.json", { driver: info.Driver ?? null });
+    info.Driver !== "overlayfs" &&
+      (await artifacts.writeJson("phase-1-skip-driver.json", { driver: info.Driver ?? null }),
       skip(
         `Docker reports Driver=${String(info.Driver ?? "?")} — runner did not switch to overlayfs`,
-      );
-    }
-    if (!JSON.stringify(info).includes("io.containerd.snapshotter.v1")) {
-      await artifacts.writeJson("phase-1-skip-driver-status.json", {
+      ));
+    !JSON.stringify(info).includes("io.containerd.snapshotter.v1") &&
+      (await artifacts.writeJson("phase-1-skip-driver-status.json", {
         driverStatus: info.DriverStatus ?? null,
-      });
-      skip("Docker overlayfs is active but DriverStatus does not advertise the v1 snapshotter");
-    }
+      }),
+      skip("Docker overlayfs is active but DriverStatus does not advertise the v1 snapshotter"));
 
     await preCleanup(host, apiKey, "phase-2-pre-cleanup");
 
@@ -417,21 +419,24 @@ sudo systemctl restart docker`,
       timeoutMs: 30_000,
     });
     const negativeEvidence = [text(negativeClusterLogs), text(negative)].join("\n");
-    if (OVERLAY_SIGNATURES.test(negativeEvidence)) {
-      await artifacts.writeJson("phase-5-negative-evidence.json", { reproduced: true });
-    } else if (negative.exitCode === 124 || negative.timedOut) {
-      await artifacts.writeJson("phase-5-negative-evidence.json", {
-        reproduced: false,
-        skipped: true,
-        reason: `runner did not reproduce nested-overlay bug before ${NEGATIVE_TIMEOUT_SECONDS}s timeout`,
-      });
-      skip(
-        `Runner did not reproduce the nested-overlay bug under the upstream image before ${NEGATIVE_TIMEOUT_SECONDS}s timeout`,
-      );
-    } else {
-      throw new Error(
-        `Negative phase exited ${negative.exitCode} without nested-overlay signature; likely unrelated flake: ${text(negative).slice(0, 1_000)}`,
-      );
+    switch (negativeOverlayOutcome(negative, negativeEvidence)) {
+      case "reproduced":
+        await artifacts.writeJson("phase-5-negative-evidence.json", { reproduced: true });
+        break;
+      case "timeout":
+        await artifacts.writeJson("phase-5-negative-evidence.json", {
+          reproduced: false,
+          skipped: true,
+          reason: `runner did not reproduce nested-overlay bug before ${NEGATIVE_TIMEOUT_SECONDS}s timeout`,
+        });
+        skip(
+          `Runner did not reproduce the nested-overlay bug under the upstream image before ${NEGATIVE_TIMEOUT_SECONDS}s timeout`,
+        );
+        break;
+      case "unrelated":
+        throw new Error(
+          `Negative phase exited ${negative.exitCode} without nested-overlay signature; likely unrelated flake: ${text(negative).slice(0, 1_000)}`,
+        );
     }
   },
   TEST_TIMEOUT_MS * 3,
