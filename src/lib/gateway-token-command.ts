@@ -12,6 +12,8 @@
  *   exit 1: token unavailable; diagnostics written to stderr.
  */
 
+import { getAgentBranding } from "./cli/branding";
+
 export interface GatewayTokenCommandDeps {
   /** Pull gateway.auth.token from the sandbox config (host-side helper). */
   fetchToken: (sandboxName: string) => string | null;
@@ -66,9 +68,15 @@ const SECURITY_WARNING = "Treat this token like a password -- do not log, share,
 function notApplicableLines(sandboxName: string, agent: string): readonly string[] {
   const lead = `  gateway-token is not applicable for sandbox '${sandboxName}': it uses the '${agent}' agent, which does not expose a gateway auth token. This command only supports the OpenClaw agent.`;
   if (agent === "hermes") {
+    // Pull the invoked CLI name from branding so the hint matches whatever the
+    // user actually typed: `nemohermes` when launched through the alias,
+    // `nemoclaw` when Hermes is selected through the default binary. Resolving
+    // at call time (not import time) keeps the hint in sync with
+    // NEMOCLAW_INVOKED_AS even when the env var is set after module load.
+    const cliName = getAgentBranding().cli;
     return [
       lead,
-      `  For Hermes dashboard access, run: nemoclaw ${sandboxName} dashboard-url`,
+      `  For Hermes dashboard access, run: ${cliName} ${sandboxName} dashboard-url`,
       "  Hermes dashboard auth is read from the in-sandbox config (~/.hermes/config.yaml), not a gateway token.",
     ];
   }

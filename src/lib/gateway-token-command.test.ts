@@ -172,6 +172,77 @@ describe("runGatewayTokenCommand", () => {
     expect(stderr).toMatch(/\.hermes\/config\.yaml/);
   });
 
+  // PRA-2 on #5252: the Hermes diagnostic must reflect the invoked CLI alias
+  // so users who type `nemohermes` see `nemohermes` in the next-step hint,
+  // not the hardcoded `nemoclaw`. The launcher binaries set
+  // `NEMOCLAW_INVOKED_AS` so `getAgentBranding().cli` resolves to the right
+  // command at runtime.
+  it("Hermes diagnostic uses nemohermes when invoked through the NemoHermes alias", () => {
+    const previousInvokedAs = process.env.NEMOCLAW_INVOKED_AS;
+    process.env.NEMOCLAW_INVOKED_AS = "nemohermes";
+    try {
+      const sinks = makeSinks();
+      let thrown: GatewayTokenCommandError | null = null;
+      try {
+        runGatewayTokenCommand(
+          "hermes",
+          { quiet: false },
+          {
+            fetchToken: () => "should-not-be-called",
+            getSandboxAgent: () => "hermes",
+            log: sinks.log,
+            error: sinks.error,
+          },
+        );
+      } catch (error) {
+        thrown = error as GatewayTokenCommandError;
+      }
+      expect(thrown).toBeInstanceOf(GatewayTokenCommandError);
+      const stderr = thrown?.lines.join("\n") ?? "";
+      expect(stderr).toContain("For Hermes dashboard access, run: nemohermes hermes dashboard-url");
+      expect(stderr).not.toContain("nemoclaw hermes dashboard-url");
+    } finally {
+      if (previousInvokedAs === undefined) {
+        delete process.env.NEMOCLAW_INVOKED_AS;
+      } else {
+        process.env.NEMOCLAW_INVOKED_AS = previousInvokedAs;
+      }
+    }
+  });
+
+  it("Hermes diagnostic uses nemoclaw when Hermes is selected through the nemoclaw binary", () => {
+    const previousInvokedAs = process.env.NEMOCLAW_INVOKED_AS;
+    process.env.NEMOCLAW_INVOKED_AS = "nemoclaw";
+    try {
+      const sinks = makeSinks();
+      let thrown: GatewayTokenCommandError | null = null;
+      try {
+        runGatewayTokenCommand(
+          "hermes",
+          { quiet: false },
+          {
+            fetchToken: () => "should-not-be-called",
+            getSandboxAgent: () => "hermes",
+            log: sinks.log,
+            error: sinks.error,
+          },
+        );
+      } catch (error) {
+        thrown = error as GatewayTokenCommandError;
+      }
+      expect(thrown).toBeInstanceOf(GatewayTokenCommandError);
+      const stderr = thrown?.lines.join("\n") ?? "";
+      expect(stderr).toContain("For Hermes dashboard access, run: nemoclaw hermes dashboard-url");
+      expect(stderr).not.toContain("nemohermes hermes dashboard-url");
+    } finally {
+      if (previousInvokedAs === undefined) {
+        delete process.env.NEMOCLAW_INVOKED_AS;
+      } else {
+        process.env.NEMOCLAW_INVOKED_AS = previousInvokedAs;
+      }
+    }
+  });
+
   it("keeps a single explanatory line for non-Hermes, non-OpenClaw agents", () => {
     const sinks = makeSinks();
     let thrown: GatewayTokenCommandError | null = null;
