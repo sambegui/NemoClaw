@@ -66,8 +66,8 @@ const GATEWAY_CONFIG = {
 let tmpDir: string;
 
 function runSeed(srcPath: string, dstPath: string, envSrcPath?: string, envDstPath?: string) {
-  const args = [SCRIPT_PATH, srcPath, dstPath];
-  if (envSrcPath && envDstPath) args.push(envSrcPath, envDstPath);
+  const envArgs = envSrcPath && envDstPath ? [envSrcPath, envDstPath] : [];
+  const args = [SCRIPT_PATH, srcPath, dstPath, ...envArgs];
   return spawnSync("python3", args, {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
