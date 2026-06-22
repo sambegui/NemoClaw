@@ -57,8 +57,8 @@ NemoClaw intentionally does not preserve `.env` or `.mcp.json` because users may
 ## Optional Web Search
 
 Deep Agents Code can use Tavily web search when you provide a Tavily credential in the runtime environment.
-NemoClaw does not enable Tavily by default for this experimental harness.
-The experimental base policy includes Tavily and LangSmith egress entries, but those integrations stay inert until you provide credentials in the runtime environment.
+NemoClaw does not enable Tavily or LangSmith by default for this experimental harness.
+Before you provide those credentials, [add the required egress endpoints](../network-policy/customize-network-policy) to the sandbox policy so optional integrations stay explicit.
 
 ## Troubleshooting
 

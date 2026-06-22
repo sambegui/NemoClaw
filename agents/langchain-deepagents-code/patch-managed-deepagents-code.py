@@ -29,10 +29,13 @@ PATCH = '''    # NemoClaw-managed sandbox image hardening.
     os.environ.pop("DEEPAGENTS_CODE_SHELL_ALLOW_LIST", None)
 '''
 
-# Deep Agents Code 0.1.12 exposes CLI flags/env that can re-enable nested
-# sandbox, MCP, or shell delegation inside this already-managed image. Keep this
-# build-time patch until upstream offers a non-patch policy hook; fail the image
-# build if the parser anchor moves.
+# Source boundary: Deep Agents Code 0.1.12 parses direct `python3 -m
+# deepagents_code` flags inside upstream `deepagents_code.main`; NemoClaw only
+# owns the managed image after installation. Invalid state: direct module
+# execution can re-enable nested sandbox, MCP, or shell delegation inside an
+# already-managed OpenShell sandbox. Keep this build-time patch until upstream
+# offers a non-patch policy hook that forces these postures; fail the image build
+# if the parser anchor moves.
 MARKER = "    args = parser.parse_args()\n"
 
 

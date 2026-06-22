@@ -71,6 +71,7 @@ function createGitFixture() {
   tmpRoots.push(root);
   git(root, ["init", "-b", "main"]);
   writeFixture(root, "Dockerfile.base", "FROM node:22\n");
+  writeFixture(root, "agents/langchain-deepagents-code/Dockerfile.base", "FROM python:3.13\n");
   writeFixture(root, "nemoclaw-blueprint/blueprint.yaml", "min_openclaw_version: 2026.4.24\n");
   writeFixture(root, "src/other.ts", "export const value = 1;\n");
   git(root, ["add", "."]);
@@ -231,6 +232,22 @@ describe("sandbox base image helpers", () => {
     git(root, ["commit", "-m", "change base input"]);
 
     expect(baseImageInputsChangedSinceMain(root, gitEnv)).toBe(true);
+  });
+
+  it("detects committed agent Dockerfile.base changes when an agent base path is supplied", () => {
+    const root = createGitFixture();
+    const agentBase = path.join(root, "agents/langchain-deepagents-code/Dockerfile.base");
+    git(root, ["switch", "-c", "feature"]);
+    writeFixture(
+      root,
+      "agents/langchain-deepagents-code/Dockerfile.base",
+      "FROM python:3.13\nRUN echo changed\n",
+    );
+    git(root, ["add", "agents/langchain-deepagents-code/Dockerfile.base"]);
+    git(root, ["commit", "-m", "change agent base input"]);
+
+    expect(baseImageInputsChangedSinceMain(root, gitEnv)).toBe(false);
+    expect(baseImageInputsChangedSinceMain(root, gitEnv, [agentBase])).toBe(true);
   });
 
   it("ignores non-base-image source changes relative to origin/main", () => {

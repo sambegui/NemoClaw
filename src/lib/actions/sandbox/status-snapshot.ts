@@ -6,7 +6,8 @@ import {
   type OpenShellStateRpcIssue,
 } from "../../adapters/openshell/gateway-drift";
 import { captureOpenshellForStatus, isCommandTimeout } from "../../adapters/openshell/runtime";
-import { getAgentRuntimeKind, loadAgent } from "../../agent/defs";
+import { type AgentDefinition, getAgentRuntimeKind, loadAgent } from "../../agent/defs";
+import { withStdoutRedirectedToStderr } from "../../cli/stdout-guard";
 import { parseGatewayInference } from "../../inference/config";
 import {
   type ProviderHealthProbeOptions,
@@ -16,7 +17,6 @@ import {
 import { parseSandboxPhase } from "../../state/gateway";
 import * as registry from "../../state/registry";
 import { getSandboxDockerRuntime } from "./docker-health";
-import { withStdoutRedirectedToStderr } from "../../cli/stdout-guard";
 import type { SandboxGatewayState } from "./gateway-state";
 import { getReconciledSandboxGatewayState, getSandboxGatewayStateForStatus } from "./gateway-state";
 import { probeSandboxInferenceGatewayHealth } from "./process-recovery";
@@ -107,6 +107,39 @@ export interface SandboxStatusSnapshot {
   currentModel: string;
   currentProvider: string;
   inferenceHealth: ProviderHealthStatus | null;
+}
+
+export interface SandboxStatusAgentInfo {
+  agentName: string;
+  agentDisplayName: string;
+  agentRuntime: "gateway" | "terminal" | "unknown";
+  agentLoadError?: string;
+  agentDefinition: AgentDefinition | null;
+}
+
+export function resolveSandboxStatusAgent(agentName = "openclaw"): SandboxStatusAgentInfo {
+  let agentDisplayName = agentName === "openclaw" ? "OpenClaw" : agentName;
+  let agentRuntime: SandboxStatusAgentInfo["agentRuntime"] = "gateway";
+  let agentLoadError: string | undefined;
+  let agentDefinition: AgentDefinition | null = null;
+  try {
+    const agent = loadAgent(agentName);
+    agentDisplayName = agent.displayName;
+    agentRuntime = getAgentRuntimeKind(agent);
+    agentDefinition = agentName === "openclaw" ? null : agent;
+  } catch (err) {
+    if (agentName !== "openclaw") {
+      agentRuntime = "unknown";
+      agentLoadError = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return {
+    agentName,
+    agentDisplayName,
+    agentRuntime,
+    ...(agentLoadError ? { agentLoadError } : {}),
+    agentDefinition,
+  };
 }
 
 type ReconcileSandboxGatewayState = (sandboxName: string) => Promise<SandboxGatewayState>;
@@ -231,28 +264,15 @@ async function buildSandboxStatusReport(
     sb && Array.isArray(sb.policies)
       ? sb.policies.filter((policy): policy is string => typeof policy === "string")
       : [];
-  const agentName = sb?.agent || "openclaw";
-  let agentDisplayName = agentName === "openclaw" ? "OpenClaw" : agentName;
-  let agentRuntime: "gateway" | "terminal" | "unknown" = "gateway";
-  let agentLoadError: string | undefined;
-  try {
-    const agent = loadAgent(agentName);
-    agentDisplayName = agent.displayName;
-    agentRuntime = getAgentRuntimeKind(agent);
-  } catch (err) {
-    if (agentName !== "openclaw") {
-      agentRuntime = "unknown";
-      agentLoadError = err instanceof Error ? err.message : String(err);
-    }
-  }
+  const agent = resolveSandboxStatusAgent(sb?.agent || "openclaw");
   return {
     schemaVersion: 1,
     name: sandboxName,
     found: !!sb,
-    agent: agentName,
-    agentDisplayName,
-    agentRuntime,
-    ...(agentLoadError ? { agentLoadError } : {}),
+    agent: agent.agentName,
+    agentDisplayName: agent.agentDisplayName,
+    agentRuntime: agent.agentRuntime,
+    ...(agent.agentLoadError ? { agentLoadError: agent.agentLoadError } : {}),
     model: currentModel,
     provider: currentProvider,
     phase,

@@ -148,6 +148,28 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(policy).not.toContain("dcode.upstream");
   });
 
+  it("keeps optional service egress out of the default experimental policy", () => {
+    const policy = readAgentFile("policy-additions.yaml");
+
+    expect(policy).not.toContain("api.tavily.com");
+    expect(policy).not.toContain("api.smith.langchain.com");
+    expect(policy).toContain("    - /usr\n");
+    expect(policy).toContain("    - /etc\n");
+    expect(policy).toContain("compatibility: best_effort");
+    expect(policy).toContain("non-FUSE workspace path");
+  });
+
+  it("marks un-hashed PyPI installs as an experimental-only base image exception", () => {
+    const baseDockerfile = readAgentFile("Dockerfile.base");
+
+    const hasHashLockedInstall =
+      baseDockerfile.includes("--require-hashes") || baseDockerfile.includes("wheelhouse");
+    const hasExperimentalException = baseDockerfile.includes(
+      "Experimental harness: PyPI dependencies are exact-pinned but not hash-locked.",
+    );
+    expect(hasHashLockedInstall || hasExperimentalException).toBe(true);
+  });
+
   it("patches direct module execution back to NemoClaw managed posture", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-dcode-patch-"));
     const packageDir = path.join(tempDir, "deepagents_code");
@@ -157,6 +179,29 @@ describe("LangChain Deep Agents Code image contracts", () => {
       path.join(packageDir, "main.py"),
       [
         "import os",
+        "from types import SimpleNamespace",
+        "",
+        "class Parser:",
+        "    def __init__(self):",
+        "        self.args = SimpleNamespace(",
+        "            command=None,",
+        "            sandbox='docker',",
+        "            sandbox_id='sandbox-id',",
+        "            sandbox_snapshot_name='snapshot',",
+        "            sandbox_setup='setup.sh',",
+        "            mcp_config='mcp.json',",
+        "            no_mcp=False,",
+        "            trust_project_mcp=True,",
+        "            shell_allow_list=['bash'],",
+        "        )",
+        "",
+        "    def parse_args(self):",
+        "        return self.args",
+        "",
+        "    def error(self, message):",
+        "        raise RuntimeError(message)",
+        "",
+        "parser = Parser()",
         "",
         "def parse_args():",
         "    args = parser.parse_args()",
@@ -178,5 +223,37 @@ describe("LangChain Deep Agents Code image contracts", () => {
     expect(patched).toContain('os.environ.pop("DEEPAGENTS_CODE_SHELL_ALLOW_LIST", None)');
     expect(patched).not.toContain("NEMOCLAW_DEEPAGENTS_CODE_SHELL_ALLOW_LIST");
     expect(patched).toContain('getattr(args, "command", None) == "mcp"');
+
+    const output = execFileSync(
+      "python3",
+      [
+        "-c",
+        [
+          "import os",
+          "import deepagents_code.main as main",
+          "os.environ['DEEPAGENTS_CODE_SHELL_ALLOW_LIST'] = 'bash'",
+          "args = main.parse_args()",
+          "assert args.sandbox == 'none', args.sandbox",
+          "assert args.sandbox_id is None, args.sandbox_id",
+          "assert args.sandbox_snapshot_name is None, args.sandbox_snapshot_name",
+          "assert args.sandbox_setup is None, args.sandbox_setup",
+          "assert args.mcp_config is None, args.mcp_config",
+          "assert args.no_mcp is True, args.no_mcp",
+          "assert args.trust_project_mcp is False, args.trust_project_mcp",
+          "assert args.shell_allow_list is None, args.shell_allow_list",
+          "assert 'DEEPAGENTS_CODE_SHELL_ALLOW_LIST' not in os.environ",
+          "main.parser.args.command = 'mcp'",
+          "try:",
+          "    main.parse_args()",
+          "except RuntimeError as exc:",
+          "    assert 'MCP commands are disabled' in str(exc), exc",
+          "else:",
+          "    raise AssertionError('mcp command did not fail')",
+          "print('managed-posture-ok')",
+        ].join("\n"),
+      ],
+      { env: { ...process.env, PYTHONPATH: tempDir }, encoding: "utf8" },
+    );
+    expect(output).toContain("managed-posture-ok");
   });
 });

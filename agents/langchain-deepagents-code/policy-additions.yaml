@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sandbox policy additions for LangChain Deep Agents Code. Principle: deny by
-# default, allow the terminal harness, managed inference, normal code-hosting
-# and package endpoints, and optional Tavily/LangSmith services. OpenShell sees
-# dcode network calls as Python, so approved-host egress is intentionally
-# process-wide for sandbox Python rather than a dcode-only boundary.
+# default, allow the terminal harness, managed inference, and normal code-hosting
+# and package endpoints. OpenShell sees dcode network calls as Python, so
+# approved-host egress is intentionally process-wide for sandbox Python rather
+# than a dcode-only boundary.
 
 version: 1
 
@@ -27,7 +27,9 @@ filesystem_policy:
 
 landlock:
   # Deep Agents Code currently needs best-effort compatibility with the
-  # OpenShell/FUSE sandbox filesystem; tighten this when upstream supports it.
+  # OpenShell/FUSE sandbox filesystem. Tighten this to strict once OpenShell
+  # exposes a non-FUSE workspace path that preserves the read-only /usr and /etc
+  # policy proof for this terminal harness (tracked by #4861).
   compatibility: best_effort
 
 process:
@@ -86,30 +88,3 @@ network_policies:
       - { path: /usr/local/bin/pip3 }
       - { path: /usr/bin/python3* }
       - { path: /usr/local/bin/dcode }
-
-  tavily:
-    name: tavily
-    endpoints:
-      - host: api.tavily.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: POST, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/dcode }
-      - { path: /usr/bin/python3* }
-
-  langsmith:
-    name: langsmith
-    endpoints:
-      - host: api.smith.langchain.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/dcode }
-      - { path: /usr/bin/python3* }
