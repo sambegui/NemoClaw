@@ -109,9 +109,10 @@ export function buildDockerDriverGatewayConfigToml(
 
   if (jwtBundle) {
     // OpenShell v0.0.67 loads these tables from OPENSHELL_GATEWAY_CONFIG, with
-    // OPENSHELL_* env vars taking precedence. buildDockerDriverGatewayEnv must
-    // therefore omit OPENSHELL_DISABLE_GATEWAY_AUTH so this auth table stays
-    // effective for package-managed Docker-driver gateways.
+    // OPENSHELL_* env vars taking precedence. NemoClaw still registers
+    // providers through local CLI/API calls without a user auth header, so the
+    // package-managed loopback gateway must allow those user calls while the
+    // sandbox supervisor channel uses the generated gateway_jwt bundle.
     sections.push(
       "[openshell.gateway.gateway_jwt]",
       `signing_key_path = ${tomlString(jwtBundle.signingKeyPath)}`,
@@ -121,7 +122,7 @@ export function buildDockerDriverGatewayConfigToml(
       `ttl_secs = ${DOCKER_DRIVER_GATEWAY_JWT_TTL_SECS}`,
       "",
       "[openshell.gateway.auth]",
-      "allow_unauthenticated_users = false",
+      "allow_unauthenticated_users = true",
       "",
     );
   }

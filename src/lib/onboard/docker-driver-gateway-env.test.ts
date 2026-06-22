@@ -83,7 +83,7 @@ describe("buildDockerDriverGatewayEnv", () => {
       expect(toml).toContain('gateway_id = "nemoclaw-');
       expect(toml).toContain("ttl_secs = 3600");
       expect(toml).toContain("[openshell.gateway.auth]");
-      expect(toml).toContain("allow_unauthenticated_users = false");
+      expect(toml).toContain("allow_unauthenticated_users = true");
       expect(toml).toContain('compute_drivers = ["docker"]');
       expect(toml).toContain('supervisor_bin = "/usr/bin/openshell-sandbox"');
       expect(env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
@@ -208,7 +208,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
     expect(next).toBe("OPENSHELL_DRIVERS=docker\n");
   });
 
-  it("removes stale auth-disable env so OpenShell 0.0.67 TOML auth stays authoritative", () => {
+  it("removes stale auth-disable env so OpenShell 0.0.67 TOML auth policy stays authoritative", () => {
     const next = buildDockerGatewayDebEnvFile(
       [
         "KEEP_ME=1",
