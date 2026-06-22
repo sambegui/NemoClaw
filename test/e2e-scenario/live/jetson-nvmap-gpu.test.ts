@@ -99,11 +99,10 @@ fi`,
       "phase-0-jetson-hardware-gate",
     );
     expect(hardwareGate.exitCode, resultText(hardwareGate)).toBe(0);
-    if (!hardwareGate.stdout.startsWith("jetson:")) {
+    hardwareGate.stdout.startsWith("jetson:") ||
       skip(
         "Not a Jetson/Tegra host (/dev/nvmap absent) — reporter workflow requires Jetson hardware; hermetic #4231 coverage remains in src/lib/onboard/docker-gpu-patch.test.ts.",
       );
-    }
 
     cleanup.add("destroy Jetson nvmap sandbox", () => cleanupJetsonSandbox(host));
     await cleanupJetsonSandbox(host);
