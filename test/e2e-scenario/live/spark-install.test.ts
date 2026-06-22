@@ -1,0 +1,208 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/** Live Vitest replacement for test/e2e/test-spark-install.sh. */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { buildAvailabilityProbeEnv } from "../fixtures/availability-env.ts";
+import type { HostCliClient } from "../fixtures/clients/host.ts";
+import { resultText } from "../fixtures/clients/command.ts";
+import { expect, test } from "../fixtures/e2e-test.ts";
+import { requireHostedInferenceConfig } from "../fixtures/hosted-inference.ts";
+import { shouldRunLiveE2EScenarios } from "../fixtures/live-project-gate.ts";
+import type { ShellProbeResult } from "../fixtures/shell-probe.ts";
+
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+const SANDBOX_NAME = process.env.NEMOCLAW_SANDBOX_NAME ?? "e2e-spark-install-vitest";
+const DEFAULT_INSTALL_URL = "https://www.nvidia.com/nemoclaw.sh";
+const LIVE_TIMEOUT_MS = 40 * 60_000;
+const INSTALL_TIMEOUT_MS = 30 * 60_000;
+const liveTest =
+  shouldRunLiveE2EScenarios() ||
+  process.env.CI === "true" ||
+  process.env.NEMOCLAW_RUN_INSTALLER_TESTS === "1"
+    ? test
+    : test.skip;
+
+type InstallerInvocation = {
+  mode: "local" | "public";
+  script: string;
+  installUrl?: string;
+};
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function env(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...buildAvailabilityProbeEnv(),
+    NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1",
+    NEMOCLAW_NON_INTERACTIVE: "1",
+    NEMOCLAW_RECREATE_SANDBOX: "1",
+    NEMOCLAW_SANDBOX_NAME: SANDBOX_NAME,
+    OPENSHELL_GATEWAY: "nemoclaw",
+    ...extra,
+  };
+}
+
+function buildInstallerInvocation(installLog: string): InstallerInvocation {
+  if (process.env.NEMOCLAW_E2E_PUBLIC_INSTALL === "1") {
+    const installUrl = process.env.NEMOCLAW_INSTALL_SCRIPT_URL ?? DEFAULT_INSTALL_URL;
+    return {
+      mode: "public",
+      installUrl,
+      script: [
+        `curl -fsSL ${shellQuote(installUrl)}`,
+        "|",
+        "NEMOCLAW_NON_INTERACTIVE=1",
+        "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1",
+        `bash > ${shellQuote(installLog)} 2>&1`,
+      ].join(" "),
+    };
+  }
+
+  return {
+    mode: "local",
+    script: [
+      `cd ${shellQuote(REPO_ROOT)}`,
+      "&&",
+      "NEMOCLAW_NON_INTERACTIVE=1",
+      "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1",
+      `bash install.sh --non-interactive > ${shellQuote(installLog)} 2>&1`,
+    ].join(" "),
+  };
+}
+
+function sourceInstalledPathProbe(): string {
+  return [
+    'if [ -f "$HOME/.bashrc" ]; then source "$HOME/.bashrc" 2>/dev/null || true; fi',
+    'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
+    'if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh"; fi',
+    'if [ -d "$HOME/.local/bin" ] && [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then export PATH="$HOME/.local/bin:$PATH"; fi',
+    "command -v nemoclaw",
+    "command -v openshell",
+    "nemoclaw --help >/dev/null",
+  ].join("; ");
+}
+
+async function bestEffortCleanup(host: HostCliClient): Promise<void> {
+  const cleanup = [
+    `if command -v nemoclaw >/dev/null 2>&1; then nemoclaw ${shellQuote(SANDBOX_NAME)} destroy --yes >/dev/null 2>&1 || true; fi`,
+    `if command -v openshell >/dev/null 2>&1; then openshell sandbox delete ${shellQuote(SANDBOX_NAME)} >/dev/null 2>&1 || true; fi`,
+    "if command -v openshell >/dev/null 2>&1; then openshell gateway destroy -g nemoclaw >/dev/null 2>&1 || true; fi",
+  ].join("\n");
+  await host.command("bash", ["-lc", cleanup], {
+    artifactName: "cleanup-spark-install-state",
+    env: env(),
+    timeoutMs: 120_000,
+  });
+}
+
+function logTail(file: string, lineCount = 80): string {
+  if (!fs.existsSync(file)) return "";
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  return lines.slice(-lineCount).join("\n");
+}
+
+function exitDetail(result: ShellProbeResult, installLog?: string): string {
+  return [
+    resultText(result),
+    installLog ? `--- install log tail (${installLog}) ---\n${logTail(installLog)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+liveTest(
+  "spark install path: standard non-interactive install leaves NemoClaw and OpenShell usable",
+  { timeout: LIVE_TIMEOUT_MS },
+  async ({ artifacts, cleanup, host, secrets, skip }) => {
+    await artifacts.writeJson("scenario.json", {
+      id: "spark-install",
+      legacySource: "test/e2e/test-spark-install.sh",
+      sandboxName: SANDBOX_NAME,
+      contracts: [
+        "Linux + Docker prerequisite gate",
+        "NEMOCLAW_NON_INTERACTIVE=1 and NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 are required for the install",
+        "standard installer path runs without Spark-specific setup",
+        "optional NEMOCLAW_E2E_PUBLIC_INSTALL=1 curl|bash path is selected by the same env gate",
+        "install log is retained",
+        "nemoclaw and openshell are on PATH after profile refresh",
+        "nemoclaw --help exits 0",
+      ],
+    });
+
+    if (process.platform !== "linux") {
+      skip(
+        "DGX Spark install smoke is Linux-only; the workflow job runs on a Linux Docker runner.",
+      );
+    }
+    expect(process.platform).toBe("linux");
+
+    expect(fs.existsSync(path.join(REPO_ROOT, "install.sh")), "repo install.sh must exist").toBe(
+      true,
+    );
+
+    const docker = await host.command("docker", ["info"], {
+      artifactName: "phase-0-docker-info",
+      env: env(),
+      timeoutMs: 30_000,
+    });
+    expect(docker.exitCode, resultText(docker)).toBe(0);
+
+    expect(process.env.NEMOCLAW_NON_INTERACTIVE ?? "1").toBe("1");
+    expect(process.env.NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE ?? "1").toBe("1");
+
+    const hosted = requireHostedInferenceConfig(secrets, process.env, {
+      model: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    });
+    const redactionValues = [hosted.apiKey];
+    cleanup.add(`remove ${SANDBOX_NAME} after Spark install smoke`, () => bestEffortCleanup(host));
+    await bestEffortCleanup(host);
+
+    const installLog = process.env.INSTALL_LOG ?? artifacts.pathFor("logs/install.log");
+    const installer = buildInstallerInvocation(installLog);
+    await artifacts.writeJson("installer.json", {
+      mode: installer.mode,
+      installUrl: installer.installUrl,
+      installLog,
+    });
+    expect(installer.script).toContain("NEMOCLAW_NON_INTERACTIVE=1");
+    expect(installer.script).toContain("NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1");
+    if (installer.mode === "local") {
+      expect(installer.script).toContain("bash install.sh --non-interactive");
+      expect(installer.script).not.toContain("setup-spark");
+    } else {
+      expect(installer.script).toContain("curl -fsSL");
+      expect(installer.installUrl).toBe(
+        process.env.NEMOCLAW_INSTALL_SCRIPT_URL ?? DEFAULT_INSTALL_URL,
+      );
+    }
+
+    const install = await host.command("bash", ["-lc", installer.script], {
+      artifactName: `phase-1-${installer.mode}-install`,
+      cwd: REPO_ROOT,
+      env: env({
+        ...hosted.env,
+        NVIDIA_INFERENCE_API_KEY: hosted.apiKey,
+      }),
+      redactionValues,
+      timeoutMs: INSTALL_TIMEOUT_MS,
+    });
+    expect(install.exitCode, exitDetail(install, installLog)).toBe(0);
+    expect(fs.existsSync(installLog), `${installLog} should be written`).toBe(true);
+
+    const installedCommands = await host.command("bash", ["-lc", sourceInstalledPathProbe()], {
+      artifactName: "phase-2-installed-cli-path-probe",
+      env: env(),
+      timeoutMs: 60_000,
+    });
+    expect(installedCommands.exitCode, resultText(installedCommands)).toBe(0);
+    expect(installedCommands.stdout).toContain("nemoclaw");
+    expect(installedCommands.stdout).toContain("openshell");
+  },
+);
