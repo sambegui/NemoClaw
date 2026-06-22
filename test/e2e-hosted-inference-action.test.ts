@@ -1,33 +1,53 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
-import YAML from "yaml";
 
-describe("export-e2e-hosted-inference action contract", () => {
-  const action = YAML.parse(
-    readFileSync(".github/actions/export-e2e-hosted-inference/action.yaml", "utf8"),
-  ) as {
-    inputs?: Record<string, { description?: string }>;
-    runs?: { steps?: Array<{ run?: string }> };
-  };
-  const run = action.runs?.steps?.[0]?.run ?? "";
+const exportScript = ".github/actions/export-e2e-hosted-inference/export.sh";
 
+function runExportAction(env: Record<string, string>) {
+  const tmp = mkdtempSync(path.join(tmpdir(), "e2e-hosted-export-"));
+  const githubEnv = path.join(tmp, "github-env");
+  const result = spawnSync("bash", [exportScript], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GITHUB_ENV: githubEnv,
+      INPUT_REQUIRE_HOSTED_INFERENCE: "true",
+      ...env,
+    },
+  });
+  const exported = result.status === 0 ? readFileSync(githubEnv, "utf8") : "";
+  rmSync(tmp, { recursive: true, force: true });
+  return { ...result, exported };
+}
+
+describe("export-e2e-hosted-inference action", () => {
   it("rejects multiline credentials before writing GITHUB_ENV", () => {
-    expect(run).toContain("Hosted inference credentials must be single-line values");
-    expect(run).toContain("*$'\\n'*");
-    expect(run).toContain("*$'\\r'*");
-    expect(run.indexOf("Hosted inference credentials must be single-line values")).toBeLessThan(
-      run.indexOf('>> "${GITHUB_ENV}"'),
-    );
+    const result = runExportAction({
+      INPUT_NVIDIA_INFERENCE_API_KEY: "nvapi-good\nMALICIOUS=1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Hosted inference credentials must be single-line values");
+    expect(result.exported).toBe("");
   });
 
-  it("documents the temporary NVIDIA_API_KEY alias inventory and removal condition", () => {
-    const aliasDescription = action.inputs?.["nvidia-api-key"]?.description ?? "";
-    expect(aliasDescription).toContain("Temporary compatibility alias");
-    expect(aliasDescription).toContain("openclaw-skill-cli");
-    expect(aliasDescription).toContain("channels-add-remove");
-    expect(aliasDescription).toContain("Remove after those lanes migrate");
+  it("exports hosted inference aliases from the canonical credential", () => {
+    const result = runExportAction({
+      INPUT_NVIDIA_INFERENCE_API_KEY: "nvapi-test-hosted-credential",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.exported).toContain("NVIDIA_INFERENCE_API_KEY=nvapi-test-hosted-credential\n");
+    expect(result.exported).toContain("COMPATIBLE_API_KEY=nvapi-test-hosted-credential\n");
+    expect(result.exported).toContain("NVIDIA_API_KEY=nvapi-test-hosted-credential\n");
+    expect(result.exported).toContain("NEMOCLAW_PROVIDER=custom\n");
   });
 });
