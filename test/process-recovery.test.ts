@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -11,6 +12,7 @@ import {
   checkAndRecoverSandboxProcesses,
   classifyForwardHealthWithReachability,
   classifySandboxForwardHealth,
+  executeSandboxExecCommand,
   resolveSandboxDashboardPort,
   type SandboxForwardListEntry,
 } from "../dist/lib/actions/sandbox/process-recovery.js";
@@ -20,6 +22,16 @@ const requireDist = createRequire(import.meta.url);
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function decodeSandboxExecShellPayload(payload: string): string {
+  const match = payload.match(/printf '%s' '([A-Za-z0-9+\/=]+)' \| base64 -d \| sh/);
+  return match ? Buffer.from(match[1], "base64").toString("utf8") : payload;
+}
+
+function getSandboxExecShellCommand(rawArgs: unknown): string {
+  const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
+  return decodeSandboxExecShellPayload(String(args.at(-1) ?? ""));
+}
 
 function withFakeOpenshellBinary<T>(fn: () => T): T {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-fake-openshell-"));
@@ -211,6 +223,107 @@ describe("classifyForwardHealthWithReachability", () => {
   });
 });
 
+describe("executeSandboxExecCommand", () => {
+  it("parses stdout-framed root exec output after the startup marker", () => {
+    const childProcess = requireDist("node:child_process");
+    vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+      status: 0,
+      stdout: [
+        "OpenShell sandbox exec output:",
+        "stdout: __NEMOCLAW_SANDBOX_EXEC_STARTED__",
+        "stdout: SECRET_BOUNDARY_OK",
+      ].join("\n"),
+      stderr: "",
+    } as never);
+
+    const result = withFakeOpenshellBinary(() =>
+      executeSandboxExecCommand("hermes-box", "echo SECRET_BOUNDARY_OK"),
+    );
+
+    expect(result).toEqual({ status: 0, stdout: "SECRET_BOUNDARY_OK", stderr: "" });
+  });
+
+  it("rejects a non-frame preamble that contains the startup marker", () => {
+    const childProcess = requireDist("node:child_process");
+    vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+      status: 0,
+      stdout: [
+        "operator preamble mentions __NEMOCLAW_SANDBOX_EXEC_STARTED__ before child stdout",
+        "stdout: RUNNING",
+      ].join("\n"),
+      stderr: "",
+    } as never);
+
+    const result = withFakeOpenshellBinary(() =>
+      executeSandboxExecCommand("hermes-box", "echo RUNNING"),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("passes a newline-free Hermes validator payload to OpenShell", () => {
+    const childProcess = requireDist("node:child_process");
+    const spawn = vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+      status: 0,
+      stdout: "__NEMOCLAW_SANDBOX_EXEC_STARTED__\nSECRET_BOUNDARY_OK\n",
+      stderr: "",
+    } as never);
+
+    const result = withFakeOpenshellBinary(() =>
+      executeSandboxExecCommand(
+        "hermes-box",
+        "python3 /usr/local/lib/nemoclaw/validate-hermes-env-secret-boundary.py env-file /sandbox/.hermes/.env\necho SECRET_BOUNDARY_OK",
+      ),
+    );
+
+    const args = spawn.mock.calls[0]?.[1] as string[];
+    const shellPayload = args.at(-1) ?? "";
+    expect(result).toEqual({ status: 0, stdout: "SECRET_BOUNDARY_OK", stderr: "" });
+    expect(shellPayload.includes("\n")).toBe(false);
+    expect(shellPayload.includes("\r")).toBe(false);
+    expect(shellPayload).toContain("printf '%s\\n' '__NEMOCLAW_SANDBOX_EXEC_STARTED__'");
+    expect(shellPayload).toContain("base64 -d | sh");
+  });
+
+  it("falls back to local Docker root exec when OpenShell exec output has no marker", () => {
+    const childProcess = requireDist("node:child_process");
+    const dockerExec = requireDist("../dist/lib/adapters/docker/exec.js");
+    vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+      status: 0,
+      stdout: "OpenShell transport preamble\n",
+      stderr: "",
+    } as never);
+    const dockerSpawnSync = vi
+      .spyOn(dockerExec, "dockerSpawnSync")
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: "abc123\topenshell-hermes-box\n",
+        stderr: "",
+      } as never)
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: "__NEMOCLAW_SANDBOX_EXEC_STARTED__\nSECRET_BOUNDARY_OK\n",
+        stderr: "",
+      } as never);
+
+    const result = withFakeOpenshellBinary(() =>
+      executeSandboxExecCommand("hermes-box", "echo SECRET_BOUNDARY_OK"),
+    );
+
+    expect(result).toEqual({ status: 0, stdout: "SECRET_BOUNDARY_OK", stderr: "" });
+    expect(dockerSpawnSync.mock.calls[0]?.[0]).toEqual(["ps", "--format", "{{.ID}}\t{{.Names}}"]);
+    expect(dockerSpawnSync.mock.calls[1]?.[0]).toEqual([
+      "exec",
+      "-u",
+      "root",
+      "abc123",
+      "sh",
+      "-c",
+      expect.stringContaining("echo SECRET_BOUNDARY_OK"),
+    ]);
+  });
+});
+
 describe("checkAndRecoverSandboxProcesses", () => {
   it("scopes forward stop to the target sandbox when restarting a dead forward", () => {
     const openshellRuntime = requireDist("../dist/lib/adapters/openshell/runtime.js");
@@ -226,8 +339,7 @@ beta  127.0.0.1  18789  12345  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           return {
             status: 0,
@@ -416,8 +528,7 @@ beta  127.0.0.1  18789  12345  running`;
     try {
       vi.spyOn(childProcess, "spawnSync").mockImplementation(
         (_command: unknown, rawArgs: unknown) => {
-          const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-          const shellCommand = String(args.at(-1) ?? "");
+          const shellCommand = getSandboxExecShellCommand(rawArgs);
           if (shellCommand.includes("HTTP_CODE=$(curl")) {
             healthProbeCalls += 1;
             const status = healthProbeCalls >= 3 ? "RUNNING" : "STOPPED";
@@ -486,8 +597,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           return {
             status: 0,
@@ -577,8 +687,7 @@ sibling-box  127.0.0.1  8642  99999  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           return {
             status: 0,
@@ -639,8 +748,7 @@ hermes-box  127.0.0.1  18789  12345  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           return {
             status: 0,
@@ -697,8 +805,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           return {
             status: 0,
@@ -765,12 +872,11 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
-            stdout: "__NEMOCLAW_SANDBOX_EXEC_STARTED__\nRUNNING\n",
+            stdout: "stdout: __NEMOCLAW_SANDBOX_EXEC_STARTED__\nstdout: RUNNING\n",
             stderr: "",
           } as never;
         }
@@ -778,7 +884,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
           secretBoundaryCalls += 1;
           return {
             status: 1,
-            stdout: "__NEMOCLAW_SANDBOX_EXEC_STARTED__\nSECRET_BOUNDARY_REFUSED\n",
+            stdout: "stdout: __NEMOCLAW_SANDBOX_EXEC_STARTED__\nstdout: SECRET_BOUNDARY_REFUSED\n",
             stderr:
               "[SECURITY] Refusing Hermes startup because /sandbox/.hermes/.env contains raw secret-shaped values\n[SECURITY] TELEGRAM_BOT_TOKEN (line 3)",
           } as never;
@@ -847,8 +953,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
@@ -899,6 +1004,74 @@ hermes-box  127.0.0.1  8642  12346  running`;
     );
   });
 
+  it("falls through when the Hermes secret-boundary check parses stdout-framed root exec markers", () => {
+    const openshellRuntime = requireDist("../dist/lib/adapters/openshell/runtime.js");
+    const agentRuntime = requireDist("../dist/lib/agent/runtime.js");
+    const registry = requireDist("../dist/lib/state/registry.js");
+    const forwardHealth = requireDist("../dist/lib/actions/sandbox/forward-health.js");
+    const childProcess = requireDist("node:child_process");
+    let secretBoundaryCalls = 0;
+
+    const execResponses: Array<[string, () => never]> = [
+      [
+        "HTTP_CODE=$(curl",
+        () =>
+          ({
+            status: 0,
+            stdout: "stdout: __NEMOCLAW_SANDBOX_EXEC_STARTED__\nstdout: RUNNING\n",
+            stderr: "",
+          }) as never,
+      ],
+      [
+        "validate-hermes-env-secret-boundary.py",
+        () => {
+          secretBoundaryCalls += 1;
+          return {
+            status: 0,
+            stdout: "stdout: __NEMOCLAW_SANDBOX_EXEC_STARTED__\nstdout: SECRET_BOUNDARY_OK\n",
+            stderr: "",
+          } as never;
+        },
+      ],
+    ];
+    vi.spyOn(childProcess, "spawnSync").mockImplementation(
+      (_command: unknown, rawArgs: unknown) => {
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
+        return (
+          execResponses.find(([needle]) => shellCommand.includes(needle))?.[1] ??
+          (() => ({ status: 0, stdout: "", stderr: "" }) as never)
+        )();
+      },
+    );
+    vi.spyOn(agentRuntime, "getSessionAgent").mockReturnValue({
+      name: "hermes",
+      forwardPort: 8642,
+      displayName: "Hermes Agent",
+    });
+    vi.spyOn(registry, "getSandbox").mockReturnValue({
+      name: "hermes-box",
+      agent: "hermes",
+      dashboardPort: 18789,
+    });
+    vi.spyOn(forwardHealth, "isLocalForwardReachable").mockReturnValue(true);
+    vi.spyOn(openshellRuntime, "captureOpenshell").mockReturnValue({
+      status: 0,
+      output: `SANDBOX  BIND  PORT  PID  STATUS\nhermes-box  127.0.0.1  18789  12345  running`,
+    });
+    vi.spyOn(openshellRuntime, "runOpenshell").mockReturnValue({ status: 0 } as never);
+
+    const result = withFakeOpenshellBinary(() =>
+      checkAndRecoverSandboxProcesses("hermes-box", { quiet: true }),
+    );
+    expect(result).toEqual({
+      checked: true,
+      wasRunning: true,
+      recovered: false,
+      forwardRecovered: false,
+    });
+    expect(secretBoundaryCalls).toBe(1);
+  });
+
   it("falls through to the forward-refresh path when the Hermes secret-boundary check passes", () => {
     const openshellRuntime = requireDist("../dist/lib/adapters/openshell/runtime.js");
     const agentRuntime = requireDist("../dist/lib/agent/runtime.js");
@@ -909,8 +1082,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
@@ -968,8 +1140,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
@@ -1030,8 +1201,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("validate-hermes-env-secret-boundary.py")) {
           secretBoundaryCalls += 1;
         }
@@ -1070,8 +1240,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
@@ -1137,8 +1306,7 @@ hermes-box  127.0.0.1  8642  12346  running`;
 
     vi.spyOn(childProcess, "spawnSync").mockImplementation(
       (_command: unknown, rawArgs: unknown) => {
-        const args = Array.isArray(rawArgs) ? rawArgs.map(String) : [];
-        const shellCommand = String(args.at(-1) ?? "");
+        const shellCommand = getSandboxExecShellCommand(rawArgs);
         if (shellCommand.includes("HTTP_CODE=$(curl")) {
           return {
             status: 0,
