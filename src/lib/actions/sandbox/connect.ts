@@ -211,24 +211,32 @@ function exitOnSecretBoundaryRefusal(
   process.exit(1);
 }
 
+function runTerminalAgentConnectProbe(
+  sandboxName: string,
+  agent: Parameters<typeof runAgentSmokeCommands>[1],
+  agentName: string,
+): void {
+  ensureSandboxInferenceRoute(sandboxName, { quiet: true });
+  const smokeResult = runAgentSmokeCommands(sandboxName, agent, captureOpenshell);
+  if (!smokeResult.ok) {
+    console.error(
+      `  Probe failed: ${agentName} terminal smoke command failed: ${smokeResult.command}`,
+    );
+    if (smokeResult.output) {
+      console.error(`    ${String(redact(smokeResult.output)).slice(0, 500)}`);
+    }
+    process.exit(1);
+  }
+  const command = agentRuntime.getTerminalCommand(agent);
+  const commandText = command ? ` (${command})` : "";
+  console.log(`  Probe complete: ${agentName} terminal smoke checks passed${commandText}.`);
+}
+
 function runSandboxConnectProbe(sandboxName: string): void {
   const agent = agentRuntime.getSessionAgent(sandboxName);
   const agentName = agentRuntime.getAgentDisplayName(agent);
   if (agent && !agentRuntime.hasGatewayRuntime(agent)) {
-    ensureSandboxInferenceRoute(sandboxName, { quiet: true });
-    const smokeResult = runAgentSmokeCommands(sandboxName, agent, captureOpenshell);
-    if (!smokeResult.ok) {
-      console.error(
-        `  Probe failed: ${agentName} terminal smoke command failed: ${smokeResult.command}`,
-      );
-      if (smokeResult.output) {
-        console.error(`    ${String(redact(smokeResult.output)).slice(0, 500)}`);
-      }
-      process.exit(1);
-    }
-    const command = agentRuntime.getTerminalCommand(agent);
-    const commandText = command ? ` (${command})` : "";
-    console.log(`  Probe complete: ${agentName} terminal smoke checks passed${commandText}.`);
+    runTerminalAgentConnectProbe(sandboxName, agent, agentName);
     return;
   }
 
