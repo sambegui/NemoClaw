@@ -118,7 +118,7 @@ async function hostSlackTokenStdin(options: {
     "set -euo pipefail",
     "ssh_config=$(mktemp)",
     "trap 'rm -f \"$ssh_config\"' EXIT",
-    'openshell sandbox ssh-config "$SANDBOX_NAME" >"$ssh_config"',
+    `openshell sandbox ssh-config ${shellQuote(SANDBOX_NAME)} >"$ssh_config"`,
     [
       'printf "%s\\n%s\\n" "$SLACK_BOT_TOKEN" "$SLACK_APP_TOKEN"',
       "|",
@@ -128,7 +128,7 @@ async function hostSlackTokenStdin(options: {
       "-o UserKnownHostsFile=/dev/null",
       "-o ConnectTimeout=10",
       "-o LogLevel=ERROR",
-      '"openshell-${SANDBOX_NAME}"',
+      shellQuote(`openshell-${SANDBOX_NAME}`),
       shellQuote(options.remoteCommand),
     ].join(" "),
   ].join("\n");
