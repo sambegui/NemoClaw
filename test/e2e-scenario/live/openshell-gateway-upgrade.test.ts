@@ -112,6 +112,10 @@ function expectOutputContains(result: ShellProbeResult, value: string, label: st
   expect(resultText(result), label).toContain(value);
 }
 
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
 async function bash(
   host: HostCliClient,
   script: string,
@@ -396,9 +400,10 @@ chmod 755 ${shellQuote(oldInstaller)}`,
   );
 
   const oldLog = fs.readFileSync(oldInstallLog, "utf8");
+  const oldOpenClawVersionPattern = escapeRegExpLiteral(OLD_OPENCLAW_VERSION);
   const wrongOldOpenClaw = oldLog.match(
     new RegExp(
-      `OpenClaw ((?!${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")})[0-9]{4}\\.[0-9]+\\.[0-9]+) is current \\(>= ${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")}\\)`,
+      `OpenClaw ((?!${oldOpenClawVersionPattern})[0-9]{4}\\.[0-9]+\\.[0-9]+) is current \\(>= ${oldOpenClawVersionPattern}\\)`,
     ),
   );
   expect(
@@ -406,9 +411,7 @@ chmod 755 ${shellQuote(oldInstaller)}`,
     `old fixture log must not use an unexpected OpenClaw version:\n${oldLog}`,
   ).toBeUndefined();
   expect(oldLog, `old fixture must show pinned OpenClaw ${OLD_OPENCLAW_VERSION}`).toMatch(
-    new RegExp(
-      `OpenClaw ${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")}|openclaw@${OLD_OPENCLAW_VERSION.replace(/\./g, "\\.")}`,
-    ),
+    new RegExp(`OpenClaw ${oldOpenClawVersionPattern}|openclaw@${oldOpenClawVersionPattern}`),
   );
 
   const openshellVersion = await bash(host, `openshell --version`, {
@@ -553,7 +556,7 @@ async function installCurrentNemoclawUpgrade(
   });
   expectExitZero(status, "openshell status after current install");
   expect(resultText(status)).toMatch(
-    new RegExp(`Version:.*${CURRENT_OPENSHELL_VERSION.replace(/\./g, "\\.")}`),
+    new RegExp(`Version:.*${escapeRegExpLiteral(CURRENT_OPENSHELL_VERSION)}`),
   );
 }
 
