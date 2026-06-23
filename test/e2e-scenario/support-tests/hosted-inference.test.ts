@@ -104,7 +104,7 @@ describe("hosted inference E2E config", () => {
     expect(cfg.credentialEnv).toBe("COMPATIBLE_API_KEY");
   });
 
-  it("prefers the hosted public fallback secret for inference-api validation", () => {
+  it("prefers the hosted public fallback secret when the canonical secret is not hosted", () => {
     const cfg = requireHostedInferenceConfig(
       secrets({
         NVIDIA_INFERENCE_API_KEY: "build-only-key",
@@ -116,6 +116,20 @@ describe("hosted inference E2E config", () => {
     expect(cfg.apiKey).toBe("nvapi-hosted-key");
     expect(cfg.sourceSecretName).toBe("NVIDIA_API_KEY");
     expect(cfg.env.COMPATIBLE_API_KEY).toBe("nvapi-hosted-key");
+  });
+
+  it("keeps the canonical hosted secret when both hosted aliases are available", () => {
+    const cfg = requireHostedInferenceConfig(
+      secrets({
+        NVIDIA_INFERENCE_API_KEY: "nvapi-canonical-hosted-key",
+        NVIDIA_API_KEY: "nvapi-public-hosted-key",
+      }),
+      {},
+    );
+
+    expect(cfg.apiKey).toBe("nvapi-canonical-hosted-key");
+    expect(cfg.sourceSecretName).toBe("NVIDIA_INFERENCE_API_KEY");
+    expect(cfg.env.COMPATIBLE_API_KEY).toBe("nvapi-canonical-hosted-key");
   });
 
   it("uses a lightweight compatible reachability probe without API or auth requests", () => {

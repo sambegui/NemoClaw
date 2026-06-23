@@ -36,11 +36,16 @@ export function requireHostedInferenceConfig(
   env: NodeJS.ProcessEnv = process.env,
   options: HostedInferenceOptions = {},
 ): HostedInferenceConfig {
+  const canonicalApiKey = secrets.required(HOSTED_INFERENCE_SECRET);
   const publicFallbackApiKey = secrets.optional?.(HOSTED_INFERENCE_PUBLIC_FALLBACK_SECRET);
-  const apiKey = publicFallbackApiKey || secrets.required(HOSTED_INFERENCE_SECRET);
-  const sourceSecretName = publicFallbackApiKey
-    ? HOSTED_INFERENCE_PUBLIC_FALLBACK_SECRET
-    : HOSTED_INFERENCE_SECRET;
+  const apiKey = canonicalApiKey.startsWith("nvapi-")
+    ? canonicalApiKey
+    : publicFallbackApiKey || canonicalApiKey;
+  const sourceSecretName = canonicalApiKey.startsWith("nvapi-")
+    ? HOSTED_INFERENCE_SECRET
+    : publicFallbackApiKey
+      ? HOSTED_INFERENCE_PUBLIC_FALLBACK_SECRET
+      : HOSTED_INFERENCE_SECRET;
   const endpointUrl = env.NEMOCLAW_ENDPOINT_URL || DEFAULT_HOSTED_INFERENCE_BASE_URL;
   const model =
     env.NEMOCLAW_MODEL ||
