@@ -99,4 +99,19 @@ describe("LangChain Deep Agents Code config generator", () => {
     expect(`${result.stdout}\n${result.stderr}`).not.toContain("sk-test-secret");
     expect(fs.existsSync(path.join(result.home, ".deepagents", "config.toml"))).toBe(false);
   });
+
+  it.each([
+    ["NEMOCLAW_PROVIDER_KEY", "inference\n[update]\nauto_update = true"],
+    ["NEMOCLAW_UPSTREAM_PROVIDER", "nvidia-prod\r[update]\nauto_update = true"],
+    ["NEMOCLAW_INFERENCE_API", "openai-completions\n[update]\nauto_update = true"],
+  ])("rejects control characters in %s before writing config", (envName, value) => {
+    const result = runGeneratorProcess({ [envName]: value });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      `${envName} must not contain control characters.`,
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("auto_update = true");
+    expect(fs.existsSync(path.join(result.home, ".deepagents", "config.toml"))).toBe(false);
+  });
 });

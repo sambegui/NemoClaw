@@ -19,14 +19,24 @@ type Settings = {
 };
 
 function readSettings(env: NodeJS.ProcessEnv): Settings {
+  const providerKey = normalizeCommentMetadata(
+    env.NEMOCLAW_PROVIDER_KEY || "inference",
+    "NEMOCLAW_PROVIDER_KEY",
+  );
   return {
     model: readRequiredEnv(env, "NEMOCLAW_MODEL"),
     baseUrl: normalizeInferenceBaseUrl(
       env.NEMOCLAW_INFERENCE_BASE_URL || "https://inference.local/v1",
     ),
-    providerKey: env.NEMOCLAW_PROVIDER_KEY || "inference",
-    upstreamProvider: env.NEMOCLAW_UPSTREAM_PROVIDER || env.NEMOCLAW_PROVIDER_KEY || "inference",
-    inferenceApi: env.NEMOCLAW_INFERENCE_API || "openai-completions",
+    providerKey,
+    upstreamProvider: normalizeCommentMetadata(
+      env.NEMOCLAW_UPSTREAM_PROVIDER || env.NEMOCLAW_PROVIDER_KEY || "inference",
+      "NEMOCLAW_UPSTREAM_PROVIDER",
+    ),
+    inferenceApi: normalizeCommentMetadata(
+      env.NEMOCLAW_INFERENCE_API || "openai-completions",
+      "NEMOCLAW_INFERENCE_API",
+    ),
   };
 }
 
@@ -34,6 +44,13 @@ function readRequiredEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function normalizeCommentMetadata(value: string, name: string): string {
+  if (/[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error(`${name} must not contain control characters.`);
+  }
+  return value.trim();
 }
 
 function normalizeInferenceBaseUrl(value: string): string {
