@@ -326,12 +326,13 @@ describe("assessHost", () => {
     expect(result.dockerReachable).toBe(true);
   });
 
-  it("detects podman as an unsupported runtime on Linux", () => {
+  it("detects podman as unsupported on Linux when no podman socket is reachable", () => {
     const result = assessHost({
       platform: "linux",
       env: {},
       dockerInfoOutput: "Podman Engine",
       commandExistsImpl: (name: string) => name === "docker",
+      existsSyncImpl: () => false,
     });
 
     expect(result.runtime).toBe("podman");

@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { DASHBOARD_PORT } from "../core/ports";
+import { getPodmanSocketCandidates } from "../platform";
 import {
   assessNvidiaCdiHost,
   buildNvidiaCdiRefreshCommands,
@@ -171,6 +172,7 @@ export interface AssessHostOpts {
   readdirImpl?: (dir: string) => string[];
   runCaptureImpl?: RunCaptureFn;
   commandExistsImpl?: (commandName: string) => boolean;
+  existsSyncImpl?: (filePath: string) => boolean;
   gpuProbeImpl?: () => boolean;
 }
 
@@ -447,6 +449,26 @@ export function buildContainerToolkitBootstrapCommands(
   ];
 }
 
+// Podman on Linux is a supported runtime when a usable podman socket is
+// reachable. An explicit DOCKER_HOST pointing at a podman socket wins;
+// otherwise probe the platform's rootless (`/run/user/<uid>/podman/podman.sock`)
+// and system podman socket candidates. Rootless is preferred for the security
+// gain (container-root maps to an unprivileged host uid); reachability is the
+// support predicate, and the rootless-vs-rootful choice is handled downstream.
+function isPodmanSocketReachable(opts: {
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  existsSync: (filePath: string) => boolean;
+}): boolean {
+  const dockerHost = opts.env.DOCKER_HOST;
+  if (dockerHost && /podman/i.test(dockerHost)) {
+    return true;
+  }
+  return getPodmanSocketCandidates({ platform: opts.platform }).some((socketPath) =>
+    opts.existsSync(socketPath),
+  );
+}
+
 export function assessHost(opts: AssessHostOpts = {}): HostAssessment {
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
@@ -495,6 +517,13 @@ export function assessHost(opts: AssessHostOpts = {}): HostAssessment {
   if (dockerReachable && runtime === "unknown" && platform === "linux") {
     runtime = "docker";
   }
+  const existsSyncImpl = opts.existsSyncImpl ?? fs.existsSync;
+  // Linux podman with a reachable (rootless-preferred) socket is supported;
+  // macOS/arm64 stays blocked (NemoClaw #116). Gates `isUnsupportedRuntime`.
+  const podmanSocketReachable =
+    runtime === "podman" &&
+    platform === "linux" &&
+    isPodmanSocketReachable({ platform, env, existsSync: existsSyncImpl });
   const isWslHost = detectWsl({ platform, env, release, procVersion });
   const dockerCgroupVersion = dockerReachable
     ? parseDockerCgroupVersion(dockerInfoOutput)
@@ -583,7 +612,7 @@ export function assessHost(opts: AssessHostOpts = {}): HostAssessment {
     hasNestedOverlayConflict,
     // Current OpenShell sets host cgroupns on its own cluster container.
     requiresHostCgroupnsFix: false,
-    isUnsupportedRuntime: runtime === "podman",
+    isUnsupportedRuntime: runtime === "podman" && !podmanSocketReachable,
     isHeadlessLikely: isHeadlessLikely(env),
     hasNvidiaGpu,
     ...cdiAssessment,

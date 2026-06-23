@@ -1601,13 +1601,16 @@ type PreflightOptions = Pick<
   optedOutGpuPassthrough?: boolean;
 };
 
-// Reject unsupported container runtimes (currently only Podman with the
-// Linux Docker-driver gateway) before any Docker-specific probes. Both
-// the fresh preflight and `--resume` backstop call this — if `docker`
-// resolves to Podman, surface the unsupported-runtime message instead of
-// running bridge/DNS diagnostics that would be misleading.
+// Reject container runtimes we cannot support before any Docker-specific
+// probes. Podman on Linux with a reachable (rootless-preferred) socket IS
+// supported and falls through; what stays blocked is Podman on macOS/arm64
+// (NemoClaw #116) and Linux Podman with no usable socket. The decision is
+// `host.isUnsupportedRuntime` — the single source of truth computed in
+// assessHost. Both the fresh preflight and the `--resume` backstop call this,
+// so the message stays consistent instead of running misleading bridge/DNS
+// diagnostics.
 function rejectUnsupportedContainerRuntime(host: ReturnType<typeof assessHost>): void {
-  if (isLinuxDockerDriverGatewayEnabled() && host.runtime === "podman") {
+  if (isLinuxDockerDriverGatewayEnabled() && host.isUnsupportedRuntime) {
     console.error(`  ✗ ${cliDisplayName()} onboarding now uses OpenShell's Docker driver.`);
     console.error(`    Podman is not supported for this ${cliDisplayName()} integration path.`);
     console.error("    Switch to Docker Engine and rerun onboarding.");
