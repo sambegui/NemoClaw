@@ -110,6 +110,86 @@ describe("Gemini native OpenAI adapter", () => {
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
+  it("does not abort the upstream call when the request body is fully read (client still connected)", async () => {
+    // Regression (2026-06-23): wiring the abort to the REQUEST stream's "close" event cancels every POST
+    // the moment its body finishes being read — `req` "close" fires on normal completion, not only on a
+    // client disconnect — so the upstream call runs on an already-aborted signal. A real upstream caller
+    // (https.request/fetch) rejects synchronously when handed an already-aborted signal; this mock does
+    // the same, so the test is RED against `req.on("close")` and GREEN against the `res`-keyed fix.
+    const generate = vi.fn(
+      async ({ signal }: { model: string; body: unknown; signal?: AbortSignal }) => {
+        // A real upstream caller (https.request/fetch) throws synchronously when handed an
+        // already-aborted signal. `throwIfAborted()` does exactly that with no branch: under the
+        // buggy `req.on("close")` wiring the signal is already aborted here → throws → 502 (RED);
+        // under the `res.on("close")` fix it is not aborted → resolves 200 (GREEN).
+        signal?.throwIfAborted();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 20);
+          signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new Error("upstream aborted mid-call"));
+          });
+        });
+        return {
+          status: 200,
+          json: {
+            candidates: [
+              { content: { role: "model", parts: [{ text: "ok" }] }, finishReason: "STOP" },
+            ],
+          },
+        };
+      },
+    );
+    const callGemini: GeminiCaller = { generate, stream: vi.fn(), listModels: vi.fn() };
+
+    const server = createGeminiNativeAdapterServer({ apiKey: API_KEY, token: TOKEN, callGemini });
+    const baseUrl = await listen(server);
+
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: "gemini-2.5-flash",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts the in-flight upstream call when the client disconnects mid-request", async () => {
+    // Proves the fix's actual benefit (and guards against silently dropping cancellation): a genuine
+    // client disconnect — the response stream closes before we finish writing — cancels the upstream
+    // Gemini call. Fails when no abort is wired at all.
+    let upstreamSignal: AbortSignal | undefined;
+    const generate = vi.fn(({ signal }: { model: string; body: unknown; signal?: AbortSignal }) => {
+      upstreamSignal = signal;
+      // Settles only when the request is aborted (the disconnect path).
+      return new Promise<{ status: number; json: unknown }>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("upstream aborted")));
+      });
+    });
+    const callGemini: GeminiCaller = { generate, stream: vi.fn(), listModels: vi.fn() };
+
+    const server = createGeminiNativeAdapterServer({ apiKey: API_KEY, token: TOKEN, callGemini });
+    const baseUrl = await listen(server);
+
+    const clientAbort = new AbortController();
+    const pending = fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ model: "gemini-2.5-flash", messages: [{ role: "user", content: "hi" }] }),
+      signal: clientAbort.signal,
+    }).catch(() => undefined);
+
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    clientAbort.abort();
+
+    await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
+    await pending;
+  });
+
   it("streams Gemini chunks as OpenAI chat.completion.chunk events ending with [DONE]", async () => {
     async function* geminiStream() {
       yield {

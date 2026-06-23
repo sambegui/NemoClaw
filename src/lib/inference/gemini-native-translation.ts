@@ -175,11 +175,7 @@ export function decodeThoughtSignatureId(id: string): { callId: string; signatur
   if (markerIndex < 0) return { callId: id };
   const callId = id.slice(0, markerIndex);
   const encoded = id.slice(markerIndex + THOUGHT_SIGNATURE_MARKER.length);
-  try {
-    return { callId, signature: Buffer.from(encoded, "base64url").toString("utf8") };
-  } catch {
-    return { callId: id };
-  }
+  return { callId, signature: Buffer.from(encoded, "base64url").toString("utf8") };
 }
 
 export type GeminiToolConfig = {
@@ -291,7 +287,7 @@ export function buildGeminiContents(messages: unknown): GeminiContents {
         if (signature) part.thoughtSignature = signature;
         parts.push(part);
       }
-      contents.push({ role: "model", parts });
+      if (parts.length > 0) contents.push({ role: "model", parts });
     } else if (role === "tool" || role === "function") {
       const { callId } = decodeThoughtSignatureId(String(raw.tool_call_id || ""));
       const name =

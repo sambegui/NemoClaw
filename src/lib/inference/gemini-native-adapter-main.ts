@@ -10,8 +10,9 @@ import { createGeminiNativeAdapterServer } from "./gemini-native-adapter";
 
 const apiKey = process.env.GEMINI_API_KEY;
 const token = process.env.GEMINI_ADAPTER_TOKEN;
-const port = Number(process.env.GEMINI_ADAPTER_PORT || "8801");
-const host = process.env.GEMINI_ADAPTER_HOST || "0.0.0.0";
+const rawPort = process.env.GEMINI_ADAPTER_PORT || "8801";
+const port = Number.parseInt(rawPort, 10);
+const host = process.env.GEMINI_ADAPTER_HOST || "127.0.0.1";
 
 if (!apiKey) {
   console.error("gemini-native-adapter: GEMINI_API_KEY is required");
@@ -19,6 +20,12 @@ if (!apiKey) {
 }
 if (!token) {
   console.error("gemini-native-adapter: GEMINI_ADAPTER_TOKEN is required");
+  process.exit(1);
+}
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  console.error(
+    "gemini-native-adapter: GEMINI_ADAPTER_PORT must be an integer between 1 and 65535",
+  );
   process.exit(1);
 }
 

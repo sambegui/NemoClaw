@@ -234,6 +234,14 @@ export function createGeminiNativeAdapterServer(options: GeminiNativeAdapterOpti
 
   return http.createServer(async (req, res) => {
     const started = Date.now();
+    const abortController = new AbortController();
+    // Cancel the in-flight upstream call only on a genuine client disconnect — i.e. the response
+    // stream closed before we finished writing it. Keying off the *request* stream's "close" is
+    // wrong: it fires when the request body finishes being read (normal completion), which would
+    // abort every POST before its upstream call runs.
+    res.on("close", () => {
+      if (!res.writableEnded) abortController.abort();
+    });
     let model = "unknown";
     let operation = "unknown";
     try {
@@ -262,7 +270,7 @@ export function createGeminiNativeAdapterServer(options: GeminiNativeAdapterOpti
 
       if (req.method === "GET" && url.pathname === "/v1/models") {
         operation = "list_models";
-        const result = await callGemini.listModels({});
+        const result = await callGemini.listModels({ signal: abortController.signal });
         if (result.status >= 400) {
           relayUpstreamError(res, result);
           logAdapterEvent(logger, "request_failed", {
@@ -304,7 +312,11 @@ export function createGeminiNativeAdapterServer(options: GeminiNativeAdapterOpti
         // Establish the upstream stream BEFORE committing response headers: an upstream error
         // before any bytes (e.g. a 4xx) then surfaces as a proper error status via the catch
         // below, rather than a 200 with an SSE error event the client can't act on.
-        const chunks = await callGemini.stream({ model, body: geminiBody });
+        const chunks = await callGemini.stream({
+          model,
+          body: geminiBody,
+          signal: abortController.signal,
+        });
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
@@ -330,7 +342,11 @@ export function createGeminiNativeAdapterServer(options: GeminiNativeAdapterOpti
       }
 
       operation = "generate_content";
-      const result = await callGemini.generate({ model, body: geminiBody });
+      const result = await callGemini.generate({
+        model,
+        body: geminiBody,
+        signal: abortController.signal,
+      });
       if (result.status >= 400) {
         relayUpstreamError(res, result);
         logAdapterEvent(logger, "request_failed", {
