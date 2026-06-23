@@ -8,7 +8,13 @@ import path from "node:path";
 import { resolveOpenshell } from "../adapters/openshell/resolve";
 import { isErrnoException } from "../core/errno";
 import * as dockerDriverGatewayRuntimeMarker from "./docker-driver-gateway-runtime-marker";
-import { isLinuxDockerDriverGatewayEnabled } from "./docker-driver-platform";
+import {
+  isLinuxDockerDriverGatewayEnabled,
+  resolveGatewayRuntime,
+  type GatewayComputeRuntime,
+} from "./docker-driver-platform";
+import { getPodmanSocketCandidates } from "../platform";
+import { writePodmanGatewayConfig } from "./podman-gateway-config";
 import {
   gatewayProcessCmdlineMatches,
   OPENSHELL_GATEWAY_PROCESS_NAMES,
@@ -38,6 +44,9 @@ export interface DockerDriverGatewayRuntimeDeps {
   isOpenshellDevVersion(versionOutput: string | null | undefined): boolean;
   loadDockerDriverGatewayEnv?(): DockerDriverGatewayEnvModule;
   runCapture: RunCapture;
+  // Resolve the rootless-preferred podman socket path for the opt-in podman
+  // runtime. Defaults to the first existing platform socket candidate.
+  resolvePodmanSocket?(platform?: NodeJS.Platform): string | null;
   shouldUseOpenshellDevChannel(): boolean;
   supportedOpenshellFallbackVersion: string;
 }
@@ -48,6 +57,14 @@ export function createDockerDriverGatewayRuntimeHelpers(deps: DockerDriverGatewa
     versionOutput?: string | null,
     platform?: NodeJS.Platform,
   ): Record<string, string>;
+  resolveGatewayComputeRuntime(
+    platform?: NodeJS.Platform,
+    arch?: NodeJS.Architecture,
+  ): GatewayComputeRuntime;
+  writePodmanGatewayConfigForEnv(
+    env: Record<string, string>,
+    versionOutput?: string | null,
+  ): string | null;
   getDockerDriverGatewayPid(): number | null;
   getDockerDriverGatewayPidFile(): string;
   getDockerDriverGatewayPortListenerPid(
@@ -160,16 +177,76 @@ export function createDockerDriverGatewayRuntimeHelpers(deps: DockerDriverGatewa
     return `ghcr.io/nvidia/openshell/supervisor:${supportedVersion}`;
   }
 
+  // Resolve the supervisor image for the podman gateway.toml pin.
+  //
+  // Deliberately independent of OPENSHELL_DOCKER_SUPERVISOR_IMAGE: at 0.0.44 the
+  // gateway runs the podman compute driver in-process from gateway.toml and
+  // never execs the standalone driver-podman binary that env var feeds, so that
+  // route is dead for podman (it silently left the image at :latest and caused
+  // supervisor/gateway version skew on the bench). A pinned @sha256 digest via
+  // NEMOCLAW_GATEWAY_PODMAN_SUPERVISOR_IMAGE is preferred — digests are immune
+  // to re-pull/tag drift; absent one, fall back to the version-matched tag.
+  function resolvePodmanSupervisorImage(versionOutput: string | null = null): string {
+    const pinned = String(process.env.NEMOCLAW_GATEWAY_PODMAN_SUPERVISOR_IMAGE ?? "").trim();
+    if (pinned) return pinned;
+    if (deps.shouldUseOpenshellDevChannel() || deps.isOpenshellDevVersion(versionOutput)) {
+      return "ghcr.io/nvidia/openshell/supervisor:dev";
+    }
+    const supportedVersion =
+      deps.getInstalledOpenshellVersion(versionOutput) ??
+      deps.getBlueprintMaxOpenshellVersion() ??
+      deps.supportedOpenshellFallbackVersion;
+    return `ghcr.io/nvidia/openshell/supervisor:${supportedVersion}`;
+  }
+
+  function resolveGatewayComputeRuntime(
+    platform: NodeJS.Platform = process.platform,
+    arch: NodeJS.Architecture = process.arch,
+  ): GatewayComputeRuntime {
+    return resolveGatewayRuntime({ env: process.env, platform, arch });
+  }
+
+  function resolvePodmanSocketPath(platform: NodeJS.Platform = process.platform): string | null {
+    if (deps.resolvePodmanSocket) return deps.resolvePodmanSocket(platform);
+    return (
+      getPodmanSocketCandidates({ platform }).find((candidate) => fs.existsSync(candidate)) ?? null
+    );
+  }
+
   function getDockerDriverGatewayEnv(
     versionOutput: string | null = null,
     platform: NodeJS.Platform = process.platform,
   ): Record<string, string> {
+    const runtime = resolveGatewayComputeRuntime(platform);
     return dockerDriverGatewayEnv.buildDockerDriverGatewayEnv({
       platform,
+      runtime,
+      podmanSocketPath:
+        runtime === "podman" ? (resolvePodmanSocketPath(platform) ?? undefined) : undefined,
       stateDir: getDockerDriverGatewayStateDir(),
       dockerNetworkName: process.env.OPENSHELL_DOCKER_NETWORK_NAME || "openshell-docker",
       getDockerSupervisorImage: () => getOpenShellDockerSupervisorImage(versionOutput),
       resolveSandboxBin: resolveOpenShellSandboxBinary,
+    });
+  }
+
+  // Pin the supervisor image for the podman driver via gateway.toml. The
+  // OPENSHELL_DOCKER_SUPERVISOR_IMAGE env var does not bind the podman compute
+  // driver, so on the podman runtime the version-matched image is written to
+  // ~/.config/openshell/gateway.toml alongside compute_drivers = ["podman"].
+  // Returns the written path, or null when the env is not a podman-runtime env.
+  function writePodmanGatewayConfigForEnv(
+    env: Record<string, string>,
+    versionOutput: string | null = null,
+  ): string | null {
+    if (env.OPENSHELL_DRIVERS !== "podman") return null;
+    const podmanSocketPath = env.OPENSHELL_PODMAN_SOCKET;
+    if (typeof podmanSocketPath !== "string" || podmanSocketPath.trim() === "") return null;
+    return writePodmanGatewayConfig({
+      supervisorImage: resolvePodmanSupervisorImage(versionOutput),
+      podmanSocketPath,
+      grpcEndpoint: env.OPENSHELL_GRPC_ENDPOINT ?? "",
+      sandboxBin: resolveOpenShellSandboxBinary(),
     });
   }
 
@@ -433,6 +510,8 @@ export function createDockerDriverGatewayRuntimeHelpers(deps: DockerDriverGatewa
   return {
     clearDockerDriverGatewayRuntimeFiles,
     getDockerDriverGatewayEnv,
+    resolveGatewayComputeRuntime,
+    writePodmanGatewayConfigForEnv,
     getDockerDriverGatewayPid,
     getDockerDriverGatewayPidFile,
     getDockerDriverGatewayPortListenerPid,

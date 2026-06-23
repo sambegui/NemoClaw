@@ -18,6 +18,7 @@ import {
   startPackageManagedDockerDriverGateway,
   type PackageManagedDockerDriverGatewayOptions,
 } from "./docker-driver-gateway-service";
+import type { GatewayComputeRuntime } from "./docker-driver-platform";
 
 export { getGatewayHttpsEndpoint };
 export { startPackageManagedDockerDriverGateway };
@@ -28,6 +29,8 @@ export const DOCKER_DRIVER_GATEWAY_RUNTIME_ENV_KEYS = [
   "OPENSHELL_SERVER_PORT",
   "OPENSHELL_DISABLE_TLS",
   "OPENSHELL_DISABLE_GATEWAY_AUTH",
+  "OPENSHELL_PODMAN_SOCKET",
+  "DOCKER_HOST",
   "OPENSHELL_DB_URL",
   "OPENSHELL_GRPC_ENDPOINT",
   "OPENSHELL_SSH_GATEWAY_HOST",
@@ -41,6 +44,11 @@ export const DOCKER_DRIVER_GATEWAY_RUNTIME_ENV_KEYS = [
 
 export interface BuildDockerDriverGatewayEnvOptions {
   platform?: NodeJS.Platform;
+  // Compute runtime for the gateway. Defaults to the Docker driver; "podman"
+  // is the opt-in rootless path. Resolved upstream by resolveGatewayRuntime.
+  runtime?: GatewayComputeRuntime;
+  // Rootless-preferred podman socket path, required when runtime === "podman".
+  podmanSocketPath?: string;
   stateDir: string;
   dockerNetworkName?: string;
   getDockerSupervisorImage: () => string;
@@ -80,26 +88,61 @@ export function warnIfGatewayWildcardBindAddress(): void {
 
 export function buildDockerDriverGatewayEnv({
   platform = process.platform,
+  runtime = "docker",
+  podmanSocketPath,
   stateDir,
   dockerNetworkName = "openshell-docker",
   getDockerSupervisorImage,
   resolveSandboxBin,
 }: BuildDockerDriverGatewayEnvOptions): Record<string, string> {
-  const env: Record<string, string> = {
-    OPENSHELL_DRIVERS: "docker",
-    ...getGatewayStartNetworkEnv(),
-    OPENSHELL_DISABLE_TLS: "true",
-    OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
-    OPENSHELL_DB_URL: `sqlite:${path.join(stateDir, "openshell.db")}`,
-    OPENSHELL_GRPC_ENDPOINT: getDockerDriverGatewayEndpoint(),
-    OPENSHELL_DOCKER_NETWORK_NAME: dockerNetworkName,
-    OPENSHELL_DOCKER_SUPERVISOR_IMAGE: getDockerSupervisorImage(),
-  };
+  const env: Record<string, string> =
+    runtime === "podman"
+      ? buildPodmanDriverGatewayEnv({ podmanSocketPath, stateDir })
+      : {
+          OPENSHELL_DRIVERS: "docker",
+          ...getGatewayStartNetworkEnv(),
+          OPENSHELL_DISABLE_TLS: "true",
+          OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
+          OPENSHELL_DB_URL: `sqlite:${path.join(stateDir, "openshell.db")}`,
+          OPENSHELL_GRPC_ENDPOINT: getDockerDriverGatewayEndpoint(),
+          OPENSHELL_DOCKER_NETWORK_NAME: dockerNetworkName,
+          // Docker driver: the supervisor image binds via this env var. On the
+          // podman driver it does NOT, so the podman branch omits it and pins
+          // the image through gateway.toml instead (see podman-gateway-config).
+          OPENSHELL_DOCKER_SUPERVISOR_IMAGE: getDockerSupervisorImage(),
+        };
   if (platform === "linux") {
     const sandboxBin = resolveSandboxBin();
     if (sandboxBin) {
       env.OPENSHELL_DOCKER_SUPERVISOR_BIN = sandboxBin;
     }
+  }
+  return env;
+}
+
+// Opt-in rootless podman runtime env. Targets mTLS ON, so it deliberately
+// omits OPENSHELL_DISABLE_TLS and OPENSHELL_DISABLE_GATEWAY_AUTH (the gateway's
+// own ExecStartPre cert generation plus `gateway add --local` registration set
+// up trust). The supervisor image is pinned in gateway.toml, not here. The
+// rootless-preferred podman socket is exported as both OPENSHELL_PODMAN_SOCKET
+// and DOCKER_HOST so the podman driver and any docker-compatible client agree
+// on the same endpoint.
+function buildPodmanDriverGatewayEnv({
+  podmanSocketPath,
+  stateDir,
+}: {
+  podmanSocketPath?: string;
+  stateDir: string;
+}): Record<string, string> {
+  const env: Record<string, string> = {
+    OPENSHELL_DRIVERS: "podman",
+    ...getGatewayStartNetworkEnv(),
+    OPENSHELL_DB_URL: `sqlite:${path.join(stateDir, "openshell.db")}`,
+    OPENSHELL_GRPC_ENDPOINT: getGatewayHttpsEndpoint(),
+  };
+  if (typeof podmanSocketPath === "string" && podmanSocketPath.trim() !== "") {
+    env.OPENSHELL_PODMAN_SOCKET = podmanSocketPath;
+    env.DOCKER_HOST = `unix://${podmanSocketPath}`;
   }
   return env;
 }

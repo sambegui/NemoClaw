@@ -109,6 +109,7 @@ const {
 }: typeof import("./onboard/provider-selection-prompt") = require("./onboard/provider-selection-prompt");
 const {
   isLinuxDockerDriverGatewayEnabled,
+  resolveGatewayRegistrationEndpoint,
 }: typeof import("./onboard/docker-driver-platform") = require("./onboard/docker-driver-platform");
 const {
   reconcileGatewayGpuReuseForGpuIntent,
@@ -614,6 +615,8 @@ const GATEWAY_NAME = gatewayBinding.resolveGatewayName(GATEWAY_PORT);
 const {
   clearDockerDriverGatewayRuntimeFiles,
   getDockerDriverGatewayEnv,
+  resolveGatewayComputeRuntime,
+  writePodmanGatewayConfigForEnv,
   getDockerDriverGatewayPid,
   getDockerDriverGatewayPortListenerPid,
   getDockerDriverGatewayRuntimeDrift,
@@ -720,7 +723,15 @@ const {
     OPENSHELL_BIN = binary;
   },
   getGatewayPort: () => GATEWAY_PORT,
-  getDockerDriverGatewayEndpoint,
+  // The `gateway add --local` registration endpoint follows the runtime's TLS
+  // posture: the Docker default keeps the historical http endpoint, while the
+  // opt-in podman runtime registers the mTLS-on https endpoint.
+  getDockerDriverGatewayEndpoint: () =>
+    resolveGatewayRegistrationEndpoint({
+      runtime: resolveGatewayComputeRuntime(),
+      httpsEndpoint: dockerDriverGatewayEnv.getGatewayHttpsEndpoint(),
+      httpEndpoint: getDockerDriverGatewayEndpoint(),
+    }),
 });
 
 // Gateway state functions — delegated to src/lib/state/gateway.ts
@@ -2168,6 +2179,17 @@ async function startDockerDriverGateway({
     ignoreError: true,
   });
   const gatewayEnv = getDockerDriverGatewayEnv(openshellVersionOutput);
+  // Opt-in podman runtime: pin the supervisor image and select the podman
+  // compute driver through ~/.config/openshell/gateway.toml. The package
+  // gateway.service reads it; the env var alone does not bind the podman
+  // driver. A no-op (returns null) for the Docker default path.
+  const podmanGatewayConfigPath = writePodmanGatewayConfigForEnv(
+    gatewayEnv,
+    openshellVersionOutput,
+  );
+  if (podmanGatewayConfigPath) {
+    console.log(`  ✓ Wrote OpenShell podman gateway config: ${podmanGatewayConfigPath}`);
+  }
   const stateDir = getDockerDriverGatewayStateDir();
   const runtimeIdentity = gatewayBin
     ? dockerDriverGatewayLaunch.buildDockerDriverGatewayRuntimeIdentity({

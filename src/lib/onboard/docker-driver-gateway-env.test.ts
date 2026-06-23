@@ -219,3 +219,86 @@ describe("writeDockerGatewayDebEnvOverride", () => {
     }
   });
 });
+
+describe("buildDockerDriverGatewayEnv (opt-in podman runtime)", () => {
+  // Podman is opt-in. When selected, the gateway runs the podman compute
+  // driver against a rootless-preferred socket with mTLS ON: the env must set
+  // OPENSHELL_DRIVERS=podman, point DOCKER_HOST / OPENSHELL_PODMAN_SOCKET at the
+  // resolved socket, and must NOT disable TLS or gateway auth. The supervisor
+  // image pin is carried by gateway.toml (the OPENSHELL_DOCKER_SUPERVISOR_IMAGE
+  // env var does not bind the podman driver), so it is omitted here.
+  it("emits the podman driver, socket env, and mTLS-on shape", () => {
+    const env = buildDockerDriverGatewayEnv({
+      platform: "linux",
+      runtime: "podman",
+      stateDir: "/tmp/nemoclaw-gateway",
+      podmanSocketPath: "/run/user/1000/podman/podman.sock",
+      getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.44",
+      resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+    });
+
+    expect(env).toMatchObject({
+      OPENSHELL_DRIVERS: "podman",
+      OPENSHELL_BIND_ADDRESS: "127.0.0.1",
+      OPENSHELL_SERVER_PORT: "8080",
+      OPENSHELL_PODMAN_SOCKET: "/run/user/1000/podman/podman.sock",
+      DOCKER_HOST: "unix:///run/user/1000/podman/podman.sock",
+      OPENSHELL_DOCKER_SUPERVISOR_BIN: "/usr/bin/openshell-sandbox",
+    });
+    expect(env.OPENSHELL_DISABLE_TLS).toBeUndefined();
+    expect(env.OPENSHELL_DISABLE_GATEWAY_AUTH).toBeUndefined();
+    expect(env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE).toBeUndefined();
+  });
+
+  // Regression: the Docker default path is unchanged. Without an explicit
+  // podman runtime, the env is byte-for-byte the historical Docker shape —
+  // OPENSHELL_DRIVERS=docker, TLS/auth disabled, no podman socket keys.
+  it("leaves the docker default shape unchanged when no runtime is given", () => {
+    const env = buildDockerDriverGatewayEnv({
+      platform: "linux",
+      stateDir: "/tmp/nemoclaw-gateway",
+      getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.44",
+      resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+    });
+
+    expect(env).toMatchObject({
+      OPENSHELL_DRIVERS: "docker",
+      OPENSHELL_DISABLE_TLS: "true",
+      OPENSHELL_DISABLE_GATEWAY_AUTH: "true",
+      OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "ghcr.io/nvidia/openshell/supervisor:0.0.44",
+    });
+    expect(env.OPENSHELL_PODMAN_SOCKET).toBeUndefined();
+    expect(env.DOCKER_HOST).toBeUndefined();
+  });
+
+  it("treats an explicit docker runtime exactly like the default", () => {
+    const explicit = buildDockerDriverGatewayEnv({
+      platform: "linux",
+      runtime: "docker",
+      stateDir: "/tmp/nemoclaw-gateway",
+      getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.44",
+      resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+    });
+    const defaulted = buildDockerDriverGatewayEnv({
+      platform: "linux",
+      stateDir: "/tmp/nemoclaw-gateway",
+      getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.44",
+      resolveSandboxBin: () => "/usr/bin/openshell-sandbox",
+    });
+
+    expect(explicit).toEqual(defaulted);
+  });
+
+  it("preserves podman socket keys through the env-file round trip", () => {
+    const next = buildDockerGatewayDebEnvFile("KEEP_ME=1", {
+      OPENSHELL_DRIVERS: "podman",
+      OPENSHELL_PODMAN_SOCKET: "/run/user/1000/podman/podman.sock",
+      DOCKER_HOST: "unix:///run/user/1000/podman/podman.sock",
+    });
+
+    expect(next).toContain("KEEP_ME=1\n");
+    expect(next).toContain("OPENSHELL_DRIVERS=podman\n");
+    expect(next).toContain("OPENSHELL_PODMAN_SOCKET=/run/user/1000/podman/podman.sock\n");
+    expect(next).toContain("DOCKER_HOST=unix:///run/user/1000/podman/podman.sock\n");
+  });
+});

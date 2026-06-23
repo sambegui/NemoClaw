@@ -309,4 +309,179 @@ describe("docker-driver gateway runtime helpers", () => {
       ignoreError: true,
     });
   });
+
+  it("resolves the podman runtime, socket, and mTLS env when opted in", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    try {
+      withEnv(
+        {
+          NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir,
+          NEMOCLAW_GATEWAY_RUNTIME: "podman",
+          NEMOCLAW_OPENSHELL_SANDBOX_BIN: "/usr/bin/openshell-sandbox",
+        },
+        () => {
+          const { helpers } = makeHelpers({
+            resolvePodmanSocket: () => "/run/user/1000/podman/podman.sock",
+          });
+
+          expect(helpers.resolveGatewayComputeRuntime("linux", "x64")).toBe("podman");
+          const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+          expect(env.OPENSHELL_DRIVERS).toBe("podman");
+          expect(env.OPENSHELL_GRPC_ENDPOINT).toBe("https://127.0.0.1:8080");
+          expect(env.OPENSHELL_PODMAN_SOCKET).toBe("/run/user/1000/podman/podman.sock");
+          expect(env.DOCKER_HOST).toBe("unix:///run/user/1000/podman/podman.sock");
+          expect(env.OPENSHELL_DISABLE_TLS).toBeUndefined();
+          expect(env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE).toBeUndefined();
+        },
+      );
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the docker runtime and its env shape when not opted in", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    try {
+      withEnv({ NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir }, () => {
+        const { helpers } = makeHelpers({
+          supportedOpenshellFallbackVersion: "0.0.99",
+        });
+
+        expect(helpers.resolveGatewayComputeRuntime("linux", "x64")).toBe("docker");
+        const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+        expect(env.OPENSHELL_DRIVERS).toBe("docker");
+        expect(env.OPENSHELL_DISABLE_TLS).toBe("true");
+        expect(env.OPENSHELL_DOCKER_SUPERVISOR_IMAGE).toBe(
+          "ghcr.io/nvidia/openshell/supervisor:0.0.99",
+        );
+        expect(env.OPENSHELL_PODMAN_SOCKET).toBeUndefined();
+      });
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes the podman gateway.toml with the version-matched supervisor image", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-home-"));
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    try {
+      withEnv(
+        {
+          NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir,
+          NEMOCLAW_GATEWAY_RUNTIME: "podman",
+          NEMOCLAW_OPENSHELL_SANDBOX_BIN: "/usr/bin/openshell-sandbox",
+        },
+        () => {
+          const { helpers } = makeHelpers({
+            supportedOpenshellFallbackVersion: "0.0.99",
+            resolvePodmanSocket: () => "/run/user/1000/podman/podman.sock",
+          });
+          const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+
+          const written = helpers.writePodmanGatewayConfigForEnv(env);
+          expect(written).toBe(path.join(tempHome, ".config", "openshell", "gateway.toml"));
+          const toml = fs.readFileSync(written as string, "utf-8");
+          expect(toml).toContain('compute_drivers = ["podman"]');
+          expect(toml).toContain('supervisor_image = "ghcr.io/nvidia/openshell/supervisor:0.0.99"');
+          expect(toml).toContain('socket = "/run/user/1000/podman/podman.sock"');
+          expect(toml).toContain('grpc_endpoint = "https://127.0.0.1:8080"');
+        },
+      );
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("does not write a podman gateway.toml for the docker runtime", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-home-"));
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    try {
+      withEnv({ NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir }, () => {
+        const { helpers } = makeHelpers();
+        const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+
+        expect(helpers.writePodmanGatewayConfigForEnv(env)).toBeNull();
+        expect(fs.existsSync(path.join(tempHome, ".config", "openshell", "gateway.toml"))).toBe(
+          false,
+        );
+      });
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("pins the podman supervisor image to an explicit @sha256 digest, ignoring the dead docker env var", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-home-"));
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    const digestImage = "ghcr.io/nvidia/openshell/supervisor@sha256:" + "a".repeat(64);
+    try {
+      withEnv(
+        {
+          NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir,
+          NEMOCLAW_GATEWAY_RUNTIME: "podman",
+          NEMOCLAW_OPENSHELL_SANDBOX_BIN: "/usr/bin/openshell-sandbox",
+          NEMOCLAW_GATEWAY_PODMAN_SUPERVISOR_IMAGE: digestImage,
+          // The Docker-driver env var must NOT influence the podman pin: at
+          // 0.0.44 the podman driver runs in-process from gateway.toml and never
+          // execs the standalone driver-podman binary that reads it.
+          OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "ghcr.io/nvidia/openshell/supervisor:latest",
+        },
+        () => {
+          const { helpers } = makeHelpers({
+            supportedOpenshellFallbackVersion: "0.0.99",
+            resolvePodmanSocket: () => "/run/user/1000/podman/podman.sock",
+          });
+          const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+          const written = helpers.writePodmanGatewayConfigForEnv(env);
+          const toml = fs.readFileSync(written as string, "utf-8");
+
+          expect(toml).toContain(`supervisor_image = "${digestImage}"`);
+          expect(toml).not.toContain(":latest");
+        },
+      );
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the version-matched supervisor tag when no podman digest is supplied", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-runtime-"));
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-gateway-home-"));
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    try {
+      withEnv(
+        {
+          NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR: stateDir,
+          NEMOCLAW_GATEWAY_RUNTIME: "podman",
+          NEMOCLAW_OPENSHELL_SANDBOX_BIN: "/usr/bin/openshell-sandbox",
+          OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "ghcr.io/nvidia/openshell/supervisor:latest",
+        },
+        () => {
+          const { helpers } = makeHelpers({
+            supportedOpenshellFallbackVersion: "0.0.99",
+            resolvePodmanSocket: () => "/run/user/1000/podman/podman.sock",
+          });
+          const env = helpers.getDockerDriverGatewayEnv(null, "linux");
+          const written = helpers.writePodmanGatewayConfigForEnv(env);
+          const toml = fs.readFileSync(written as string, "utf-8");
+
+          expect(toml).toContain('supervisor_image = "ghcr.io/nvidia/openshell/supervisor:0.0.99"');
+          expect(toml).not.toContain(":latest");
+        },
+      );
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
 });
